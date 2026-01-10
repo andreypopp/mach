@@ -247,7 +247,16 @@ let configure_backend ~build_backend state =
     let ml = Filename.(m.build_dir / m.module_name ^ ".ml") in
     let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
     let preprocess_deps = m.ml_path :: Option.to_list m.mli_path in
-    B.rulef b ~target:ml ~deps:preprocess_deps "mach preprocess %s -o %s" m.ml_path m.build_dir;
+    let cmd =
+      match Sys.backend_type with
+      | Sys.Native -> Sys.executable_name
+      | Sys.Bytecode ->
+        let script = resolve_path ~relative_to:Filename.(Sys.getcwd () / "x") Sys.argv.(0) in
+        Printf.sprintf "%s -I +unix unix.cma %s"
+          (Filename.quote Sys.executable_name) (Filename.quote script)
+      | Sys.Other _ -> failwith "mach must be run as a native/bytecode executable"
+    in
+    B.rulef b ~target:ml ~deps:preprocess_deps "%s preprocess %s -o %s" cmd m.ml_path m.build_dir;
     if Option.is_some m.mli_path then B.rule b ~target:mli ~deps:[ml] [];
     let args = Filename.(m.build_dir / "includes.args") in
     let recipe =

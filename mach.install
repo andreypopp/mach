@@ -1,0 +1,5 @@
+bin: [ "_dist/mach" ]
+share_root: [ 
+  "_dist/bash-completion/completions/mach" { "bash-completion/completions/mach" }
+  "_dist/zsh/site-functions/_mach" { "zsh/site-functions/_mach" }
+]

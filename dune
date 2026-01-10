@@ -1,1 +1,8 @@
-(dirs :standard \ test)
+(dirs :standard _opam _bin _dist \ test)
+
+(subdir
+ _opam
+ (dirs lib)
+ (subdir
+  lib
+  (dirs cmdliner)))

@@ -1,1 +1,4 @@
-(cram (deps (package mach) ./env.sh))
+(cram
+ (deps
+  (package mach)
+  ./env.sh))

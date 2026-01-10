@@ -25,7 +25,7 @@ chmod +x script.ml
 ```
 
 On first execution, `mach` will build the script and its dependencies, caching
-the build artifacts in the `~/.cache/mach` directory. Subsequent executions
+the build artifacts in the `~/.config/mach/build/` directory. Subsequent executions
 will reuse the cached artifacts unless the source files have changed.
 
 ## `mach build SCRIPT`
@@ -36,12 +36,12 @@ execute it.
 ## `mach build --watch SCRIPT`
 
 If the `--watch` flag is provided, `mach build` watches the source files and
-rebuilds them for changes. Requires `watchexec` program to be available.
+rebuilds on changes. Requires `watchexec` program to be available.
 
 ## `mach-lsp`
 
 `mach-lsp` starts a language server for OCaml that works with `mach` scripts
-and libraries. Requires `ocamllsp` program must be available.
+and libraries. The `ocamllsp` program must be available.
 
 ## TODO: Libraries
 

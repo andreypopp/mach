@@ -3,30 +3,13 @@ synopsis: "A build system for scripting with OCaml"
 description: "A build system for scripting with OCaml"
 maintainer: ["Andrey Popp <me@andreypopp.com>"]
 authors: ["Andrey Popp <me@andreypopp.com>"]
-license: "LICENSE"
+license: "MIT"
 tags: ["build-system" "scripting"]
 homepage: "https://github.com/andreypopp/mach"
 doc: "https://github.com/andreypopp/mach"
 bug-reports: "https://github.com/andreypopp/mach/issues"
-depends: [
-  "dune" {>= "3.20"}
-  "ocaml"
-  "cmdliner"
-  "odoc" {with-doc}
-]
-build: [
-  ["dune" "subst"] {dev}
-  [
-    "dune"
-    "build"
-    "-p"
-    name
-    "-j"
-    jobs
-    "@install"
-    "@runtest" {with-test}
-    "@doc" {with-doc}
-  ]
-]
+depends: [ "ocaml" ]
+build: [ ["ocamlopt.opt" "-I" "+unix" "unix.cmxa" "_dist/mach.ml" "-o" "_dist/mach" ] ]
+install: [ ["opam-installer" "--prefix" prefix "mach.install"] ]
 dev-repo: "git+https://github.com/andreypopp/mach.git"
 x-maintenance-intent: ["(latest)"]

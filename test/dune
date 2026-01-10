@@ -1,1 +1,5 @@
-(cram (timeout 10) (deps (package mach) (file ../env.sh)))
+(cram
+ (timeout 30)
+ (deps
+  (package mach)
+  (file ../env.sh)))

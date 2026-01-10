@@ -1,4 +1,4 @@
-#!/usr/bin/env mach run
+#!/usr/bin/env mach run --
 
 #require "./lib.ml"
 

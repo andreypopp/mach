@@ -3,7 +3,7 @@ synopsis: "An LSP support for mach"
 description: "An LSP support for mach"
 maintainer: ["Andrey Popp <me@andreypopp.com>"]
 authors: ["Andrey Popp <me@andreypopp.com>"]
-license: "LICENSE"
+license: "MIT"
 tags: ["build-system" "lsp" "editor-integration"]
 homepage: "https://github.com/andreypopp/mach"
 doc: "https://github.com/andreypopp/mach"

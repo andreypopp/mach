@@ -1,0 +1,43 @@
+(rule
+ (target mach)
+ (deps mach.ml)
+ (action
+  (run ocamlopt.opt -I +unix unix.cmxa mach.ml -o mach)))
+
+(rule
+ (target mach.ml)
+ (deps
+  ../_bin/ocamlbundle
+  Makefile
+  (source_tree ../lib)
+  (source_tree ../bin)
+  (source_tree ../_opam/lib/cmdliner))
+ (mode promote)
+ (action
+  (run make mach.ml)))
+
+(subdir
+ zsh
+ (subdir
+  site-functions
+  (rule
+   (target _mach)
+   (mode promote)
+   (action
+    (with-stdout-to
+     %{target}
+     (progn
+      (run cmdliner tool-completion --standalone-completion zsh mach)))))))
+
+(subdir
+ bash-completion
+ (subdir
+  completions
+  (rule
+   (target mach)
+   (mode promote)
+   (action
+    (with-stdout-to
+     %{target}
+     (progn
+      (run cmdliner tool-completion --standalone-completion bash mach)))))))
