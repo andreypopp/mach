@@ -1,0 +1,48 @@
+Test auto-derived build directory (uses script path to derive build dir location):
+
+  $ cat << 'EOF' > lib.ml
+  > let greet name = Printf.printf "Hello, %s!\n" name
+  > EOF
+
+  $ cat << 'EOF' > main.ml
+  > #require "./lib.ml"
+  > let () = Lib.greet "World"
+  > EOF
+
+Set XDG_CONFIG_HOME to control where build directory is created:
+
+  $ source ../env.sh
+
+First run - creates build directory:
+
+  $ mach run ./main.ml
+  Hello, World!
+
+Check that build directory was created (path contains normalized script path with __):
+
+  $ ls mach/build/*main.ml/ | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
+  Mach.state
+  a.out
+  all_objects.args
+  includes.args
+  main.cmi
+  main.cmo
+  main.cmt
+  main.ml
+
+Second run - reuses the same build directory:
+
+  $ mach run ./main.ml
+  Hello, World!
+
+Verify build artifacts exist in the auto-derived directory:
+
+  $ ls mach/build/*main.ml/ | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
+  Mach.state
+  a.out
+  all_objects.args
+  includes.args
+  main.cmi
+  main.cmo
+  main.cmt
+  main.ml

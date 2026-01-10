@@ -1,0 +1,11 @@
+(executable
+ (public_name mach)
+ (package mach)
+ (name mach)
+ (libraries mach_lib cmdliner unix))
+
+(executable
+ (public_name mach-lsp)
+ (package mach-lsp)
+ (name mach_lsp)
+ (libraries mach_lib cmdliner unix csexp merlin-lib.dot_protocol))

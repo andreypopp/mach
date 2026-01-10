@@ -1,0 +1,37 @@
+(* ninja.ml - Ninja build backend *)
+
+open Printf
+
+type t = Buffer.t
+
+let create () =
+  let buf = Buffer.create 1024 in
+  bprintf buf "rule cmd\n  command = $cmd\n\n";
+  buf
+
+let contents = Buffer.contents
+
+let include_ buf path = bprintf buf "subninja %s\n" path
+
+let rule buf ~target ~deps recipe =
+  bprintf buf "build %s:" target;
+  (match recipe with
+  | [] ->
+    bprintf buf " phony";
+    List.iter (bprintf buf " %s") deps;
+    Buffer.add_char buf '\n'
+  | _ ->
+    bprintf buf " cmd";
+    List.iter (bprintf buf " %s") deps;
+    Buffer.add_char buf '\n';
+    bprintf buf "  cmd = %s\n" (String.concat " && " recipe));
+  Buffer.add_char buf '\n'
+
+let rulef buf ~target ~deps fmt =
+  ksprintf (fun recipe -> rule buf ~target ~deps [recipe]) fmt
+
+let rule_phony buf ~target ~deps =
+  bprintf buf "build %s: phony" target;
+  List.iter (bprintf buf " %s") deps;
+  Buffer.add_char buf '\n';
+  Buffer.add_char buf '\n'
