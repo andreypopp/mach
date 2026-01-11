@@ -223,24 +223,7 @@ end
 
 type build_backend = Make | Ninja
 
-(* --- Preprocess --- *)
-
-let preprocess build_dir src_ml =
-  let src_ml = Unix.realpath src_ml in
-  let module_name = module_name_of_path src_ml in
-  let build_ml = Filename.(build_dir / module_name ^ ".ml") in
-  Out_channel.with_open_text build_ml (fun oc ->
-    In_channel.with_open_text src_ml (fun ic ->
-      preprocess_source ~source_path:src_ml oc ic));
-  Option.iter (fun src_mli ->
-    let build_mli = Filename.(build_dir / module_name ^ ".mli") in
-    Out_channel.with_open_text build_mli (fun oc ->
-      fprintf oc "# 1 %S\n" src_mli;
-      let content = In_channel.with_open_text src_mli In_channel.input_all in
-      output_string oc content)
-  ) (mli_path_of_ml_if_exists src_ml)
-
-(* --- PP (for merlin) --- *)
+(* --- PP (for merlin and build) --- *)
 
 let pp source_path =
   In_channel.with_open_text source_path (fun ic ->
@@ -269,7 +252,6 @@ let configure_backend ~build_backend state =
   let configure_ocaml_module b (m : ocaml_module) =
     let ml = Filename.(m.build_dir / m.module_name ^ ".ml") in
     let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
-    let preprocess_deps = m.ml_path :: Option.to_list m.mli_path in
     let cmd =
       match Sys.backend_type with
       | Sys.Native -> Sys.executable_name
@@ -282,8 +264,10 @@ let configure_backend ~build_backend state =
           (Filename.quote Sys.executable_name) (Filename.quote (Unix.realpath script))
       | Sys.Other _ -> user_error "mach must be run as a native/bytecode executable"
     in
-    B.rulef b ~target:ml ~deps:preprocess_deps "%s preprocess %s -o %s" cmd m.ml_path m.build_dir;
-    if Option.is_some m.mli_path then B.rule b ~target:mli ~deps:[ml] [];
+    B.rulef b ~target:ml ~deps:[m.ml_path] "%s pp %s > %s" cmd m.ml_path ml;
+    Option.iter (fun mli_path ->
+      B.rulef b ~target:mli ~deps:[mli_path] "%s pp %s > %s" cmd mli_path mli
+    ) m.mli_path;
     let args = Filename.(m.build_dir / "includes.args") in
     let recipe =
       match m.resolved_requires with

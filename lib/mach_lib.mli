@@ -30,8 +30,6 @@ module Mach_state : sig
   val source_dirs : t -> string list (** list of source dirs *)
 end
 
-val preprocess : string -> string -> unit
-
 val pp : string -> unit
 
 val configure : ?build_backend:build_backend -> string -> ((state:Mach_state.t * reconfigured:bool), error) result

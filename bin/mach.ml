@@ -55,17 +55,8 @@ let build_cmd =
   in
   Cmd.v info Term.(const f $ build_backend_arg $ verbose_arg $ watch_arg $ script_arg)
 
-let output_dir_arg =
-  Arg.(required & opt (some string) None & info ["o"; "output"] ~docv:"DIR"
-    ~doc:"Output directory for generated files. If not specified, uses default build directory.")
-
 let source_arg =
   Arg.(required & pos 0 (some non_dir_file) None & info [] ~docv:"SOURCE" ~doc:"OCaml source file to configure")
-
-let preprocess_cmd =
-  let doc = "Preprocess a module and generate build files" in
-  let info = Cmd.info "preprocess" ~doc in
-  Cmd.v info Term.(const preprocess $ output_dir_arg $ source_arg)
 
 let configure_cmd =
   let doc = "Generate build files for all modules in dependency graph" in
@@ -82,6 +73,6 @@ let cmd =
   let doc = "Run OCaml scripts with automatic dependency resolution" in
   let info = Cmd.info "mach" ~doc in
   let default = Term.(ret (const (`Help (`Pager, None)))) in
-  Cmd.group ~default info [run_cmd; build_cmd; preprocess_cmd; configure_cmd; pp_cmd]
+  Cmd.group ~default info [run_cmd; build_cmd; configure_cmd; pp_cmd]
 
 let () = exit (Cmdliner.Cmd.eval cmd)
