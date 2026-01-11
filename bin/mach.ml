@@ -25,7 +25,7 @@ let build_backend_arg =
   Arg.(value & opt (enum ["make", Make; "ninja", Ninja]) Make & info ["build-backend"] ~env ~doc)
 
 let script_arg =
-  Arg.(required & pos 0 (some string) None & info [] ~docv:"SCRIPT" ~doc:"OCaml script to run")
+  Arg.(required & pos 0 (some non_dir_file) None & info [] ~docv:"SCRIPT" ~doc:"OCaml script to run")
 
 let args_arg =
   Arg.(value & pos_right 0 string [] & info [] ~docv:"ARGS" ~doc:"Arguments to pass to the script")
@@ -56,7 +56,7 @@ let output_dir_arg =
     ~doc:"Output directory for generated files. If not specified, uses default build directory.")
 
 let source_arg =
-  Arg.(required & pos 0 (some string) None & info [] ~docv:"SOURCE" ~doc:"OCaml source file to configure")
+  Arg.(required & pos 0 (some non_dir_file) None & info [] ~docv:"SOURCE" ~doc:"OCaml source file to configure")
 
 let preprocess_cmd =
   let doc = "Preprocess a module and generate build files" in
