@@ -78,10 +78,35 @@ let pp_cmd =
   let info = Cmd.info "pp" ~doc in
   Cmd.v info Term.(const pp $ source_arg)
 
+let lsp_args_arg =
+  Arg.(value & pos_all string [] & info [] ~docv:"ARGS" ~doc:"Arguments to pass to mach-lsp")
+
+let lsp_cmd =
+  let doc = "Start OCaml LSP server with mach support (requires mach-lsp)" in
+  let info = Cmd.info "lsp" ~doc in
+  let f args =
+    let paths = String.split_on_char ':' (Sys.getenv_opt "PATH" |> Option.value ~default:"") in
+    let rec find_mach_lsp = function
+      | [] -> None
+      | dir :: rest ->
+        let path = Filename.concat dir "mach-lsp" in
+        if Sys.file_exists path then Some path else find_mach_lsp rest
+    in
+    match find_mach_lsp paths with
+    | Some mach_lsp_path ->
+      let argv = Array.of_list (mach_lsp_path :: args) in
+      Unix.execv mach_lsp_path argv
+    | None ->
+      Printf.eprintf "mach-lsp not found in PATH.\n";
+      Printf.eprintf "Install it with: opam install mach-lsp\n";
+      exit 1
+  in
+  Cmd.v info Term.(const f $ lsp_args_arg)
+
 let cmd =
   let doc = "Run OCaml scripts with automatic dependency resolution" in
   let info = Cmd.info "mach" ~doc in
   let default = Term.(ret (const (`Help (`Pager, None)))) in
-  Cmd.group ~default info [run_cmd; build_cmd; preprocess_cmd; configure_cmd; pp_cmd]
+  Cmd.group ~default info [run_cmd; build_cmd; preprocess_cmd; configure_cmd; pp_cmd; lsp_cmd]
 
 let () = exit (Cmdliner.Cmd.eval cmd)
