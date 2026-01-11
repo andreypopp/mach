@@ -1,6 +1,6 @@
 Test mach pp command (preprocessor for merlin)
 
-  $ source ../env.sh
+  $ . ../env.sh
 
 Create a test file with shebang and #require directives:
 

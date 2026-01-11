@@ -1,6 +1,6 @@
 Test basic .mli interface file support.
 
-  $ source ../env.sh
+  $ . ../env.sh
 
   $ cat << 'EOF' > lib.ml
   > let msg = "hello"

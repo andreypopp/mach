@@ -1,6 +1,6 @@
 Test type hiding via .mli (abstract types).
 
-  $ source ../env.sh
+  $ . ../env.sh
 
   $ cat << 'EOF' > counter.ml
   > type t = int

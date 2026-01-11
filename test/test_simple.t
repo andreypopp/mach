@@ -1,5 +1,5 @@
 Isolate mach config to a test dir:
-  $ source ../env.sh
+  $ . ../env.sh
 
 Prepare source files:
   $ cat << 'EOF' > lib.ml
@@ -19,9 +19,10 @@ Inspect the build dir:
   $ ls mach/build/*__lib.ml | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
   includes.args
   lib.cmi
-  lib.cmo
   lib.cmt
+  lib.cmx
   lib.ml
+  lib.o
 
   $ ls mach/build/*__main.ml | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
   Mach.state
@@ -29,6 +30,7 @@ Inspect the build dir:
   all_objects.args
   includes.args
   main.cmi
-  main.cmo
   main.cmt
+  main.cmx
   main.ml
+  main.o

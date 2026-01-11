@@ -1,4 +1,4 @@
-  $ source ../env.sh
+  $ . ../env.sh
 
   $ cat << 'EOF' > lib.ml
   > let greet name = Printf.printf "Hello, %s!\n" name

@@ -1,4 +1,4 @@
-  $ source ../env.sh
+  $ . ../env.sh
 
 Prepare source files:
   $ cat << 'EOF' > hello.ml

@@ -1,6 +1,6 @@
 Test adding .mli to existing module.
 
-  $ source ../env.sh
+  $ . ../env.sh
 
 Start without .mli:
 

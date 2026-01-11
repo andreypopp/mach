@@ -1,4 +1,4 @@
-  $ source ../env.sh
+  $ . ../env.sh
 
   $ cat << 'EOF' > myscript.ml
   > #!/usr/bin/env mach
@@ -14,6 +14,7 @@
   all_objects.args
   includes.args
   myscript.cmi
-  myscript.cmo
   myscript.cmt
+  myscript.cmx
   myscript.ml
+  myscript.o
