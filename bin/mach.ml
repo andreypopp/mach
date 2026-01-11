@@ -2,9 +2,15 @@
 
 open Mach_lib
 
+let or_exit = function
+  | Ok v -> v
+  | Error (`User_error msg) ->
+    Printf.eprintf "mach: %s\n%!" msg;
+    exit 1
+
 let run build_backend verbose script_path args =
   Mach_lib.verbose := verbose;
-  let ~state, ~reconfigured:_ = build ~build_backend script_path in
+  let ~state, ~reconfigured:_ = build ~build_backend script_path |> or_exit in
   let exe_path = Mach_state.exe_path state in
   let argv = Array.of_list (exe_path :: args) in
   Unix.execv exe_path argv
@@ -44,10 +50,8 @@ let build_cmd =
   let info = Cmd.info "build" ~doc in
   let f build_backend verbose watch script_path =
     Mach_lib.verbose := verbose;
-    if watch then
-      Mach_lib.watch ~build_backend script_path
-    else
-      ignore (build ~build_backend script_path : state:Mach_state.t * reconfigured:bool)
+    if watch then Mach_lib.watch ~build_backend script_path |> or_exit
+    else build ~build_backend script_path |> or_exit |> ignore
   in
   Cmd.v info Term.(const f $ build_backend_arg $ verbose_arg $ watch_arg $ script_arg)
 
@@ -66,7 +70,7 @@ let preprocess_cmd =
 let configure_cmd =
   let doc = "Generate build files for all modules in dependency graph" in
   let info = Cmd.info "configure" ~doc in
-  let f build_backend path = ignore (configure ~build_backend path : (state:Mach_state.t * reconfigured:bool)) in
+  let f build_backend path = configure ~build_backend path |> or_exit |> ignore in
   Cmd.v info Term.(const f $ build_backend_arg $ source_arg)
 
 let pp_cmd =

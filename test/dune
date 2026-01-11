@@ -2,4 +2,5 @@
  (timeout 30)
  (deps
   (package mach)
+  (package mach-lsp)
   (file ../env.sh)))

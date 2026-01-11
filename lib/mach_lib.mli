@@ -1,3 +1,5 @@
+type error = [`User_error of string]
+
 type verbose = Quiet | Verbose | Very_verbose | Very_very_verbose
 
 val verbose : verbose ref
@@ -20,7 +22,8 @@ module Mach_state : sig
   type t = { root : entry; entries : entry list }
 
   val read : string -> t option
-  val collect : string -> t
+
+  val collect : string -> (t, error) result
 
   val exe_path : t -> string (** exe_path *)
 
@@ -31,8 +34,8 @@ val preprocess : string -> string -> unit
 
 val pp : string -> unit
 
-val configure : ?build_backend:build_backend -> string -> state:Mach_state.t * reconfigured:bool
+val configure : ?build_backend:build_backend -> string -> ((state:Mach_state.t * reconfigured:bool), error) result
 
-val build : ?build_backend:build_backend -> string -> state:Mach_state.t * reconfigured:bool
+val build : ?build_backend:build_backend -> string -> ((state:Mach_state.t * reconfigured:bool), error) result
 
-val watch : ?build_backend:build_backend -> string -> unit
+val watch : ?build_backend:build_backend -> string -> (unit, error) result

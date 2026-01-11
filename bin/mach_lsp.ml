@@ -15,9 +15,15 @@ module Merlin_server = struct
       let state_path = Filename.concat build_dir "Mach.state" in
       let state =
         match Mach_state.read state_path with
-        | Some st -> st
-        | None -> Mach_state.collect path
+        | Some st -> Ok st
+        | None ->
+          match Mach_state.collect path with
+          | Ok st -> Ok st
+          | Error (`User_error msg) -> Error msg
       in
+      match state with
+      | Error msg -> [`ERROR_MSG msg]
+      | Ok state ->
       let directives = [] in
       let directives =
         List.fold_left
@@ -64,7 +70,9 @@ let start_lsp () =
   let ocamllsp_path =
     let paths = String.split_on_char ':' (Sys.getenv_opt "PATH" |> Option.value ~default:"") in
     let rec find = function
-      | [] -> failwith "ocamllsp not found in PATH"
+      | [] ->
+        eprintf "mach-lsp: ocamllsp not found in PATH\n%!";
+        exit 1
       | dir :: rest ->
         let path = Filename.concat dir "ocamllsp" in
         if Sys.file_exists path then path else find rest
