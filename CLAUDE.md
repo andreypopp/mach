@@ -21,6 +21,13 @@ Working MVP with:
 - Directory modules (`#require "./dir"`)
 - Remote requires (`#require "https://..."`)
 
+## Project Initialization
+
+```bash
+make init
+```
+will install dependencies and set up the dune project.
+
 ## Build & Test
 
 ```bash
