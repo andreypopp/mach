@@ -1,5 +1,34 @@
 # TODO
 
+## Implement depdending on ocamlfind libraries
+
+We want to support depending on ocamlfind libraries.
+
+If user writes
+
+    #require "lwt";;
+
+where the string is not a path (i.e. it doesn't start with `/` or `./` or
+`../`), we treat it as an ocamlfind library.
+
+We collect all such requires.
+
+Then we produce `lib-includes.args` file in build dir using command:
+
+    ocamlfind query -i-format -recursive LIB1 LIB2 ...
+
+Then when compiling we pass `-args lib-includes.args` to `ocamlc`.
+
+Same for linking, we produce `lib-objects.args` file using:
+
+    ocamlfind query -a-format -recursive -predicates native LIB1 LIB2 ...
+
+Then when linking we pass `-args lib-objects.args` to `ocamlopt`.
+
+Add test which uses `cmdliner` package.
+
+## Implement ppx support
+
 ## Optimise reconfiguration: .mli addition/removal should reconfigure a single module only
 
 ## Optimise reconfiguration: do not reconfigure unaffected modules
@@ -9,10 +38,6 @@
 ## Support passing -H hidden includes args when compiling
 
 ## Implement libraries (see README.md)
-
-## Implement depdending on ocamlfind libraries (see README.md)
-
-## Implement ppx support (see README.md)
 
 ## [DONE] Switch to compiling native executables
 

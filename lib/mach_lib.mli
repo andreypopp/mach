@@ -17,6 +17,7 @@ module Mach_state : sig
     ml_stat : file_stat;
     mli_stat : file_stat option;
     requires : string list;
+    libs : string list;
   }
 
   type t = { root : entry; entries : entry list }
@@ -28,6 +29,8 @@ module Mach_state : sig
   val exe_path : t -> string (** exe_path *)
 
   val source_dirs : t -> string list (** list of source dirs *)
+
+  val all_libs : t -> string list (** all unique libs from all entries *)
 end
 
 val pp : string -> unit

@@ -111,6 +111,7 @@ module Mach_state : sig
     ml_stat : file_stat;
     mli_stat : file_stat option;
     requires : string list;
+    libs : string list;
   }
 
   type t = { root : entry; entries : entry list }
@@ -122,6 +123,8 @@ module Mach_state : sig
   val exe_path : t -> string (** exe_path *)
 
   val source_dirs : t -> string list (** list of source dirs *)
+
+  val all_libs : t -> string list (** all unique libs from all entries *)
 end
 
 val pp : string -> unit
@@ -216,19 +219,27 @@ let is_empty_line line = String.for_all (function ' ' | '\t' -> true | _ -> fals
 let is_shebang line = String.length line >= 2 && line.[0] = '#' && line.[1] = '!'
 let is_directive line = String.length line >= 1 && line.[0] = '#'
 
-let extract_requires source_path =
-  let rec parse line_num acc ic =
+let is_require_path s =
+  String.length s > 0 && (
+    String.starts_with ~prefix:"/" s ||
+    String.starts_with ~prefix:"./" s ||
+    String.starts_with ~prefix:"../" s)
+
+let extract_requires source_path : requires:string list * libs:string list =
+  let rec parse line_num (~requires, ~libs) ic =
     match In_channel.input_line ic with
-    | None -> List.rev acc
-    | Some line when is_shebang line -> parse (line_num + 1) acc ic
+    | Some line when is_shebang line -> parse (line_num + 1) (~requires, ~libs) ic
     | Some line when is_directive line ->
-      let path = Scanf.sscanf line "#require %S%_s" Fun.id in
-      parse (line_num + 1) ((line_num, path) :: acc) ic
-    | Some line when is_empty_line line -> parse (line_num + 1) acc ic
-    | Some _ -> List.rev acc
+      let req = Scanf.sscanf line "#require %S%_s" Fun.id in
+      if is_require_path req then
+        let requires = resolve_require ~source_path ~line:line_num req::requires in
+        parse (line_num + 1) (~requires, ~libs) ic
+      else
+        parse (line_num + 1) (~requires, ~libs:(req :: libs)) ic
+    | Some line when is_empty_line line -> parse (line_num + 1) (~requires, ~libs) ic
+    | None | Some _ -> ~requires:(List.rev requires), ~libs:(List.rev libs)
   in
-  In_channel.with_open_text source_path (parse 1 [])
-  |> List.map (fun (line, path) -> resolve_require ~source_path ~line path)
+  In_channel.with_open_text source_path (parse 1 (~requires:[], ~libs:[]))
 
 let preprocess_source ~source_path oc ic =
   fprintf oc "# 1 %S\n" source_path;
@@ -245,7 +256,7 @@ let preprocess_source ~source_path oc ic =
 
 module Mach_state : sig
   type file_stat = { mtime: int; size: int }
-  type entry = { ml_path: string; mli_path: string option; ml_stat: file_stat; mli_stat: file_stat option; requires: string list }
+  type entry = { ml_path: string; mli_path: string option; ml_stat: file_stat; mli_stat: file_stat option; requires: string list; libs: string list }
   type t = { root: entry; entries: entry list }  (* topo-sorted: dependencies first, root last *)
 
   val read : string -> t option
@@ -257,11 +268,13 @@ module Mach_state : sig
   val exe_path : t -> string (** executable path *)
 
   val source_dirs : t -> string list (** list of source dirs *)
+
+  val all_libs : t -> string list (** all unique libs from all entries *)
 end = struct
   type file_stat = { mtime: int; size: int }
   let equal_file_state x y = x.mtime = y.mtime && x.size = y.size
 
-  type entry = { ml_path: string; mli_path: string option; ml_stat: file_stat; mli_stat: file_stat option; requires: string list }
+  type entry = { ml_path: string; mli_path: string option; ml_stat: file_stat; mli_stat: file_stat option; requires: string list; libs: string list }
   type t = { root: entry; entries: entry list }  (* topo-sorted: dependencies first, root last *)
 
   let exe_path t = Filename.(build_dir_of t.root.ml_path / "a.out")
@@ -272,6 +285,19 @@ end = struct
     List.iter (fun entry-> add_dir entry.ml_path) state.entries;
     Hashtbl.fold (fun dir () acc -> dir :: acc) seen []
     |> List.sort String.compare
+
+  let all_libs state =
+    let seen = Hashtbl.create 16 in
+    let libs = ref [] in
+    List.iter (fun entry ->
+      List.iter (fun lib ->
+        if not (Hashtbl.mem seen lib) then begin
+          Hashtbl.add seen lib ();
+          libs := lib :: !libs
+        end
+      ) entry.libs
+    ) state.entries;
+    List.rev !libs
 
   let file_stat path =
     let st = Unix.stat path in
@@ -285,20 +311,24 @@ end = struct
         let base = Filename.remove_extension ml_path in
         Some (base ^ ".mli")
       in
-      let finalize cur = {cur with requires = List.rev cur.requires} in
+      let finalize cur = {cur with requires = List.rev cur.requires; libs = List.rev cur.libs} in
       let rec loop acc cur = function
         | [] -> (match cur with Some cur -> finalize cur :: acc | None -> acc)
         | line :: rest when String.length line > 6 && String.sub line 0 6 = "  mli " ->
           let e = Option.get cur in
           let m, s = Scanf.sscanf line "  mli %i %d" (fun m s -> m, s) in
           loop acc (Some { e with mli_path = mli_path_of e.ml_path; mli_stat = Some { mtime = m; size = s } }) rest
+        | line :: rest when String.length line > 6 && String.sub line 0 6 = "  lib " ->
+          let e = Option.get cur in
+          let lib = Scanf.sscanf line "  lib %s" Fun.id in
+          loop acc (Some { e with libs = lib :: e.libs }) rest
         | line :: rest when String.length line > 2 && line.[0] = ' ' ->
           let e = Option.get cur in
           loop acc (Some { e with requires = Scanf.sscanf line "  requires %s" Fun.id :: e.requires }) rest
         | line :: rest ->
           let acc = match cur with Some cur -> finalize cur :: acc | None -> acc in
           let p, m, s = Scanf.sscanf line "%s %i %d" (fun p m s -> p, m, s) in
-          loop acc (Some { ml_path = p; mli_path = None; ml_stat = { mtime = m; size = s }; mli_stat = None; requires = [] }) rest
+          loop acc (Some { ml_path = p; mli_path = None; ml_stat = { mtime = m; size = s }; mli_stat = None; requires = []; libs = [] }) rest
       in
       match loop [] None lines with
       | [] -> None
@@ -310,7 +340,8 @@ end = struct
       List.iter (fun e ->
         Buffer.output_line oc (sprintf "%s %i %d" e.ml_path e.ml_stat.mtime e.ml_stat.size);
         Option.iter (fun st -> Buffer.output_line oc (sprintf "  mli %i %d" st.mtime st.size)) e.mli_stat;
-        List.iter (fun r -> Buffer.output_line oc (sprintf "  requires %s" r)) e.requires
+        List.iter (fun r -> Buffer.output_line oc (sprintf "  requires %s" r)) e.requires;
+        List.iter (fun l -> Buffer.output_line oc (sprintf "  lib %s" l)) e.libs
       ) state.entries)
 
   let needs_reconfigure state =
@@ -323,9 +354,9 @@ end = struct
         else
           if not (equal_file_state (file_stat entry.ml_path) entry.ml_stat)
           then
-            let requires = extract_requires entry.ml_path in
-            if requires <> entry.requires
-            then (log_very_verbose "mach:state: requires changed, need reconfigure"; true)
+            let ~requires, ~libs = extract_requires entry.ml_path in
+            if requires <> entry.requires || libs <> entry.libs
+            then (log_very_verbose "mach:state: requires/libs changed, need reconfigure"; true)
             else false
           else false
     ) state.entries
@@ -338,11 +369,11 @@ end = struct
       if Hashtbl.mem visited ml_path then ()
       else begin
         Hashtbl.add visited ml_path ();
-        let requires = extract_requires ml_path in
+        let ~requires, ~libs = extract_requires ml_path in
         List.iter dfs requires;
         let mli_path = mli_path_of_ml_if_exists ml_path in
         let mli_stat = Option.map file_stat mli_path in
-        entries := { ml_path; mli_path; ml_stat = file_stat ml_path; mli_stat; requires } :: !entries
+        entries := { ml_path; mli_path; ml_stat = file_stat ml_path; mli_stat; requires; libs } :: !entries
       end
     in
     dfs entry_path;
@@ -375,6 +406,7 @@ type ocaml_module = {
   module_name: string;
   build_dir: string;
   resolved_requires: string list;  (* absolute paths *)
+  libs: string list;  (* ocamlfind library names *)
 }
 
 let configure_backend ~build_backend state =
@@ -408,36 +440,54 @@ let configure_backend ~build_backend state =
       | [] -> [sprintf "touch %s" args]
       | requires -> List.map (fun p -> sprintf "echo '-I=%s' >> %s" (build_dir_of p) args) requires
     in
-    B.rule b ~target:args ~deps:[ml] (sprintf "rm -f %s" args :: recipe)
+    B.rule b ~target:args ~deps:[ml] (sprintf "rm -f %s" args :: recipe);
+    (* Generate lib_includes.args for ocamlfind library include paths (only if libs present) *)
+    (match m.libs with
+    | [] -> ()
+    | libs ->
+      let lib_args = Filename.(m.build_dir / "lib_includes.args") in
+      let libs_str = String.concat " " libs in
+      B.rulef b ~target:lib_args ~deps:[] "ocamlfind query -format '-I=%%d' -recursive %s > %s" libs_str lib_args)
   in
   let compile_ocaml_module b (m : ocaml_module) =
     let ml = Filename.(m.build_dir / m.module_name ^ ".ml") in
     let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
     let args = Filename.(m.build_dir / "includes.args") in
     let cmi_deps = List.map (fun p -> Filename.(build_dir_of p / module_name_of_path p ^ ".cmi")) m.resolved_requires in
+    let lib_args_dep, lib_args_cmd = match m.libs with
+      | [] -> [], ""
+      | _ -> [Filename.(m.build_dir / "lib_includes.args")], sprintf " -args %s" Filename.(m.build_dir / "lib_includes.args")
+    in
     match m.mli_path with
     | Some _ -> (* With .mli: compile .mli to .cmi/.cmti first (using ocamlc for speed), then .ml to .cmx *)
-      B.rulef b ~target:m.cmi ~deps:(mli :: args :: cmi_deps) "ocamlc -bin-annot -c -opaque -args %s -o %s %s" args m.cmi mli;
-      B.rulef b ~target:m.cmx ~deps:[ml; m.cmi; args] "ocamlopt -bin-annot -c -args %s -cmi-file %s -o %s %s" args m.cmi m.cmx ml;
+      B.rulef b ~target:m.cmi ~deps:(mli :: args :: lib_args_dep @ cmi_deps) "ocamlc -bin-annot -c -opaque -args %s%s -o %s %s" args lib_args_cmd m.cmi mli;
+      B.rulef b ~target:m.cmx ~deps:([ml; m.cmi; args] @ lib_args_dep) "ocamlopt -bin-annot -c -args %s%s -cmi-file %s -o %s %s" args lib_args_cmd m.cmi m.cmx ml;
       B.rule b ~target:m.cmt ~deps:[m.cmx] []
     | None -> (* Without .mli: ocamlopt produces both .cmi and .cmx *)
-      B.rulef b ~target:m.cmx ~deps:(ml :: args :: cmi_deps) "ocamlopt -bin-annot -c -args %s -o %s %s" args m.cmx ml;
+      B.rulef b ~target:m.cmx ~deps:(ml :: args :: lib_args_dep @ cmi_deps) "ocamlopt -bin-annot -c -args %s%s -o %s %s" args lib_args_cmd m.cmx ml;
       B.rule b ~target:m.cmi ~deps:[m.cmx] [];
       B.rule b ~target:m.cmt ~deps:[m.cmx] []
   in
-  let link_ocaml_module b (all_objs : string list) ~exe_path =
-    let args = Filename.(Filename.dirname exe_path / "all_objects.args") in
+  let link_ocaml_module b (all_objs : string list) (all_libs : string list) ~exe_path =
+    let root_build_dir = Filename.dirname exe_path in
+    let args = Filename.(root_build_dir / "all_objects.args") in
     let objs_str = String.concat " " all_objs in
     B.rulef b ~target:args ~deps:all_objs "printf '%%s\\n' %s > %s" objs_str args;
-    B.rulef b ~target:exe_path ~deps:(args :: all_objs) "ocamlopt -o %s -args %s" exe_path args
+    match all_libs with
+    | [] -> B.rulef b ~target:exe_path ~deps:(args :: all_objs) "ocamlopt -o %s -args %s" exe_path args
+    | libs ->
+      let lib_args = Filename.(root_build_dir / "lib_objects.args") in
+      let libs_str = String.concat " " libs in
+      B.rulef b ~target:lib_args ~deps:[] "ocamlfind query -a-format -recursive -predicates native %s > %s" libs_str lib_args;
+      B.rulef b ~target:exe_path ~deps:(args :: lib_args :: all_objs) "ocamlopt -o %s -args %s -args %s" exe_path lib_args args
   in
-  let modules = List.map (fun ({ml_path;mli_path;requires=resolved_requires;_} : Mach_state.entry) ->
+  let modules = List.map (fun ({ml_path;mli_path;requires=resolved_requires;libs;_} : Mach_state.entry) ->
     let module_name = module_name_of_path ml_path in
     let build_dir = build_dir_of ml_path in
     let cmx = Filename.(build_dir / module_name ^ ".cmx") in
     let cmi = Filename.(build_dir / module_name ^ ".cmi") in
     let cmt = Filename.(build_dir / module_name ^ ".cmt") in
-    { ml_path; mli_path; module_name; build_dir; resolved_requires;cmx;cmi;cmt; }
+    { ml_path; mli_path; module_name; build_dir; resolved_requires;cmx;cmi;cmt;libs }
   ) state.Mach_state.entries in
   (* Generate per-module build files *)
   List.iter (fun (m : ocaml_module) ->
@@ -452,12 +502,13 @@ let configure_backend ~build_backend state =
   (* Generate root build file *)
   let exe_path = Mach_state.exe_path state in
   let all_objs = List.map (fun m -> m.cmx) modules in
+  let all_libs = Mach_state.all_libs state in
   write_file Filename.(build_dir_of state.root.ml_path / root_file) (
     let b = B.create () in
     List.iter (fun entry ->
       B.include_ b Filename.(build_dir_of entry.Mach_state.ml_path / module_file)) state.entries;
     B.rule_phony b ~target:"all" ~deps:[exe_path];
-    link_ocaml_module b all_objs ~exe_path;
+    link_ocaml_module b all_objs all_libs ~exe_path;
     B.contents b
   )
 

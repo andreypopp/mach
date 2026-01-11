@@ -46,7 +46,7 @@ Add a dependency - SHOULD reconfigure (structural change):
   > EOF
 
   $ mach run -vv ./main.ml 2>&1
-  mach:state: requires changed, need reconfigure
+  mach:state: requires/libs changed, need reconfigure
   mach:configure: need reconfigure
   mach: configuring...
   mach: building...

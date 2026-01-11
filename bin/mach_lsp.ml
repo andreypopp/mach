@@ -8,6 +8,22 @@ open Mach_lib
 module Merlin_server = struct
   module Protocol = Merlin_dot_protocol.Blocking
 
+  (* Query ocamlfind for library include paths *)
+  let query_lib_includes libs =
+    if libs = [] then []
+    else
+      let libs_str = String.concat " " libs in
+      let cmd = sprintf "ocamlfind query -format '%%d' -recursive %s 2>/dev/null" libs_str in
+      let ic = Unix.open_process_in cmd in
+      let rec read_lines acc =
+        match In_channel.input_line ic with
+        | None -> List.rev acc
+        | Some line -> read_lines (line :: acc)
+      in
+      let paths = read_lines [] in
+      ignore (Unix.close_process_in ic);
+      paths
+
   let directives_for_file path : Merlin_dot_protocol.directive list =
     try
       let path = Unix.realpath path in
@@ -29,6 +45,14 @@ module Merlin_server = struct
         List.fold_left
           (fun directives source_dir -> (`S source_dir)::directives)
           directives (Mach_state.source_dirs state)
+      in
+      (* Add -I flags for ocamlfind libraries *)
+      let lib_paths = query_lib_includes (Mach_state.all_libs state) in
+      let directives =
+        if lib_paths = [] then directives
+        else
+          let lib_flags = List.concat_map (fun p -> ["-I"; p]) lib_paths in
+          (`FLG lib_flags) :: directives
       in
       let directives =
         List.fold_left (fun directives (entry : Mach_state.entry) ->

@@ -77,6 +77,10 @@ The code is organized with comment headers:
 - **State file**: `Mach.state` tracks file mtimes/sizes for cache invalidation
 - **Build files**: `Makefile` (root), `mach.mk` (per-module), `includes.args`, `all_objects.args`
 
+## Code Style
+
+- **Avoid O(n) lookups in loops**: Don't use `List.mem` or `List.assoc` for membership checks inside loops - this creates O(n^2) complexity. Use `Hashtbl` instead for O(1) lookups.
+
 ## File Structure
 
 ```
