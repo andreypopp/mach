@@ -31,6 +31,10 @@ should compile to `.cmx` and then link to native executable.
 
 ## Unify `mach preprocess` and `mach pp`
 
+Keep on `mach pp`. We use it now for merlin but for build we have `mach preprocess`
+
+So the idea is for build we call `mach pp` twice for .ml and .mli (if present).
+
 ## Optimise reconfiguration: .mli addition/removal should reconfigure a single module only
 
 ## Optimise reconfiguration: do not reconfigure unaffected modules
