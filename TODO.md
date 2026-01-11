@@ -1,16 +1,5 @@
 # TODO
 
-## Switch to compiling native executables
-
-For `.cmi` we still can use `ocamlc` (for speed) but instead of `.cmo` we
-should compile to `.cmx` and then link to native executable.
-
-## Unify `mach preprocess` and `mach pp`
-
-Keep on `mach pp`. We use it now for merlin but for build we have `mach preprocess`
-
-So the idea is for build we call `mach pp` twice for .ml and .mli (if present).
-
 ## Optimise reconfiguration: .mli addition/removal should reconfigure a single module only
 
 ## Optimise reconfiguration: do not reconfigure unaffected modules
@@ -24,6 +13,17 @@ So the idea is for build we call `mach pp` twice for .ml and .mli (if present).
 ## Implement depdending on ocamlfind libraries (see README.md)
 
 ## Implement ppx support (see README.md)
+
+## [DONE] Switch to compiling native executables
+
+For `.cmi` we still can use `ocamlc` (for speed) but instead of `.cmo` we
+should compile to `.cmx` and then link to native executable.
+
+## [DONE] Unify `mach preprocess` and `mach pp`
+
+Keep on `mach pp`. We use it now for merlin but for build we have `mach preprocess`
+
+So the idea is for build we call `mach pp` twice for .ml and .mli (if present).
 
 ## [DONE] Fix shell completion for `mach` command
 
