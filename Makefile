@@ -12,4 +12,4 @@ commit:
 	git commit -m wip
 init:
 	opam switch create . 5.4.0 --no-install -y
-	opam install . --deps-only -y
+	opam install . --deps-only --with-dev-setup -y
