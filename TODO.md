@@ -1,6 +1,27 @@
 # TODO
 
-## Implement depdending on ocamlfind libraries
+## Optimise reconfiguration: .mli addition/removal should reconfigure a single module only
+
+## Optimise reconfiguration: do not reconfigure unaffected modules
+
+## Optimise reconfiguration: do not drop build dir on reconfiguration
+
+## Implement ppx support
+
+## Support passing -H hidden includes args when compiling
+
+## [DONE] More reconfiguration fixes
+
+We need to also reconfigure when
+1. build backend changes
+2. own mach path changes (see we have code already which detects the curren path, move it to helper)
+
+need to store this as part of Mach.state
+
+    build_backend <make|ninja>
+    mach_path /absolute/path/to/mach
+
+## [DONE] Implement depdending on ocamlfind libraries
 
 We want to support depending on ocamlfind libraries.
 
@@ -26,18 +47,6 @@ Same for linking, we produce `lib-objects.args` file using:
 Then when linking we pass `-args lib-objects.args` to `ocamlopt`.
 
 Add test which uses `cmdliner` package.
-
-## Implement ppx support
-
-## Optimise reconfiguration: .mli addition/removal should reconfigure a single module only
-
-## Optimise reconfiguration: do not reconfigure unaffected modules
-
-## Optimise reconfiguration: do not drop build dir on reconfiguration
-
-## Support passing -H hidden includes args when compiling
-
-## Implement libraries (see README.md)
 
 ## [DONE] Switch to compiling native executables
 

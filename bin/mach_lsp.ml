@@ -32,10 +32,7 @@ module Merlin_server = struct
       let state =
         match Mach_state.read state_path with
         | Some st -> Ok st
-        | None ->
-          match Mach_state.collect path with
-          | Ok st -> Ok st
-          | Error (`User_error msg) -> Error msg
+        | None -> Error "please run 'mach build SCRIPT' first"
       in
       match state with
       | Error msg -> [`ERROR_MSG msg]

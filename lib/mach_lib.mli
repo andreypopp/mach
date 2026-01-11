@@ -20,11 +20,13 @@ module Mach_state : sig
     libs : string list;
   }
 
-  type t = { root : entry; entries : entry list }
+  type metadata = { build_backend : build_backend; mach_path : string }
+
+  type t = { metadata : metadata; root : entry; entries : entry list }
 
   val read : string -> t option
 
-  val collect : string -> (t, error) result
+  val collect : build_backend:build_backend -> mach_path:string -> string -> (t, error) result
 
   val exe_path : t -> string (** exe_path *)
 

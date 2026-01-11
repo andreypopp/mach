@@ -12,6 +12,10 @@ Setup test files:
   > let () = print_int Lib.x
   > EOF
 
+Now build first:
+
+  $ mach build main.ml
+
 Test File command returns directives (starts with FLG for preprocessor):
 
   $ printf '(4:File7:main.ml)' | mach-lsp ocaml-merlin 2>/dev/null | head -c 5

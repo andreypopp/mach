@@ -76,6 +76,21 @@ let rec mkdir_p path =
 
 let write_file path content = Out_channel.with_open_text path (fun oc -> output_string oc content)
 
+let mach_executable_path =
+  lazy (
+    match Sys.backend_type with
+    | Sys.Native -> Unix.realpath Sys.executable_name
+    | Sys.Bytecode ->
+      let script =
+        let path = Sys.argv.(0) in
+        if Filename.is_relative path then Filename.(Sys.getcwd () / path) else path
+      in
+      Printf.sprintf "%s -I +unix unix.cma %s"
+        (Filename.quote Sys.executable_name) (Filename.quote (Unix.realpath script))
+    | Sys.Other _ -> failwith "mach must be run as a native/bytecode executable"
+  )
+let mach_executable_path () = Lazy.force mach_executable_path
+
 (* --- Parsing and preprocessing --- *)
 
 let is_empty_line line = String.for_all (function ' ' | '\t' -> true | _ -> false) line
@@ -115,18 +130,26 @@ let preprocess_source ~source_path oc ic =
   in
   loop true
 
+(* --- Build backend types --- *)
+
+type build_backend = Make | Ninja
+
+let string_of_build_backend = function Make -> "make" | Ninja -> "ninja"
+let build_backend_of_string = function "make" -> Make | "ninja" -> Ninja | s -> failwithf "unknown build backend: %s" s
+
 (* --- State cache --- *)
 
 module Mach_state : sig
   type file_stat = { mtime: int; size: int }
   type entry = { ml_path: string; mli_path: string option; ml_stat: file_stat; mli_stat: file_stat option; requires: string list; libs: string list }
-  type t = { root: entry; entries: entry list }  (* topo-sorted: dependencies first, root last *)
+  type metadata = { build_backend: build_backend; mach_path: string }
+  type t = { metadata: metadata; root: entry; entries: entry list }  (* topo-sorted: dependencies first, root last *)
 
   val read : string -> t option
   val write : string -> t -> unit
-  val needs_reconfigure : t -> bool
-  val collect_exn : string -> t
-  val collect : string -> (t, error) result
+  val needs_reconfigure : build_backend:build_backend -> mach_path:string -> t -> bool
+  val collect_exn : build_backend:build_backend -> mach_path:string -> string -> t
+  val collect : build_backend:build_backend -> mach_path:string -> string -> (t, error) result
 
   val exe_path : t -> string (** executable path *)
 
@@ -138,7 +161,8 @@ end = struct
   let equal_file_state x y = x.mtime = y.mtime && x.size = y.size
 
   type entry = { ml_path: string; mli_path: string option; ml_stat: file_stat; mli_stat: file_stat option; requires: string list; libs: string list }
-  type t = { root: entry; entries: entry list }  (* topo-sorted: dependencies first, root last *)
+  type metadata = { build_backend: build_backend; mach_path: string }
+  type t = { metadata: metadata; root: entry; entries: entry list }  (* topo-sorted: dependencies first, root last *)
 
   let exe_path t = Filename.(build_dir_of t.root.ml_path / "a.out")
 
@@ -170,36 +194,52 @@ end = struct
     if not (Sys.file_exists path) then None
     else try
       let lines = In_channel.with_open_text path In_channel.input_lines in
-      let mli_path_of ml_path =
-        let base = Filename.remove_extension ml_path in
-        Some (base ^ ".mli")
+      (* Parse metadata header *)
+      let metadata, entry_lines = match lines with
+        | bb_line :: mp_line :: "" :: rest ->
+          let build_backend = Scanf.sscanf bb_line "build_backend %s" build_backend_of_string in
+          let mach_path = Scanf.sscanf mp_line "mach_path %s@\n" Fun.id in
+          Some { build_backend; mach_path }, rest
+        | _ -> None, []  (* Missing metadata = needs reconfigure *)
       in
-      let finalize cur = {cur with requires = List.rev cur.requires; libs = List.rev cur.libs} in
-      let rec loop acc cur = function
-        | [] -> (match cur with Some cur -> finalize cur :: acc | None -> acc)
-        | line :: rest when String.length line > 6 && String.sub line 0 6 = "  mli " ->
-          let e = Option.get cur in
-          let m, s = Scanf.sscanf line "  mli %i %d" (fun m s -> m, s) in
-          loop acc (Some { e with mli_path = mli_path_of e.ml_path; mli_stat = Some { mtime = m; size = s } }) rest
-        | line :: rest when String.length line > 6 && String.sub line 0 6 = "  lib " ->
-          let e = Option.get cur in
-          let lib = Scanf.sscanf line "  lib %s" Fun.id in
-          loop acc (Some { e with libs = lib :: e.libs }) rest
-        | line :: rest when String.length line > 2 && line.[0] = ' ' ->
-          let e = Option.get cur in
-          loop acc (Some { e with requires = Scanf.sscanf line "  requires %s" Fun.id :: e.requires }) rest
-        | line :: rest ->
-          let acc = match cur with Some cur -> finalize cur :: acc | None -> acc in
-          let p, m, s = Scanf.sscanf line "%s %i %d" (fun p m s -> p, m, s) in
-          loop acc (Some { ml_path = p; mli_path = None; ml_stat = { mtime = m; size = s }; mli_stat = None; requires = []; libs = [] }) rest
-      in
-      match loop [] None lines with
-      | [] -> None
-      | root::_ as entries -> Some { root; entries = List.rev entries }
+      match metadata with
+      | None -> None
+      | Some metadata ->
+        let mli_path_of ml_path =
+          let base = Filename.remove_extension ml_path in
+          Some (base ^ ".mli")
+        in
+        let finalize cur = {cur with requires = List.rev cur.requires; libs = List.rev cur.libs} in
+        let rec loop acc cur = function
+          | [] -> (match cur with Some cur -> finalize cur :: acc | None -> acc)
+          | line :: rest when String.length line > 6 && String.sub line 0 6 = "  mli " ->
+            let e = Option.get cur in
+            let m, s = Scanf.sscanf line "  mli %i %d" (fun m s -> m, s) in
+            loop acc (Some { e with mli_path = mli_path_of e.ml_path; mli_stat = Some { mtime = m; size = s } }) rest
+          | line :: rest when String.length line > 6 && String.sub line 0 6 = "  lib " ->
+            let e = Option.get cur in
+            let lib = Scanf.sscanf line "  lib %s" Fun.id in
+            loop acc (Some { e with libs = lib :: e.libs }) rest
+          | line :: rest when String.length line > 2 && line.[0] = ' ' ->
+            let e = Option.get cur in
+            loop acc (Some { e with requires = Scanf.sscanf line "  requires %s" Fun.id :: e.requires }) rest
+          | line :: rest ->
+            let acc = match cur with Some cur -> finalize cur :: acc | None -> acc in
+            let p, m, s = Scanf.sscanf line "%s %i %d" (fun p m s -> p, m, s) in
+            loop acc (Some { ml_path = p; mli_path = None; ml_stat = { mtime = m; size = s }; mli_stat = None; requires = []; libs = [] }) rest
+        in
+        match loop [] None entry_lines with
+        | [] -> None
+        | root::_ as entries -> Some { metadata; root; entries = List.rev entries }
     with _ -> None
 
   let write path state =
     Out_channel.with_open_text path (fun oc ->
+      (* Write metadata header *)
+      Buffer.output_line oc (sprintf "build_backend %s" (string_of_build_backend state.metadata.build_backend));
+      Buffer.output_line oc (sprintf "mach_path %s" state.metadata.mach_path);
+      Buffer.output_line oc "";
+      (* Write entries *)
       List.iter (fun e ->
         Buffer.output_line oc (sprintf "%s %i %d" e.ml_path e.ml_stat.mtime e.ml_stat.size);
         Option.iter (fun st -> Buffer.output_line oc (sprintf "  mli %i %d" st.mtime st.size)) e.mli_stat;
@@ -207,25 +247,31 @@ end = struct
         List.iter (fun l -> Buffer.output_line oc (sprintf "  lib %s" l)) e.libs
       ) state.entries)
 
-  let needs_reconfigure state =
-    List.exists (fun entry ->
-      if not (Sys.file_exists entry.ml_path)
-      then (log_very_verbose "mach:state: file removed, need reconfigure"; true)
-      else
-        if mli_path_of_ml_if_exists entry.ml_path <> entry.mli_path
-        then (log_very_verbose "mach:state: .mli added/removed, need reconfigure"; true)
+  let needs_reconfigure ~build_backend ~mach_path state =
+    if state.metadata.build_backend <> build_backend then
+      (log_very_verbose "mach:state: build backend changed, need reconfigure"; true)
+    else if state.metadata.mach_path <> mach_path then
+      (log_very_verbose "mach:state: mach path changed, need reconfigure"; true)
+    else
+      List.exists (fun entry ->
+        if not (Sys.file_exists entry.ml_path)
+        then (log_very_verbose "mach:state: file removed, need reconfigure"; true)
         else
-          if not (equal_file_state (file_stat entry.ml_path) entry.ml_stat)
-          then
-            let ~requires, ~libs = extract_requires entry.ml_path in
-            if requires <> entry.requires || libs <> entry.libs
-            then (log_very_verbose "mach:state: requires/libs changed, need reconfigure"; true)
+          if mli_path_of_ml_if_exists entry.ml_path <> entry.mli_path
+          then (log_very_verbose "mach:state: .mli added/removed, need reconfigure"; true)
+          else
+            if not (equal_file_state (file_stat entry.ml_path) entry.ml_stat)
+            then
+              let ~requires, ~libs = extract_requires entry.ml_path in
+              if requires <> entry.requires || libs <> entry.libs
+              then (log_very_verbose "mach:state: requires/libs changed, need reconfigure"; true)
+              else false
             else false
-          else false
-    ) state.entries
+      ) state.entries
 
-  let collect_exn entry_path =
+  let collect_exn ~build_backend ~mach_path entry_path =
     let entry_path = Unix.realpath entry_path in
+    let metadata = { build_backend; mach_path } in
     let visited = Hashtbl.create 16 in
     let entries = ref [] in
     let rec dfs ml_path =
@@ -242,14 +288,10 @@ end = struct
     dfs entry_path;
     match !entries with
     | [] -> failwith "Internal error: no entries collected"
-    | root::_ as entries -> { root; entries = List.rev entries }
+    | root::_ as entries -> { metadata; root; entries = List.rev entries }
 
-  let collect entry_path = catch_user_error @@ fun () -> collect_exn entry_path
+  let collect ~build_backend ~mach_path entry_path = catch_user_error @@ fun () -> collect_exn ~build_backend ~mach_path entry_path
 end
-
-(* --- Build backend types --- *)
-
-type build_backend = Make | Ninja
 
 (* --- PP (for merlin and build) --- *)
 
@@ -278,21 +320,10 @@ let configure_backend ~build_backend state =
     | Make -> (module Makefile), "mach.mk", "Makefile"
     | Ninja -> (module Ninja), "mach.ninja", "build.ninja"
   in
+  let cmd = state.Mach_state.metadata.mach_path in
   let configure_ocaml_module b (m : ocaml_module) =
     let ml = Filename.(m.build_dir / m.module_name ^ ".ml") in
     let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
-    let cmd =
-      match Sys.backend_type with
-      | Sys.Native -> Sys.executable_name
-      | Sys.Bytecode ->
-        let script =
-          let path = Sys.argv.(0) in
-          if Filename.is_relative path then Filename.(Sys.getcwd () / path) else path
-        in
-        Printf.sprintf "%s -I +unix unix.cma %s"
-          (Filename.quote Sys.executable_name) (Filename.quote (Unix.realpath script))
-      | Sys.Other _ -> user_error "mach must be run as a native/bytecode executable"
-    in
     B.rulef b ~target:ml ~deps:[m.ml_path] "%s pp %s > %s" cmd m.ml_path ml;
     Option.iter (fun mli_path ->
       B.rulef b ~target:mli ~deps:[mli_path] "%s pp %s > %s" cmd mli_path mli
@@ -379,14 +410,15 @@ let configure_exn ?(build_backend=Make) source_path =
   let source_path = Unix.realpath source_path in
   let build_dir = build_dir_of source_path in
   let state_path = Filename.(build_dir / "Mach.state") in
+  let mach_path = mach_executable_path () in
   let state, needs_reconfigure =
     match Mach_state.read state_path with
     | None ->
       log_very_verbose "mach:configure: no previous state found, creating one...";
-      Mach_state.collect_exn source_path, true
-    | Some state when Mach_state.needs_reconfigure state ->
+      Mach_state.collect_exn ~build_backend ~mach_path source_path, true
+    | Some state when Mach_state.needs_reconfigure ~build_backend ~mach_path state ->
       log_very_verbose "mach:configure: need reconfigure";
-      Mach_state.collect_exn source_path, true
+      Mach_state.collect_exn ~build_backend ~mach_path source_path, true
     | Some state -> state, false
   in
   if needs_reconfigure then begin
@@ -509,7 +541,7 @@ let watch_exn ?(build_backend=Make) script_path =
           match build ~build_backend script_path with
           | Error (`User_error msg) -> log_verbose "mach: %s" msg
           | Ok (~state:_, ~reconfigured) ->
-            log_verbose "mach: build succeeded";
+            eprintf "mach: build succeeded\n%!";
             if reconfigured then begin
               log_verbose "mach:watch: reconfigured, restarting watcher...";
               raise Restart_watcher
