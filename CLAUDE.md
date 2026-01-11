@@ -4,23 +4,13 @@
 
 **mach** is an OCaml scripting runtime that automatically handles dependencies declared via `#require "..."` directives.
 
-## Project Initialization
-
-Install `opam`:
-```bash
-bash -c "sh <(curl -fsSL https://opam.ocaml.org/install.sh)"
-```
-
-Install dependencies:
-```bash
-make init
-```
-
 ## Build & Test
 
 ```bash
 dune build # builds the mach executable
 dune test # builds and runs tests, no need to run `dune build` first
+dune promote # promote test outputs if we see it changed and it's expected
+dune test test_ninja/tests/test_build.t # can also run individual tests
 ```
 
 ## Testing
