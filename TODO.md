@@ -1,29 +1,5 @@
 # TODO
 
-## [DONE] Fix shell completion for `mach` command
-
-Right now completions don't work correctly for script arguments. Need to
-configure terms to have completion of type `file`. See `Cmdliner` docs for
-that.
-
-## Add `mach lsp` subcommand
-
-The new subcommand `mach lsp` should call into `mach-lsp` executable (if
-avaialble), if not - it should suggest to install `mach-lsp` opam package.
-
-## Overhaul error reporting
-
-There are cases where we just use `failwith` for error reporting. Need to
-analyze these and for cases where the error is a user error — we should report
-them nicely.
-
-I think within `mach_lib.ml` we can use an exception `Mach_user_error of
-string` but functions exposed outside should catch those and convert them to
-``('a, `Msg string) result`` values.
-
-Then `bin/mach.ml` should handle those errors and print them nicely to stderr
-and exit with code 1.
-
 ## Switch to compiling native executables
 
 For `.cmi` we still can use `ocamlc` (for speed) but instead of `.cmo` we
@@ -48,6 +24,32 @@ So the idea is for build we call `mach pp` twice for .ml and .mli (if present).
 ## Implement depdending on ocamlfind libraries (see README.md)
 
 ## Implement ppx support (see README.md)
+
+## [DONE] Fix shell completion for `mach` command
+
+Right now completions don't work correctly for script arguments. Need to
+configure terms to have completion of type `file`. See `Cmdliner` docs for
+that.
+
+## [DONE] Add `mach lsp` subcommand
+
+**decided not to implement**
+
+The new subcommand `mach lsp` should call into `mach-lsp` executable (if
+avaialble), if not - it should suggest to install `mach-lsp` opam package.
+
+## [DONE] Overhaul error reporting
+
+There are cases where we just use `failwith` for error reporting. Need to
+analyze these and for cases where the error is a user error — we should report
+them nicely.
+
+I think within `mach_lib.ml` we can use an exception `Mach_user_error of
+string` but functions exposed outside should catch those and convert them to
+``('a, `Msg string) result`` values.
+
+Then `bin/mach.ml` should handle those errors and print them nicely to stderr
+and exit with code 1.
 
 ## [DONE] watch mode
 
