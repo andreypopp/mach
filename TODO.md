@@ -1,6 +1,6 @@
 # TODO
 
-## Fix shell completion for `mach` command
+## [DONE] Fix shell completion for `mach` command
 
 Right now completions don't work correctly for script arguments. Need to
 configure terms to have completion of type `file`. See `Cmdliner` docs for
