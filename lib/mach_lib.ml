@@ -1,5 +1,17 @@
 (* mach_lib - Shared code for mach and mach-lsp *)
 
+(* --- User error handling --- *)
+
+exception Mach_user_error of string
+
+let user_error msg = raise (Mach_user_error msg)
+
+type error = [`User_error of string]
+
+let catch_user_error f =
+  try Ok (f ())
+  with Mach_user_error msg -> Error (`User_error msg)
+
 (* --- Utilities --- *)
 
 open Printf
@@ -36,18 +48,24 @@ let build_dir_of script_path =
 let module_name_of_path path = Filename.(basename path |> remove_extension)
 
 let failwithf fmt = ksprintf failwith fmt
-let commandf fmt = ksprintf (fun cmd -> if Sys.command cmd <> 0 then failwithf "Command failed: %s" cmd) fmt
-let rm_rf path = commandf "rm -rf %s" (Filename.quote path)
+let rm_rf path =
+  let cmd = sprintf "rm -rf %s" (Filename.quote path) in
+  if Sys.command cmd <> 0 then failwithf "Command failed: %s" cmd
 
 let mli_path_of_ml_if_exists path =
   let base = Filename.remove_extension path in
   let mli = base ^ ".mli" in
   if Sys.file_exists mli then Some mli else None
 
-let resolve_path ~relative_to path =
-  if Filename.is_relative path
-  then Unix.realpath Filename.(dirname relative_to / path)
-  else Unix.realpath path
+let resolve_require ~source_path ~line path =
+  let path =
+    if Filename.is_relative path
+    then Filename.(dirname source_path / path)
+    else path
+  in
+  try Unix.realpath path
+  with Unix.Unix_error (err, _, _) ->
+    user_error (sprintf "%s:%d: %s: %s" source_path line path (Unix.error_message err))
 
 let rec mkdir_p path =
   if Sys.file_exists path then ()
@@ -65,16 +83,18 @@ let is_shebang line = String.length line >= 2 && line.[0] = '#' && line.[1] = '!
 let is_directive line = String.length line >= 1 && line.[0] = '#'
 
 let extract_requires source_path =
-  let rec parse acc ic =
+  let rec parse line_num acc ic =
     match In_channel.input_line ic with
     | None -> List.rev acc
-    | Some line when is_shebang line -> parse acc ic
-    | Some line when is_directive line -> parse (Scanf.sscanf line "#require %S%_s" Fun.id :: acc) ic
-    | Some line when is_empty_line line -> parse acc ic
+    | Some line when is_shebang line -> parse (line_num + 1) acc ic
+    | Some line when is_directive line ->
+      let path = Scanf.sscanf line "#require %S%_s" Fun.id in
+      parse (line_num + 1) ((line_num, path) :: acc) ic
+    | Some line when is_empty_line line -> parse (line_num + 1) acc ic
     | Some _ -> List.rev acc
   in
-  In_channel.with_open_text source_path (parse [])
-  |> List.map (resolve_path ~relative_to:source_path)
+  In_channel.with_open_text source_path (parse 1 [])
+  |> List.map (fun (line, path) -> resolve_require ~source_path ~line path)
 
 let preprocess_source ~source_path oc ic =
   fprintf oc "# 1 %S\n" source_path;
@@ -97,7 +117,8 @@ module Mach_state : sig
   val read : string -> t option
   val write : string -> t -> unit
   val needs_reconfigure : t -> bool
-  val collect : string -> t
+  val collect_exn : string -> t
+  val collect : string -> (t, error) result
 
   val exe_path : t -> string (** executable path *)
 
@@ -175,7 +196,7 @@ end = struct
           else false
     ) state.entries
 
-  let collect entry_path =
+  let collect_exn entry_path =
     let entry_path = Unix.realpath entry_path in
     let visited = Hashtbl.create 16 in
     let entries = ref [] in
@@ -194,6 +215,8 @@ end = struct
     match !entries with
     | [] -> failwith "Internal error: no entries collected"
     | root::_ as entries -> { root; entries = List.rev entries }
+
+  let collect entry_path = catch_user_error @@ fun () -> collect_exn entry_path
 end
 
 (* --- Build backend types --- *)
@@ -251,10 +274,13 @@ let configure_backend ~build_backend state =
       match Sys.backend_type with
       | Sys.Native -> Sys.executable_name
       | Sys.Bytecode ->
-        let script = resolve_path ~relative_to:Filename.(Sys.getcwd () / "x") Sys.argv.(0) in
+        let script =
+          let path = Sys.argv.(0) in
+          if Filename.is_relative path then Filename.(Sys.getcwd () / path) else path
+        in
         Printf.sprintf "%s -I +unix unix.cma %s"
-          (Filename.quote Sys.executable_name) (Filename.quote script)
-      | Sys.Other _ -> failwith "mach must be run as a native/bytecode executable"
+          (Filename.quote Sys.executable_name) (Filename.quote (Unix.realpath script))
+      | Sys.Other _ -> user_error "mach must be run as a native/bytecode executable"
     in
     B.rulef b ~target:ml ~deps:preprocess_deps "%s preprocess %s -o %s" cmd m.ml_path m.build_dir;
     if Option.is_some m.mli_path then B.rule b ~target:mli ~deps:[ml] [];
@@ -317,7 +343,7 @@ let configure_backend ~build_backend state =
     B.contents b
   )
 
-let configure ?(build_backend=Make) source_path =
+let configure_exn ?(build_backend=Make) source_path =
   let source_path = Unix.realpath source_path in
   let build_dir = build_dir_of source_path in
   let state_path = Filename.(build_dir / "Mach.state") in
@@ -325,10 +351,10 @@ let configure ?(build_backend=Make) source_path =
     match Mach_state.read state_path with
     | None ->
       log_very_verbose "mach:configure: no previous state found, creating one...";
-      Mach_state.collect source_path, true
+      Mach_state.collect_exn source_path, true
     | Some state when Mach_state.needs_reconfigure state ->
       log_very_verbose "mach:configure: need reconfigure";
-      Mach_state.collect source_path, true
+      Mach_state.collect_exn source_path, true
     | Some state -> state, false
   in
   if needs_reconfigure then begin
@@ -340,10 +366,13 @@ let configure ?(build_backend=Make) source_path =
   end;
   ~state, ~reconfigured:needs_reconfigure
 
+let configure ?(build_backend=Make) source_path =
+  catch_user_error @@ fun () -> configure_exn ~build_backend source_path
+
 (* --- Build --- *)
 
-let build ?(build_backend=Make) script_path =
-  let ~state, ~reconfigured = configure ~build_backend script_path in
+let build_exn ?(build_backend=Make) script_path =
+  let ~state, ~reconfigured = configure_exn ~build_backend script_path in
   log_verbose "mach: building...";
   let cmd = match build_backend with
     | Make -> if !verbose = Very_very_verbose then "make all" else "make -s all"
@@ -351,8 +380,11 @@ let build ?(build_backend=Make) script_path =
   in
   let cmd = sprintf "%s -C %s" cmd (Filename.quote (build_dir_of state.root.ml_path)) in
   if !verbose = Very_very_verbose then eprintf "+ %s\n%!" cmd;
-  commandf "%s" cmd;
+  if Sys.command cmd <> 0 then user_error "build failed";
   ~state, ~reconfigured
+
+let build ?(build_backend=Make) script_path =
+  catch_user_error @@ fun () -> build_exn ~build_backend script_path
 
 (* --- Watch mode --- *)
 
@@ -380,15 +412,15 @@ let read_events ic =
   in
   loop ()
 
-let watch ?(build_backend=Make) script_path =
+let watch_exn ?(build_backend=Make) script_path =
   let exception Restart_watcher in
   let code = Sys.command "command -v watchexec > /dev/null 2>&1" in
   if code <> 0 then
-    failwith "watchexec not found. Install it: https://github.com/watchexec/watchexec";
+    user_error "watchexec not found. Install it: https://github.com/watchexec/watchexec";
   let script_path = Unix.realpath script_path in
 
   log_verbose "mach: initial build...";
-  let _ = build ~build_backend script_path in
+  let ~state:_, ~reconfigured:_ = build_exn ~build_backend script_path in
 
   (* Track current state for signal handling and cleanup *)
   let current_process = ref None in
@@ -410,7 +442,7 @@ let watch ?(build_backend=Make) script_path =
   while !keep_watching do
     let state = Option.get (Mach_state.read Filename.(build_dir_of script_path / "Mach.state")) in
     let source_dirs = Mach_state.source_dirs state in
-    let source_files = 
+    let source_files =
       let files = Hashtbl.create 16 in
       List.iter (fun (entry : Mach_state.entry) ->
         Hashtbl.replace files entry.ml_path ();
@@ -420,7 +452,7 @@ let watch ?(build_backend=Make) script_path =
     in
     log_verbose "mach: watching %d directories (Ctrl+C to stop):" (List.length source_dirs);
     List.iter (fun d -> log_verbose "  %s" d) source_dirs;
-    let watchlist_path = 
+    let watchlist_path =
       let path = Filename.temp_file "mach-watch" ".txt" in
       Out_channel.with_open_text path (fun oc ->
         List.iter (fun dir -> Buffer.output_line oc "-W"; Buffer.output_line oc dir) source_dirs);
@@ -442,17 +474,14 @@ let watch ?(build_backend=Make) script_path =
         in
         if relevant_paths <> [] then begin
           List.iter (fun p -> log_verbose "mach: file changed: %s" (Filename.basename p)) relevant_paths;
-          begin try
-            let ~state:_, ~reconfigured = build ~build_backend script_path in
+          match build ~build_backend script_path with
+          | Error (`User_error msg) -> log_verbose "mach: %s" msg
+          | Ok (~state:_, ~reconfigured) ->
             log_verbose "mach: build succeeded";
             if reconfigured then begin
               log_verbose "mach:watch: reconfigured, restarting watcher...";
               raise Restart_watcher
             end
-          with
-          | Restart_watcher -> raise Restart_watcher
-          | exn -> log_verbose "mach: build error: %s" (Printexc.to_string exn)
-          end
         end
       done
     with
@@ -460,3 +489,6 @@ let watch ?(build_backend=Make) script_path =
     | End_of_file -> cleanup (); keep_watching := false
     end
   done
+
+let watch ?(build_backend=Make) script_path =
+  catch_user_error @@ fun () -> watch_exn ~build_backend script_path
