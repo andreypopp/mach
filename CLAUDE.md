@@ -4,29 +4,17 @@
 
 **mach** is an OCaml scripting runtime that automatically handles dependencies declared via `#require "..."` directives.
 
-## Current Status
-
-Working MVP with:
-- Local `.ml` file requires (`#require "./lib.ml"`)
-- `.mli` interface file support
-- Dependency graph with cycle detection
-- Bytecode compilation via `ocamlc` and Make
-- Shebang line support (`#!/usr/bin/env mach`)
-- Each module (script and dependencies) builds in its own build directory
-- State-based caching with mtime/size checks
-- LSP support via `mach-lsp`
-- Merlin integration via `mach pp`
-
-**Not yet implemented:**
-- Directory modules (`#require "./dir"`)
-- Remote requires (`#require "https://..."`)
-
 ## Project Initialization
 
+Install `opam`:
+```bash
+bash -c "sh <(curl -fsSL https://opam.ocaml.org/install.sh)"
+```
+
+Install dependencies:
 ```bash
 make init
 ```
-will install dependencies and set up the dune project.
 
 ## Build & Test
 
