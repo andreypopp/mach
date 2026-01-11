@@ -28,8 +28,7 @@ mach run --verbose script.ml # verbose mode (logs make/ocamlc commands)
 
 mach build script.ml # build without executing
 mach configure script.ml # generate build configuration
-mach preprocess -o DIR script.ml # preprocess to output directory
-mach pp script.ml # preprocess for merlin (-pp flag)
+mach pp script.ml # preprocess source file to stdout (for merlin and build)
 
 Control build directory location via XDG_CONFIG_HOME
 ```bash
@@ -59,8 +58,7 @@ The code is organized with comment headers:
 - `(* --- Parsing and preprocessing --- *)` - Line-by-line parsing for `#require` directives
 - `(* --- State cache --- *)` - Dependency state caching (Mach_state module)
 - `(* --- Makefile generation --- *)` - Build system generation (Makefile module)
-- `(* --- Preprocess --- *)` - Module preprocessing
-- `(* --- PP (for merlin) --- *)` - Merlin preprocessor support
+- `(* --- PP (for merlin and build) --- *)` - Preprocessor support (used by both merlin and build)
 - `(* --- Configure --- *)` - Build configuration generation
 - `(* --- Build --- *)` - Build execution via Make
 

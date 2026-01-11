@@ -124,8 +124,6 @@ module Mach_state : sig
   val source_dirs : t -> string list (** list of source dirs *)
 end
 
-val preprocess : string -> string -> unit
-
 val pp : string -> unit
 
 val configure : ?build_backend:build_backend -> string -> ((state:Mach_state.t * reconfigured:bool), error) result
@@ -359,24 +357,7 @@ end
 
 type build_backend = Make | Ninja
 
-(* --- Preprocess --- *)
-
-let preprocess build_dir src_ml =
-  let src_ml = Unix.realpath src_ml in
-  let module_name = module_name_of_path src_ml in
-  let build_ml = Filename.(build_dir / module_name ^ ".ml") in
-  Out_channel.with_open_text build_ml (fun oc ->
-    In_channel.with_open_text src_ml (fun ic ->
-      preprocess_source ~source_path:src_ml oc ic));
-  Option.iter (fun src_mli ->
-    let build_mli = Filename.(build_dir / module_name ^ ".mli") in
-    Out_channel.with_open_text build_mli (fun oc ->
-      fprintf oc "# 1 %S\n" src_mli;
-      let content = In_channel.with_open_text src_mli In_channel.input_all in
-      output_string oc content)
-  ) (mli_path_of_ml_if_exists src_ml)
-
-(* --- PP (for merlin) --- *)
+(* --- PP (for merlin and build) --- *)
 
 let pp source_path =
   In_channel.with_open_text source_path (fun ic ->
@@ -405,7 +386,6 @@ let configure_backend ~build_backend state =
   let configure_ocaml_module b (m : ocaml_module) =
     let ml = Filename.(m.build_dir / m.module_name ^ ".ml") in
     let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
-    let preprocess_deps = m.ml_path :: Option.to_list m.mli_path in
     let cmd =
       match Sys.backend_type with
       | Sys.Native -> Sys.executable_name
@@ -418,8 +398,10 @@ let configure_backend ~build_backend state =
           (Filename.quote Sys.executable_name) (Filename.quote (Unix.realpath script))
       | Sys.Other _ -> user_error "mach must be run as a native/bytecode executable"
     in
-    B.rulef b ~target:ml ~deps:preprocess_deps "%s preprocess %s -o %s" cmd m.ml_path m.build_dir;
-    if Option.is_some m.mli_path then B.rule b ~target:mli ~deps:[ml] [];
+    B.rulef b ~target:ml ~deps:[m.ml_path] "%s pp %s > %s" cmd m.ml_path ml;
+    Option.iter (fun mli_path ->
+      B.rulef b ~target:mli ~deps:[mli_path] "%s pp %s > %s" cmd mli_path mli
+    ) m.mli_path;
     let args = Filename.(m.build_dir / "includes.args") in
     let recipe =
       match m.resolved_requires with
@@ -435,7 +417,7 @@ let configure_backend ~build_backend state =
     let cmi_deps = List.map (fun p -> Filename.(build_dir_of p / module_name_of_path p ^ ".cmi")) m.resolved_requires in
     match m.mli_path with
     | Some _ -> (* With .mli: compile .mli to .cmi/.cmti first (using ocamlc for speed), then .ml to .cmx *)
-      B.rulef b ~target:m.cmi ~deps:(mli :: args :: cmi_deps) "ocamlc -bin-annot -c -args %s -o %s %s" args m.cmi mli;
+      B.rulef b ~target:m.cmi ~deps:(mli :: args :: cmi_deps) "ocamlc -bin-annot -c -opaque -args %s -o %s %s" args m.cmi mli;
       B.rulef b ~target:m.cmx ~deps:[ml; m.cmi; args] "ocamlopt -bin-annot -c -args %s -cmi-file %s -o %s %s" args m.cmi m.cmx ml;
       B.rule b ~target:m.cmt ~deps:[m.cmx] []
     | None -> (* Without .mli: ocamlopt produces both .cmi and .cmx *)
@@ -6329,17 +6311,8 @@ let build_cmd =
   in
   Cmd.v info Term.(const f $ build_backend_arg $ verbose_arg $ watch_arg $ script_arg)
 
-let output_dir_arg =
-  Arg.(required & opt (some string) None & info ["o"; "output"] ~docv:"DIR"
-    ~doc:"Output directory for generated files. If not specified, uses default build directory.")
-
 let source_arg =
   Arg.(required & pos 0 (some non_dir_file) None & info [] ~docv:"SOURCE" ~doc:"OCaml source file to configure")
-
-let preprocess_cmd =
-  let doc = "Preprocess a module and generate build files" in
-  let info = Cmd.info "preprocess" ~doc in
-  Cmd.v info Term.(const preprocess $ output_dir_arg $ source_arg)
 
 let configure_cmd =
   let doc = "Generate build files for all modules in dependency graph" in
@@ -6356,7 +6329,7 @@ let cmd =
   let doc = "Run OCaml scripts with automatic dependency resolution" in
   let info = Cmd.info "mach" ~doc in
   let default = Term.(ret (const (`Help (`Pager, None)))) in
-  Cmd.group ~default info [run_cmd; build_cmd; preprocess_cmd; configure_cmd; pp_cmd]
+  Cmd.group ~default info [run_cmd; build_cmd; configure_cmd; pp_cmd]
 
 let () = exit (Cmdliner.Cmd.eval cmd)
 end
