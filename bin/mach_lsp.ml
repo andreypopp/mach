@@ -74,7 +74,7 @@ let start_lsp () =
   (* Find mach-lsp binary (ourselves) *)
   let mach_lsp_path = Unix.realpath Sys.executable_name in
   (* Set OCAML_MERLIN_BIN and exec ocamllsp *)
-  Unix.putenv "OCAML_MERLIN_BIN" mach_lsp_path;
+  Unix.putenv "OCAMLLSP_PROJECT_BUILD_SYSTEM" mach_lsp_path;
   Unix.execv ocamllsp_path [| ocamllsp_path |]
 
 (* --- CLI --- *)
