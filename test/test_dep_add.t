@@ -1,6 +1,6 @@
 Test adding a new dependency to the graph.
 
-  $ source ../env.sh
+  $ . ../env.sh
 
 Start with no dependencies:
 

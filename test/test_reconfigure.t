@@ -1,6 +1,6 @@
 Test reconfiguration optimization - only reconfigure when dependency graph changes.
 
-  $ source ../env.sh
+  $ . ../env.sh
 
 Create a simple script:
 

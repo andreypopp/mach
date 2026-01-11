@@ -1,6 +1,6 @@
 Test removing a transitive dependency.
 
-  $ source ../env.sh
+  $ . ../env.sh
 
   $ cat << 'EOF' > lib_b.ml
   > let extra = " + lib_b"

@@ -1,6 +1,6 @@
 Test removing .mli from existing module.
 
-  $ source ../env.sh
+  $ . ../env.sh
 
 Start with .mli:
 

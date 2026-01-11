@@ -1,5 +1,5 @@
 Isolate mach config to a test dir:
-  $ source ../env.sh
+  $ . ../env.sh
 
 Test MACH_BUILD_BACKEND env var:
   $ cat << 'EOF' > env_test.ml
@@ -29,9 +29,10 @@ Inspect the build dir - check for ninja files instead of Makefile:
   $ ls mach/build/*__lib.ml | sort
   includes.args
   lib.cmi
-  lib.cmo
   lib.cmt
+  lib.cmx
   lib.ml
+  lib.o
   mach.ninja
 
   $ ls mach/build/*__main.ml | sort
@@ -42,9 +43,10 @@ Inspect the build dir - check for ninja files instead of Makefile:
   includes.args
   mach.ninja
   main.cmi
-  main.cmo
   main.cmt
+  main.cmx
   main.ml
+  main.o
 
 Check build.ninja uses subninja to include the dependency:
   $ grep -q "subninja.*mach.ninja" mach/build/*__main.ml/build.ninja && echo "includes dependency"

@@ -1,5 +1,5 @@
 Test mach-lsp ocaml-merlin subcommand
-  $ source ../env.sh
+  $ . ../env.sh
 
 Setup test files:
 

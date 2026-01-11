@@ -388,7 +388,7 @@ let pp source_path =
 type ocaml_module = {
   ml_path: string;
   mli_path: string option;
-  cmo: string;
+  cmx: string;
   cmi: string;
   cmt: string;
   module_name: string;
@@ -434,28 +434,28 @@ let configure_backend ~build_backend state =
     let args = Filename.(m.build_dir / "includes.args") in
     let cmi_deps = List.map (fun p -> Filename.(build_dir_of p / module_name_of_path p ^ ".cmi")) m.resolved_requires in
     match m.mli_path with
-    | Some _ -> (* With .mli: compile .mli to .cmi/.cmti first, then .ml to .cmo/.cmt *)
+    | Some _ -> (* With .mli: compile .mli to .cmi/.cmti first (using ocamlc for speed), then .ml to .cmx *)
       B.rulef b ~target:m.cmi ~deps:(mli :: args :: cmi_deps) "ocamlc -bin-annot -c -args %s -o %s %s" args m.cmi mli;
-      B.rulef b ~target:m.cmo ~deps:[ml; m.cmi; args] "ocamlc -bin-annot -c -args %s -cmi-file %s -o %s %s" args m.cmi m.cmo ml;
-      B.rule b ~target:m.cmt ~deps:[m.cmo] []
-    | None -> (* Without .mli: current behavior *)
-      B.rulef b ~target:m.cmo ~deps:(ml :: args :: cmi_deps) "ocamlc -bin-annot -c -args %s -o %s %s" args m.cmo ml;
-      B.rule b ~target:m.cmi ~deps:[m.cmo] [];
-      B.rule b ~target:m.cmt ~deps:[m.cmo] []
+      B.rulef b ~target:m.cmx ~deps:[ml; m.cmi; args] "ocamlopt -bin-annot -c -args %s -cmi-file %s -o %s %s" args m.cmi m.cmx ml;
+      B.rule b ~target:m.cmt ~deps:[m.cmx] []
+    | None -> (* Without .mli: ocamlopt produces both .cmi and .cmx *)
+      B.rulef b ~target:m.cmx ~deps:(ml :: args :: cmi_deps) "ocamlopt -bin-annot -c -args %s -o %s %s" args m.cmx ml;
+      B.rule b ~target:m.cmi ~deps:[m.cmx] [];
+      B.rule b ~target:m.cmt ~deps:[m.cmx] []
   in
   let link_ocaml_module b (all_objs : string list) ~exe_path =
     let args = Filename.(Filename.dirname exe_path / "all_objects.args") in
     let objs_str = String.concat " " all_objs in
     B.rulef b ~target:args ~deps:all_objs "printf '%%s\\n' %s > %s" objs_str args;
-    B.rulef b ~target:exe_path ~deps:(args :: all_objs) "ocamlc -o %s -args %s" exe_path args
+    B.rulef b ~target:exe_path ~deps:(args :: all_objs) "ocamlopt -o %s -args %s" exe_path args
   in
   let modules = List.map (fun ({ml_path;mli_path;requires=resolved_requires;_} : Mach_state.entry) ->
     let module_name = module_name_of_path ml_path in
     let build_dir = build_dir_of ml_path in
-    let cmo = Filename.(build_dir / module_name ^ ".cmo") in
+    let cmx = Filename.(build_dir / module_name ^ ".cmx") in
     let cmi = Filename.(build_dir / module_name ^ ".cmi") in
     let cmt = Filename.(build_dir / module_name ^ ".cmt") in
-    { ml_path; mli_path; module_name; build_dir; resolved_requires;cmo;cmi;cmt; }
+    { ml_path; mli_path; module_name; build_dir; resolved_requires;cmx;cmi;cmt; }
   ) state.Mach_state.entries in
   (* Generate per-module build files *)
   List.iter (fun (m : ocaml_module) ->
@@ -469,7 +469,7 @@ let configure_backend ~build_backend state =
   ) modules;
   (* Generate root build file *)
   let exe_path = Mach_state.exe_path state in
-  let all_objs = List.map (fun m -> m.cmo) modules in
+  let all_objs = List.map (fun m -> m.cmx) modules in
   write_file Filename.(build_dir_of state.root.ml_path / root_file) (
     let b = B.create () in
     List.iter (fun entry ->

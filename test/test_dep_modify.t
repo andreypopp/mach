@@ -1,6 +1,6 @@
 Test modifying a dependency.
 
-  $ source ../env.sh
+  $ . ../env.sh
 
   $ cat << 'EOF' > lib.ml
   > let version = "v1"

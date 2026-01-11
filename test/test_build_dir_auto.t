@@ -11,7 +11,7 @@ Test auto-derived build directory (uses script path to derive build dir location
 
 Set XDG_CONFIG_HOME to control where build directory is created:
 
-  $ source ../env.sh
+  $ . ../env.sh
 
 First run - creates build directory:
 
@@ -26,9 +26,10 @@ Check that build directory was created (path contains normalized script path wit
   all_objects.args
   includes.args
   main.cmi
-  main.cmo
   main.cmt
+  main.cmx
   main.ml
+  main.o
 
 Second run - reuses the same build directory:
 
@@ -43,6 +44,7 @@ Verify build artifacts exist in the auto-derived directory:
   all_objects.args
   includes.args
   main.cmi
-  main.cmo
   main.cmt
+  main.cmx
   main.ml
+  main.o

@@ -1,6 +1,6 @@
 Test replacing a dependency with another.
 
-  $ source ../env.sh
+  $ . ../env.sh
 
   $ cat << 'EOF' > old_lib.ml
   > let name = "old"

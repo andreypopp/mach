@@ -1,6 +1,6 @@
 Test removing a dependency from the graph.
 
-  $ source ../env.sh
+  $ . ../env.sh
 
 Start with a dependency:
 
