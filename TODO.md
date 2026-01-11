@@ -1,5 +1,42 @@
 # TODO
 
+## Fix shell completion for `mach` command
+
+Right now completions don't work correctly for script arguments. Need to
+configure terms to have completion of type `file`. See `Cmdliner` docs for
+that.
+
+## Add `mach lsp` subcommand
+
+The new subcommand `mach lsp` should call into `mach-lsp` executable (if
+avaialble), if not - it should suggest to install `mach-lsp` opam package.
+
+## Overhaul error reporting
+
+There are cases where we just use `failwith` for error reporting. Need to
+analyze these and for cases where the error is a user error — we should report
+them nicely.
+
+I think within `mach_lib.ml` we can use an exception `Mach_user_error of
+string` but functions exposed outside should catch those and convert them to
+``('a, `Msg string) result`` values.
+
+Then `bin/mach.ml` should handle those errors and print them nicely to stderr
+and exit with code 1.
+
+## Switch to compiling native executables
+
+For `.cmi` we still can use `ocamlc` (for speed) but instead of `.cmo` we
+should compile to `.cmx` and then link to native executable.
+
+## Unify `mach preprocess` and `mach pp`
+
+## Optimise reconfiguration: .mli addition/removal should reconfigure a single module only
+
+## Optimise reconfiguration: do not reconfigure unaffected modules
+
+## Optimise reconfiguration: do not drop build dir on reconfiguration
+
 ## Support passing -H hidden includes args when compiling
 
 ## Implement libraries (see README.md)
