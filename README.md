@@ -43,9 +43,18 @@ rebuilds on changes. Requires `watchexec` program to be available.
 `mach-lsp` starts a language server for OCaml that works with `mach` scripts
 and libraries. The `ocamllsp` program must be available.
 
+## Consuming installed (opam/ocamlfind) libraries
+
+It is possible to depend on libraries available through `ocamlfind` (usually
+installed with `opam`). This is done through the `#require` directive which
+mention library name:
+```ocaml
+#require "lwt"  (* Makes Lwt module available *)
+```
+
 ## TODO: Libraries
 
-It is also possible to define and build OCaml libraries with `mach`.
+It is also to define and build OCaml libraries with `mach`.
 
 A library is a directory containing a `Machlib` file and an assorted set of
 OCaml source files. All source files in the directory are part of the library.
@@ -55,14 +64,6 @@ Consuming libraries is done through the `#require ".."` directive (as above)
 where the path is the path to the library directory:
 
     #require "./path/to/mylib"  (* Makes Mylib module available *)
-
-## TODO: Libraries from ocamlfind/opam
-
-It is possible to depend on libraries available through `ocamlfind` (usually
-installed with `opam`):
-```ocaml
-#require "lwt"  (* Makes Lwt module available *)
-```
 
 ## TODO: Preprocessing with PPX
 
