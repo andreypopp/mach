@@ -32,9 +32,9 @@ Test that output contains FLG, S, B, and CMT directives:
 Test that we get S and B for all dependencies (main.ml and lib.ml = 2 each):
 
   $ printf '(4:File7:main.ml)' | mach-lsp ocaml-merlin 2>/dev/null | grep -o '1:S' | wc -l | tr -d ' '
-  3
-  $ printf '(4:File7:main.ml)' | mach-lsp ocaml-merlin 2>/dev/null | grep -o '1:B' | wc -l | tr -d ' '
   2
+  $ printf '(4:File7:main.ml)' | mach-lsp ocaml-merlin 2>/dev/null | grep -o '1:B' | wc -l | tr -d ' '
+  1
 
 Test Halt command exits cleanly:
 

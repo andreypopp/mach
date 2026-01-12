@@ -8,6 +8,8 @@ type build_backend = Make | Ninja
 
 val build_dir_of : string -> string
 
+val extract_requires : string -> (requires:string list * libs:string list, error) result
+
 module Mach_state : sig
   type file_stat = { mtime : int; size : int }
 

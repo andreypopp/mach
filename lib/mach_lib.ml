@@ -103,12 +103,15 @@ let is_require_path s =
     String.starts_with ~prefix:"./" s ||
     String.starts_with ~prefix:"../" s)
 
-let extract_requires source_path : requires:string list * libs:string list =
+let extract_requires_exn source_path : requires:string list * libs:string list =
   let rec parse line_num (~requires, ~libs) ic =
     match In_channel.input_line ic with
     | Some line when is_shebang line -> parse (line_num + 1) (~requires, ~libs) ic
     | Some line when is_directive line ->
-      let req = Scanf.sscanf line "#require %S%_s" Fun.id in
+      let req =
+        try Scanf.sscanf line "#require %S%_s" Fun.id
+        with Scanf.Scan_failure _ | End_of_file -> user_error (sprintf "%s:%d: invalid #require directive" source_path line_num)
+      in
       if is_require_path req then
         let requires = resolve_require ~source_path ~line:line_num req::requires in
         parse (line_num + 1) (~requires, ~libs) ic
@@ -118,6 +121,9 @@ let extract_requires source_path : requires:string list * libs:string list =
     | None | Some _ -> ~requires:(List.rev requires), ~libs:(List.rev libs)
   in
   In_channel.with_open_text source_path (parse 1 (~requires:[], ~libs:[]))
+
+let extract_requires source_path =
+  catch_user_error @@ fun () -> extract_requires_exn source_path
 
 let preprocess_source ~source_path oc ic =
   fprintf oc "# 1 %S\n" source_path;
@@ -262,7 +268,7 @@ end = struct
           else
             if not (equal_file_state (file_stat entry.ml_path) entry.ml_stat)
             then
-              let ~requires, ~libs = extract_requires entry.ml_path in
+              let ~requires, ~libs = extract_requires_exn entry.ml_path in
               if requires <> entry.requires || libs <> entry.libs
               then (log_very_verbose "mach:state: requires/libs changed, need reconfigure"; true)
               else false
@@ -278,7 +284,7 @@ end = struct
       if Hashtbl.mem visited ml_path then ()
       else begin
         Hashtbl.add visited ml_path ();
-        let ~requires, ~libs = extract_requires ml_path in
+        let ~requires, ~libs = extract_requires_exn ml_path in
         List.iter dfs requires;
         let mli_path = mli_path_of_ml_if_exists ml_path in
         let mli_stat = Option.map file_stat mli_path in

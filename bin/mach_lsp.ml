@@ -8,61 +8,51 @@ open Mach_lib
 module Merlin_server = struct
   module Protocol = Merlin_dot_protocol.Blocking
 
-  (* Query ocamlfind for library include paths *)
-  let query_lib_includes libs =
-    if libs = [] then []
-    else
-      let libs_str = String.concat " " libs in
-      let cmd = sprintf "ocamlfind query -format '%%d' -recursive %s 2>/dev/null" libs_str in
-      let ic = Unix.open_process_in cmd in
+  (* parses lines -I=<dir> *)
+  let parse_includes_args filename =
+    if not (Sys.file_exists filename) then []
+    else In_channel.with_open_text filename (fun ic ->
       let rec read_lines acc =
         match In_channel.input_line ic with
         | None -> List.rev acc
-        | Some line -> read_lines (line :: acc)
+        | Some line ->
+          read_lines @@
+            if String.starts_with line ~prefix:"-I="
+            then String.sub line 3 (String.length line - 3) :: acc
+            else acc
       in
-      let paths = read_lines [] in
-      ignore (Unix.close_process_in ic);
-      paths
+      read_lines [])
 
   let directives_for_file path : Merlin_dot_protocol.directive list =
     try
       let path = Unix.realpath path in
       let build_dir = build_dir_of path in
-      let state_path = Filename.concat build_dir "Mach.state" in
-      let state =
-        match Mach_state.read state_path with
-        | Some st -> Ok st
-        | None -> Error "please run 'mach build SCRIPT' first"
-      in
-      match state with
-      | Error msg -> [`ERROR_MSG msg]
-      | Ok state ->
+      match extract_requires path with
+      | Error `User_error msg -> [`ERROR_MSG msg]
+      | Ok (~requires, ~libs:_) ->
+      let dep_dirs = parse_includes_args (Filename.concat build_dir "includes.args") in
+      let lib_dirs = parse_includes_args (Filename.concat build_dir "lib_includes.args") in
       let directives = [] in
       let directives =
-        List.fold_left
-          (fun directives source_dir -> (`S source_dir)::directives)
-          directives (Mach_state.source_dirs state)
-      in
-      (* Add -I flags for ocamlfind libraries *)
-      let lib_paths = query_lib_includes (Mach_state.all_libs state) in
-      let directives =
-        if lib_paths = [] then directives
+        if lib_dirs = [] then directives
         else
-          let lib_flags = List.concat_map (fun p -> ["-I"; p]) lib_paths in
+          let lib_flags = List.concat_map (fun p -> ["-I"; p]) lib_dirs in
           (`FLG lib_flags) :: directives
       in
       let directives =
-        List.fold_left (fun directives (entry : Mach_state.entry) ->
-          let build_dir = build_dir_of entry.ml_path in
-          let source_dir = Filename.dirname entry.ml_path in
-          (* Add -I flags for each dependency's build directory *)
-          let include_flags = List.map (fun dep -> "-I" :: build_dir_of dep :: []) entry.requires in
-          let include_flags = List.flatten include_flags in
-          let directives = `CMT build_dir :: `B build_dir :: `S source_dir :: directives in
+        List.fold_left (fun directives (dep_dir : string) ->
+          let include_flags = ["-I"; dep_dir] in
+          let directives = `CMT build_dir :: `B build_dir :: directives in
           let directives = if include_flags = [] then directives else (`FLG include_flags)::directives in
           directives
-        ) directives state.entries
+        ) directives dep_dirs
       in
+      let directives =
+        List.fold_left (fun directives require ->
+          `S (Filename.dirname require)::directives
+        ) directives requires
+      in
+      let directives = `S (Filename.dirname path) :: directives in
       `FLG ["-pp"; "mach pp"] :: directives
     with
     | Failure msg -> [`ERROR_MSG msg]
