@@ -10,6 +10,14 @@
 
 ## Support passing -H hidden includes args when compiling
 
+## [DONE] Environment configuration
+
+Tasks:
+- make `$MACH_HOME` default to `$XDG_STATE_HOME/mach` if not set
+- make dir with builds go to `$MACH_HOME/_mach/build/`
+- remove `--build-dir` option and instead allow to have `$MACH_HOME/Mach` file which can set `--build-backend` option
+- in absence of `$MACH_HOME` env var, find `Mach` in the current directory or any parent directory (like git)
+
 ## [DONE] More reconfiguration fixes
 
 We need to also reconfigure when

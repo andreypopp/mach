@@ -26,7 +26,11 @@ module Merlin_server = struct
   let directives_for_file path : Merlin_dot_protocol.directive list =
     try
       let path = Unix.realpath path in
-      let build_dir = build_dir_of path in
+      let config = match Mach_config.get () with
+        | Ok config -> config
+        | Error (`User_error msg) -> raise (Failure msg)
+      in
+      let build_dir = Mach_config.build_dir_of config path in
       match extract_requires path with
       | Error `User_error msg -> [`ERROR_MSG msg]
       | Ok (~requires, ~libs:_) ->

@@ -23,7 +23,7 @@ Start with .mli:
 
 Check .mli is in build dir:
 
-  $ ls mach/build/*__lib.ml/*.mli | xargs basename
+  $ ls _mach/build/*__lib.ml/*.mli | xargs basename
   lib.mli
 
   $ sleep 1
@@ -46,5 +46,5 @@ Should work now that internal is accessible:
 
 Check .mli was removed from build dir:
 
-  $ test -f mach/build/*__lib.ml/lib.mli && echo "mli exists" || echo "mli removed"
+  $ test -f _mach/build/*__lib.ml/lib.mli && echo "mli exists" || echo "mli removed"
   mli removed

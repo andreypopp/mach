@@ -8,7 +8,7 @@
   $ mach run ./myscript.ml
   Hello from shebang script!
 
-  $ ls mach/build/*myscript.ml/ | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
+  $ ls _mach/build/*myscript.ml/ | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
   Mach.state
   a.out
   all_objects.args

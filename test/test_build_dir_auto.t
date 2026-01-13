@@ -20,7 +20,7 @@ First run - creates build directory:
 
 Check that build directory was created (path contains normalized script path with __):
 
-  $ ls mach/build/*main.ml/ | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
+  $ ls _mach/build/*main.ml/ | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
   Mach.state
   a.out
   all_objects.args
@@ -38,7 +38,7 @@ Second run - reuses the same build directory:
 
 Verify build artifacts exist in the auto-derived directory:
 
-  $ ls mach/build/*main.ml/ | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
+  $ ls _mach/build/*main.ml/ | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
   Mach.state
   a.out
   all_objects.args

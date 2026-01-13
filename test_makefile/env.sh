@@ -1,2 +1,4 @@
-export MACH_BUILD_BACKEND=make
-export MACH_HOME=$PWD/mach
+export MACH_HOME="$PWD"
+cat > Mach << 'EOF'
+build-backend "make"
+EOF

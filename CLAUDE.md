@@ -29,11 +29,24 @@ mach run --verbose script.ml # verbose mode (logs make/ocamlc commands)
 mach build script.ml # build without executing
 mach configure script.ml # generate build configuration
 mach pp script.ml # preprocess source file to stdout (for merlin and build)
-
-Control build directory location via XDG_CONFIG_HOME
-```bash
-XDG_CONFIG_HOME=/custom/path mach run script.ml # build artifacts go to /custom/path/mach/build/<normalized-path>/
 ```
+
+### Configuration
+
+mach discovers configuration via:
+1. `$MACH_HOME` environment variable (if set)
+2. Walk up from cwd to find a `Mach` config file (like git finds `.git`)
+3. Fall back to `$XDG_STATE_HOME/mach` (default: `~/.local/state/mach`)
+
+When `MACH_HOME` is set or discovered, mach looks for a `Mach` file there to read settings.
+
+**Mach config file format** (`$MACH_HOME/Mach`):
+```
+build-backend "ninja"
+```
+
+Supported keys:
+- `build-backend` - Build system to use: `"make"` (default) or `"ninja"`
 
 ### mach-lsp
 
@@ -48,8 +61,11 @@ mach-lsp ocaml-merlin # merlin server mode (called by ocamllsp)
 
 Split across multiple files:
 - `bin/mach.ml` (~65 lines) - CLI entry point
-- `lib/mach_lib.ml` (~330 lines) - core implementation
+- `lib/mach_config.ml` (~95 lines) - configuration discovery and parsing
+- `lib/mach_lib.ml` (~500 lines) - core implementation
 - `bin/mach_lsp.ml` (~90 lines) - LSP/merlin support
+
+The library uses `(wrapped false)` so modules are accessed directly (e.g., `Mach_config`, `Mach_lib`).
 
 ### Code Sections (lib/mach_lib.ml)
 
@@ -72,7 +88,7 @@ The code is organized with comment headers:
 ### Build Directories
 
 - Each module (script and dependencies) has its own build directory
-- **Location**: `~/.config/mach/build/<normalized-path>/`
+- **Location**: `$MACH_HOME/_mach/build/<normalized-path>/`
 - **Normalized path**: Source path with `/` replaced by `__`
 - **State file**: `Mach.state` tracks file mtimes/sizes for cache invalidation
 - **Build files**: `Makefile` (root), `mach.mk` (per-module), `includes.args`, `all_objects.args`
@@ -85,19 +101,22 @@ The code is organized with comment headers:
 
 ```
 bin/
-  mach.ml      -- CLI entry point
-  mach_lsp.ml  -- LSP/merlin support
+  mach.ml        -- CLI entry point
+  mach_lsp.ml    -- LSP/merlin support
   dune
 lib/
-  mach_lib.ml  -- core implementation
+  mach_config.ml  -- configuration discovery and parsing
+  mach_config.mli -- config interface
+  mach_lib.ml     -- core implementation
+  mach_lib.mli    -- core interface
   dune
 test/
   test_*.t     -- cram test case files, add test to this dir
 test_makefile/ -- tests for Makefile build backend
-  env.sh       -- environment setup for tests
+  env.sh       -- environment setup for tests (sets MACH_HOME, creates Mach config)
   tests/       -- symlink to ../test/
 test_ninja/    -- tests for ninja build backend
-  env.sh       -- environment setup for tests
+  env.sh       -- environment setup for tests (sets MACH_HOME, creates Mach config)
   tests/       -- symlink to ../test/
 plans/         -- implementation plans
 ```

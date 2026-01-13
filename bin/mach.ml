@@ -8,10 +8,11 @@ let or_exit = function
     Printf.eprintf "mach: %s\n%!" msg;
     exit 1
 
-let run build_backend verbose script_path args =
+let run verbose script_path args =
   Mach_lib.verbose := verbose;
-  let ~state, ~reconfigured:_ = build ~build_backend script_path |> or_exit in
-  let exe_path = Mach_state.exe_path state in
+  let config = Mach_config.get () |> or_exit in
+  let ~state, ~reconfigured:_ = build config script_path |> or_exit in
+  let exe_path = Mach_state.exe_path config state in
   let argv = Array.of_list (exe_path :: args) in
   Unix.execv exe_path argv
 
@@ -24,12 +25,6 @@ let verbose_arg =
     const (function [] -> Quiet | [_] -> Verbose | _::_::[] -> Very_verbose | _ -> Very_very_verbose)
     $ Arg.(value & flag_all & info ["v"; "verbose"] ~doc:"Log external command invocations to stderr."))
 
-let build_backend_arg =
-  let doc = "Build backend to use: 'make' (default) or 'ninja'. \
-             Can also be set via MACH_BUILD_BACKEND environment variable." in
-  let env = Cmd.Env.info "MACH_BUILD_BACKEND" in
-  Arg.(value & opt (enum ["make", Make; "ninja", Ninja]) Make & info ["build-backend"] ~env ~doc)
-
 let script_arg =
   Arg.(required & pos 0 (some non_dir_file) None & info [] ~docv:"SCRIPT" ~doc:"OCaml script to run")
 
@@ -39,7 +34,7 @@ let args_arg =
 let run_cmd =
   let doc = "Run an OCaml script" in
   let info = Cmd.info "run" ~doc in
-  Cmd.v info Term.(const run $ build_backend_arg $ verbose_arg $ script_arg $ args_arg)
+  Cmd.v info Term.(const run $ verbose_arg $ script_arg $ args_arg)
 
 let watch_arg =
   Arg.(value & flag & info ["w"; "watch"]
@@ -48,12 +43,13 @@ let watch_arg =
 let build_cmd =
   let doc = "Build an OCaml script without executing it" in
   let info = Cmd.info "build" ~doc in
-  let f build_backend verbose watch script_path =
+  let f verbose watch script_path =
     Mach_lib.verbose := verbose;
-    if watch then Mach_lib.watch ~build_backend script_path |> or_exit
-    else build ~build_backend script_path |> or_exit |> ignore
+    let config = Mach_config.get () |> or_exit in
+    if watch then Mach_lib.watch config script_path |> or_exit
+    else build config script_path |> or_exit |> ignore
   in
-  Cmd.v info Term.(const f $ build_backend_arg $ verbose_arg $ watch_arg $ script_arg)
+  Cmd.v info Term.(const f $ verbose_arg $ watch_arg $ script_arg)
 
 let source_arg =
   Arg.(required & pos 0 (some non_dir_file) None & info [] ~docv:"SOURCE" ~doc:"OCaml source file to configure")
@@ -61,8 +57,11 @@ let source_arg =
 let configure_cmd =
   let doc = "Generate build files for all modules in dependency graph" in
   let info = Cmd.info "configure" ~doc in
-  let f build_backend path = configure ~build_backend path |> or_exit |> ignore in
-  Cmd.v info Term.(const f $ build_backend_arg $ source_arg)
+  let f path =
+    let config = Mach_config.get () |> or_exit in
+    configure config path |> or_exit |> ignore
+  in
+  Cmd.v info Term.(const f $ source_arg)
 
 let pp_cmd =
   let doc = "Preprocess source file to stdout (for use with merlin -pp)" in

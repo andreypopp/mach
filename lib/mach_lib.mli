@@ -4,10 +4,6 @@ type verbose = Quiet | Verbose | Very_verbose | Very_very_verbose
 
 val verbose : verbose ref
 
-type build_backend = Make | Ninja
-
-val build_dir_of : string -> string
-
 val extract_requires : string -> (requires:string list * libs:string list, error) result
 
 module Mach_state : sig
@@ -22,15 +18,15 @@ module Mach_state : sig
     libs : string list;
   }
 
-  type metadata = { build_backend : build_backend; mach_path : string }
+  type metadata = { build_backend : Mach_config.build_backend; mach_path : string }
 
   type t = { metadata : metadata; root : entry; entries : entry list }
 
   val read : string -> t option
 
-  val collect : build_backend:build_backend -> mach_path:string -> string -> (t, error) result
+  val collect : build_backend:Mach_config.build_backend -> mach_path:string -> string -> (t, error) result
 
-  val exe_path : t -> string (** exe_path *)
+  val exe_path : Mach_config.t -> t -> string (** exe_path *)
 
   val source_dirs : t -> string list (** list of source dirs *)
 
@@ -39,8 +35,8 @@ end
 
 val pp : string -> unit
 
-val configure : ?build_backend:build_backend -> string -> ((state:Mach_state.t * reconfigured:bool), error) result
+val configure : Mach_config.t -> string -> ((state:Mach_state.t * reconfigured:bool), error) result
 
-val build : ?build_backend:build_backend -> string -> ((state:Mach_state.t * reconfigured:bool), error) result
+val build : Mach_config.t -> string -> ((state:Mach_state.t * reconfigured:bool), error) result
 
-val watch : ?build_backend:build_backend -> string -> (unit, error) result
+val watch : Mach_config.t -> string -> (unit, error) result

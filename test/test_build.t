@@ -9,9 +9,9 @@ Build without running:
   $ mach build ./hello.ml
 
 Check the executable was created:
-  $ test -f mach/build/*__hello.ml/a.out && echo "exists"
+  $ test -f _mach/build/*__hello.ml/a.out && echo "exists"
   exists
 
 Run the executable manually:
-  $ mach/build/*__hello.ml/a.out
+  $ _mach/build/*__hello.ml/a.out
   hello

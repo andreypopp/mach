@@ -91,16 +91,138 @@ let rule_phony buf ~target ~deps =
   bprintf buf ".PHONY: %s\n" target;
   rule buf ~target ~deps []
 end
+module Mach_config : sig
+(** Mach configuration discovery and parsing *)
+
+(** Build backend type *)
+type build_backend = Make | Ninja
+
+val string_of_build_backend : build_backend -> string
+val build_backend_of_string : string -> build_backend
+
+type error = [`User_error of string]
+
+(** Mach configuration *)
+type t = {
+  home : string;
+  build_backend : build_backend;
+}
+
+(** Get the current configuration.
+    Resolution order:
+    1. $MACH_HOME env var if set
+    2. Walk up from cwd to find Mach file
+    3. Fall back to $XDG_STATE_HOME/mach (or ~/.local/state/mach) *)
+val get : unit -> (t, error) result
+
+(** Get build directory for a script path *)
+val build_dir_of : t -> string -> string
+end = struct
+(* mach_config - Mach configuration discovery and parsing *)
+
+open Printf
+
+module Filename = struct
+  include Filename
+  let (/) = concat
+end
+
+(* --- Build backend types --- *)
+
+type build_backend = Make | Ninja
+
+let string_of_build_backend = function Make -> "make" | Ninja -> "ninja"
+let build_backend_of_string = function
+  | "make" -> Make
+  | "ninja" -> Ninja
+  | s -> failwith (sprintf "unknown build backend: %s" s)
+
+(* --- Config type and parsing --- *)
+
+type error = [`User_error of string]
+
+type t = {
+  home: string;
+  build_backend: build_backend;
+}
+
+let default_build_backend = Make
+
+let parse_file path =
+  In_channel.with_open_text path (fun ic ->
+    let rec loop build_backend line_num =
+      match In_channel.input_line ic with
+      | None -> Ok build_backend
+      | Some line ->
+        let line = String.trim line in
+        if line = "" || String.starts_with ~prefix:"#" line then
+          loop build_backend (line_num + 1)
+        else
+          match Scanf.sscanf_opt line "%s %S" (fun k v -> k, v) with
+          | None ->
+            Error (`User_error (sprintf "%s:%d: malformed line" path line_num))
+          | Some (key, value) ->
+            match key with
+            | "build-backend" ->
+              (try
+                let build_backend = build_backend_of_string value in
+                loop build_backend (line_num + 1)
+              with Failure msg ->
+                Error (`User_error (sprintf "%s:%d: %s" path line_num msg)))
+            | _ ->
+              Error (`User_error (sprintf "%s:%d: unknown key: %s" path line_num key))
+    in
+    loop default_build_backend 1)
+
+let find_mach_config () =
+  let rec search dir =
+    let mach_path = Filename.(dir / "Mach") in
+    if Sys.file_exists mach_path then Some (dir, mach_path)
+    else
+      let parent = Filename.dirname dir in
+      if parent = dir then None
+      else search parent
+  in
+  search (Sys.getcwd ())
+
+let make_config home =
+  let mach_path = Filename.(home / "Mach") in
+  if Sys.file_exists mach_path then
+    match parse_file mach_path with
+    | Ok build_backend -> Ok { home; build_backend }
+    | Error _ as err -> err
+  else
+    Ok { home; build_backend = default_build_backend }
+
+let config =
+  lazy (
+    match Sys.getenv_opt "MACH_HOME" with
+    | Some home -> make_config home
+    | None ->
+      match find_mach_config () with
+      | Some (home, mach_path) ->
+        (match parse_file mach_path with
+        | Ok build_backend -> Ok { home; build_backend }
+        | Error _ as err -> err)
+      | None ->
+        let home = match Sys.getenv_opt "XDG_STATE_HOME" with
+          | Some xdg -> Filename.(xdg / "mach")
+          | None -> Filename.(Sys.getenv "HOME" / ".local" / "state" / "mach")
+        in
+        make_config home)
+
+let get () = Lazy.force config
+
+let build_dir_of config script_path =
+  let normalized = String.split_on_char '/' script_path |> String.concat "__" in
+  Filename.(config.home / "_mach" / "build" / normalized)
+end
 module Mach_lib : sig
 type error = [`User_error of string]
 
 type verbose = Quiet | Verbose | Very_verbose | Very_very_verbose
 
 val verbose : verbose ref
-
-type build_backend = Make | Ninja
-
-val build_dir_of : string -> string
 
 val extract_requires : string -> (requires:string list * libs:string list, error) result
 
@@ -116,15 +238,15 @@ module Mach_state : sig
     libs : string list;
   }
 
-  type metadata = { build_backend : build_backend; mach_path : string }
+  type metadata = { build_backend : Mach_config.build_backend; mach_path : string }
 
   type t = { metadata : metadata; root : entry; entries : entry list }
 
   val read : string -> t option
 
-  val collect : build_backend:build_backend -> mach_path:string -> string -> (t, error) result
+  val collect : build_backend:Mach_config.build_backend -> mach_path:string -> string -> (t, error) result
 
-  val exe_path : t -> string (** exe_path *)
+  val exe_path : Mach_config.t -> t -> string (** exe_path *)
 
   val source_dirs : t -> string list (** list of source dirs *)
 
@@ -133,16 +255,19 @@ end
 
 val pp : string -> unit
 
-val configure : ?build_backend:build_backend -> string -> ((state:Mach_state.t * reconfigured:bool), error) result
+val configure : Mach_config.t -> string -> ((state:Mach_state.t * reconfigured:bool), error) result
 
-val build : ?build_backend:build_backend -> string -> ((state:Mach_state.t * reconfigured:bool), error) result
+val build : Mach_config.t -> string -> ((state:Mach_state.t * reconfigured:bool), error) result
 
-val watch : ?build_backend:build_backend -> string -> (unit, error) result
+val watch : Mach_config.t -> string -> (unit, error) result
 end = struct
 (* mach_lib - Shared code for mach and mach-lsp *)
 
 (* --- User error handling --- *)
 
+(** Used only internally, do not expose outside this module, all functions
+    which raise such exception must convert to `('a, error) result` returning
+    functions before exposing them to public API. *)
 exception Mach_user_error of string
 
 let user_error msg = raise (Mach_user_error msg)
@@ -174,17 +299,6 @@ module Buffer = struct
   include Buffer
   let output_line oc line = output_string oc line; output_char oc '\n'
 end
-
-let config_dir =
-  lazy (
-    match Sys.getenv_opt "MACH_HOME" with
-    | Some dir -> dir
-    | None -> Filename.(Sys.getenv "HOME" / ".cache" / "mach"))
-let config_dir () = Lazy.force config_dir
-
-let build_dir_of script_path =
-  let normalized = String.split_on_char '/' script_path |> String.concat "__" in
-  Filename.(config_dir () / "build" / normalized)
 
 let module_name_of_path path = Filename.(basename path |> remove_extension)
 
@@ -277,12 +391,12 @@ let preprocess_source ~source_path oc ic =
   in
   loop true
 
-(* --- Build backend types --- *)
+(* --- Build backend types (re-exported from Mach_config) --- *)
 
-type build_backend = Make | Ninja
+type build_backend = Mach_config.build_backend = Make | Ninja
 
-let string_of_build_backend = function Make -> "make" | Ninja -> "ninja"
-let build_backend_of_string = function "make" -> Make | "ninja" -> Ninja | s -> failwithf "unknown build backend: %s" s
+let string_of_build_backend = Mach_config.string_of_build_backend
+let build_backend_of_string = Mach_config.build_backend_of_string
 
 (* --- State cache --- *)
 
@@ -298,7 +412,7 @@ module Mach_state : sig
   val collect_exn : build_backend:build_backend -> mach_path:string -> string -> t
   val collect : build_backend:build_backend -> mach_path:string -> string -> (t, error) result
 
-  val exe_path : t -> string (** executable path *)
+  val exe_path : Mach_config.t -> t -> string (** executable path *)
 
   val source_dirs : t -> string list (** list of source dirs *)
 
@@ -311,7 +425,7 @@ end = struct
   type metadata = { build_backend: build_backend; mach_path: string }
   type t = { metadata: metadata; root: entry; entries: entry list }  (* topo-sorted: dependencies first, root last *)
 
-  let exe_path t = Filename.(build_dir_of t.root.ml_path / "a.out")
+  let exe_path config t = Filename.(Mach_config.build_dir_of config t.root.ml_path / "a.out")
 
   let source_dirs state =
     let seen = Hashtbl.create 16 in
@@ -461,7 +575,9 @@ type ocaml_module = {
   libs: string list;  (* ocamlfind library names *)
 }
 
-let configure_backend ~build_backend state =
+let configure_backend config state =
+  let build_backend = config.Mach_config.build_backend in
+  let build_dir_of = Mach_config.build_dir_of config in
   let (module B : S.BUILD), module_file, root_file =
     match build_backend with
     | Make -> (module Makefile), "mach.mk", "Makefile"
@@ -541,7 +657,7 @@ let configure_backend ~build_backend state =
       B.contents b)
   ) modules;
   (* Generate root build file *)
-  let exe_path = Mach_state.exe_path state in
+  let exe_path = Mach_state.exe_path config state in
   let all_objs = List.map (fun m -> m.cmx) modules in
   let all_libs = Mach_state.all_libs state in
   write_file Filename.(build_dir_of state.root.ml_path / root_file) (
@@ -553,7 +669,9 @@ let configure_backend ~build_backend state =
     B.contents b
   )
 
-let configure_exn ?(build_backend=Make) source_path =
+let configure_exn config source_path =
+  let build_backend = config.Mach_config.build_backend in
+  let build_dir_of = Mach_config.build_dir_of config in
   let source_path = Unix.realpath source_path in
   let build_dir = build_dir_of source_path in
   let state_path = Filename.(build_dir / "Mach.state") in
@@ -572,20 +690,21 @@ let configure_exn ?(build_backend=Make) source_path =
     log_verbose "mach: configuring...";
     List.iter (fun entry -> rm_rf (build_dir_of entry.Mach_state.ml_path)) state.entries;
     mkdir_p build_dir;
-    configure_backend ~build_backend state;
+    configure_backend config state;
     Mach_state.write state_path state
   end;
   ~state, ~reconfigured:needs_reconfigure
 
-let configure ?(build_backend=Make) source_path =
-  catch_user_error @@ fun () -> configure_exn ~build_backend source_path
+let configure config source_path =
+  catch_user_error @@ fun () -> configure_exn config source_path
 
 (* --- Build --- *)
 
-let build_exn ?(build_backend=Make) script_path =
-  let ~state, ~reconfigured = configure_exn ~build_backend script_path in
+let build_exn config script_path =
+  let build_dir_of = Mach_config.build_dir_of config in
+  let ~state, ~reconfigured = configure_exn config script_path in
   log_verbose "mach: building...";
-  let cmd = match build_backend with
+  let cmd = match config.Mach_config.build_backend with
     | Make -> if !verbose = Very_very_verbose then "make all" else "make -s all"
     | Ninja -> if !verbose = Very_very_verbose then "ninja -v" else "ninja --quiet"
   in
@@ -594,8 +713,8 @@ let build_exn ?(build_backend=Make) script_path =
   if Sys.command cmd <> 0 then user_error "build failed";
   ~state, ~reconfigured
 
-let build ?(build_backend=Make) script_path =
-  catch_user_error @@ fun () -> build_exn ~build_backend script_path
+let build config script_path =
+  catch_user_error @@ fun () -> build_exn config script_path
 
 (* --- Watch mode --- *)
 
@@ -623,7 +742,8 @@ let read_events ic =
   in
   loop ()
 
-let watch_exn ?(build_backend=Make) script_path =
+let watch_exn config script_path =
+  let build_dir_of = Mach_config.build_dir_of config in
   let exception Restart_watcher in
   let code = Sys.command "command -v watchexec > /dev/null 2>&1" in
   if code <> 0 then
@@ -631,7 +751,7 @@ let watch_exn ?(build_backend=Make) script_path =
   let script_path = Unix.realpath script_path in
 
   log_verbose "mach: initial build...";
-  let ~state:_, ~reconfigured:_ = build_exn ~build_backend script_path in
+  let ~state:_, ~reconfigured:_ = build_exn config script_path in
 
   (* Track current state for signal handling and cleanup *)
   let current_process = ref None in
@@ -685,7 +805,7 @@ let watch_exn ?(build_backend=Make) script_path =
         in
         if relevant_paths <> [] then begin
           List.iter (fun p -> log_verbose "mach: file changed: %s" (Filename.basename p)) relevant_paths;
-          match build ~build_backend script_path with
+          match build config script_path with
           | Error (`User_error msg) -> log_verbose "mach: %s" msg
           | Ok (~state:_, ~reconfigured) ->
             eprintf "mach: build succeeded\n%!";
@@ -701,8 +821,8 @@ let watch_exn ?(build_backend=Make) script_path =
     end
   done
 
-let watch ?(build_backend=Make) script_path =
-  catch_user_error @@ fun () -> watch_exn ~build_backend script_path
+let watch config script_path =
+  catch_user_error @@ fun () -> watch_exn config script_path
 end
 include Mach_lib
 end
@@ -6357,10 +6477,11 @@ let or_exit = function
     Printf.eprintf "mach: %s\n%!" msg;
     exit 1
 
-let run build_backend verbose script_path args =
+let run verbose script_path args =
   Mach_lib.verbose := verbose;
-  let ~state, ~reconfigured:_ = build ~build_backend script_path |> or_exit in
-  let exe_path = Mach_state.exe_path state in
+  let config = Mach_config.get () |> or_exit in
+  let ~state, ~reconfigured:_ = build config script_path |> or_exit in
+  let exe_path = Mach_state.exe_path config state in
   let argv = Array.of_list (exe_path :: args) in
   Unix.execv exe_path argv
 
@@ -6373,12 +6494,6 @@ let verbose_arg =
     const (function [] -> Quiet | [_] -> Verbose | _::_::[] -> Very_verbose | _ -> Very_very_verbose)
     $ Arg.(value & flag_all & info ["v"; "verbose"] ~doc:"Log external command invocations to stderr."))
 
-let build_backend_arg =
-  let doc = "Build backend to use: 'make' (default) or 'ninja'. \
-             Can also be set via MACH_BUILD_BACKEND environment variable." in
-  let env = Cmd.Env.info "MACH_BUILD_BACKEND" in
-  Arg.(value & opt (enum ["make", Make; "ninja", Ninja]) Make & info ["build-backend"] ~env ~doc)
-
 let script_arg =
   Arg.(required & pos 0 (some non_dir_file) None & info [] ~docv:"SCRIPT" ~doc:"OCaml script to run")
 
@@ -6388,7 +6503,7 @@ let args_arg =
 let run_cmd =
   let doc = "Run an OCaml script" in
   let info = Cmd.info "run" ~doc in
-  Cmd.v info Term.(const run $ build_backend_arg $ verbose_arg $ script_arg $ args_arg)
+  Cmd.v info Term.(const run $ verbose_arg $ script_arg $ args_arg)
 
 let watch_arg =
   Arg.(value & flag & info ["w"; "watch"]
@@ -6397,12 +6512,13 @@ let watch_arg =
 let build_cmd =
   let doc = "Build an OCaml script without executing it" in
   let info = Cmd.info "build" ~doc in
-  let f build_backend verbose watch script_path =
+  let f verbose watch script_path =
     Mach_lib.verbose := verbose;
-    if watch then Mach_lib.watch ~build_backend script_path |> or_exit
-    else build ~build_backend script_path |> or_exit |> ignore
+    let config = Mach_config.get () |> or_exit in
+    if watch then Mach_lib.watch config script_path |> or_exit
+    else build config script_path |> or_exit |> ignore
   in
-  Cmd.v info Term.(const f $ build_backend_arg $ verbose_arg $ watch_arg $ script_arg)
+  Cmd.v info Term.(const f $ verbose_arg $ watch_arg $ script_arg)
 
 let source_arg =
   Arg.(required & pos 0 (some non_dir_file) None & info [] ~docv:"SOURCE" ~doc:"OCaml source file to configure")
@@ -6410,8 +6526,11 @@ let source_arg =
 let configure_cmd =
   let doc = "Generate build files for all modules in dependency graph" in
   let info = Cmd.info "configure" ~doc in
-  let f build_backend path = configure ~build_backend path |> or_exit |> ignore in
-  Cmd.v info Term.(const f $ build_backend_arg $ source_arg)
+  let f path =
+    let config = Mach_config.get () |> or_exit in
+    configure config path |> or_exit |> ignore
+  in
+  Cmd.v info Term.(const f $ source_arg)
 
 let pp_cmd =
   let doc = "Preprocess source file to stdout (for use with merlin -pp)" in

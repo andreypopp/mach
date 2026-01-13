@@ -16,7 +16,7 @@ Test:
   Hello, World!
 
 Inspect the build dir:
-  $ ls mach/build/*__lib.ml | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
+  $ ls _mach/build/*__lib.ml | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
   includes.args
   lib.cmi
   lib.cmt
@@ -24,7 +24,7 @@ Inspect the build dir:
   lib.ml
   lib.o
 
-  $ ls mach/build/*__main.ml | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
+  $ ls _mach/build/*__main.ml | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
   Mach.state
   a.out
   all_objects.args
