@@ -69,6 +69,7 @@ let configure_backend config state =
     | Ninja -> (module Ninja), "mach.ninja", "build.ninja"
   in
   let cmd = state.Mach_state.header.mach_executable_path in
+  let compilef fmt = ksprintf (sprintf "${MACH} run-build-command -- %s") fmt in
   let configure_ocaml_module b (m : ocaml_module) =
     let ml = Filename.(m.build_dir / m.module_name ^ ".ml") in
     let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
@@ -102,11 +103,14 @@ let configure_backend config state =
     in
     match m.mli_path with
     | Some _ -> (* With .mli: compile .mli to .cmi/.cmti first (using ocamlc for speed), then .ml to .cmx *)
-      B.rulef b ~target:m.cmi ~deps:(mli :: args :: lib_args_dep @ cmi_deps) "ocamlc -bin-annot -c -opaque -args %s%s -o %s %s" args lib_args_cmd m.cmi mli;
-      B.rulef b ~target:m.cmx ~deps:([ml; m.cmi; args] @ lib_args_dep) "ocamlopt -bin-annot -c -args %s%s -cmi-file %s -o %s %s" args lib_args_cmd m.cmi m.cmx ml;
+      B.rule b ~target:m.cmi ~deps:(mli :: args :: lib_args_dep @ cmi_deps)
+        [compilef "ocamlc -bin-annot -c -opaque -args %s%s -o %s %s" args lib_args_cmd m.cmi mli];
+      B.rule b ~target:m.cmx ~deps:([ml; m.cmi; args] @ lib_args_dep)
+        [compilef "ocamlopt -bin-annot -c -args %s%s -cmi-file %s -o %s %s" args lib_args_cmd m.cmi m.cmx ml];
       B.rule b ~target:m.cmt ~deps:[m.cmx] []
     | None -> (* Without .mli: ocamlopt produces both .cmi and .cmx *)
-      B.rulef b ~target:m.cmx ~deps:(ml :: args :: lib_args_dep @ cmi_deps) "ocamlopt -bin-annot -c -args %s%s -o %s %s" args lib_args_cmd m.cmx ml;
+      B.rule b ~target:m.cmx ~deps:(ml :: args :: lib_args_dep @ cmi_deps)
+        [compilef "ocamlopt -bin-annot -c -args %s%s -o %s %s" args lib_args_cmd m.cmx ml];
       B.rule b ~target:m.cmi ~deps:[m.cmx] [];
       B.rule b ~target:m.cmt ~deps:[m.cmx] []
   in
@@ -116,12 +120,15 @@ let configure_backend config state =
     let objs_str = String.concat " " all_objs in
     B.rulef b ~target:args ~deps:all_objs "printf '%%s\\n' %s > %s" objs_str args;
     match all_libs with
-    | [] -> B.rulef b ~target:exe_path ~deps:(args :: all_objs) "ocamlopt -o %s -args %s" exe_path args
+    | [] ->
+      B.rule b ~target:exe_path ~deps:(args :: all_objs)
+        [compilef "ocamlopt -o %s -args %s" exe_path args]
     | libs ->
       let lib_args = Filename.(root_build_dir / "lib_objects.args") in
-      let libs_str = String.concat " " libs in
-      B.rulef b ~target:lib_args ~deps:[] "ocamlfind query -a-format -recursive -predicates native %s > %s" libs_str lib_args;
-      B.rulef b ~target:exe_path ~deps:(args :: lib_args :: all_objs) "ocamlopt -o %s -args %s -args %s" exe_path lib_args args
+      let libs = String.concat " " libs in
+      B.rulef b ~target:lib_args ~deps:[] "ocamlfind query -a-format -recursive -predicates native %s > %s" libs lib_args;
+      B.rule b ~target:exe_path ~deps:(args :: lib_args :: all_objs)
+        [compilef "ocamlopt -o %s -args %s -args %s" exe_path lib_args args]
   in
   let modules = List.map (fun ({ml_path;mli_path;requires=resolved_requires;libs;_} : Mach_state.entry) ->
     let module_name = module_name_of_path ml_path in
@@ -147,6 +154,7 @@ let configure_backend config state =
   let all_libs = Mach_state.all_libs state in
   write_file Filename.(build_dir_of state.root.ml_path / root_file) (
     let b = B.create () in
+    B.var b "MACH" cmd;
     List.iter (fun entry ->
       B.include_ b Filename.(build_dir_of entry.Mach_state.ml_path / module_file)) state.entries;
     B.rule_phony b ~target:"all" ~deps:[exe_path];
@@ -184,6 +192,19 @@ let configure config source_path =
 
 (* --- Build --- *)
 
+let run_build cmd =
+  let open Unix in
+  let cmd = sprintf "%s 2>&1" cmd in
+  let ic = open_process_in cmd in
+  begin try while true do
+    let line = input_line ic in
+    if String.length line >= 3 && String.sub line 0 3 = ">>>" then
+      prerr_endline (String.sub line 3 (String.length line - 3))
+  done with End_of_file -> () end;
+  match close_process_in ic with
+  | WEXITED code -> code
+  | WSIGNALED _ | WSTOPPED _ -> 1
+
 let build_exn config script_path =
   let build_dir_of = Mach_config.build_dir_of config in
   let ~state, ~reconfigured = configure_exn config script_path in
@@ -194,7 +215,7 @@ let build_exn config script_path =
   in
   let cmd = sprintf "%s -C %s" cmd (Filename.quote (build_dir_of state.root.ml_path)) in
   if !Mach_log.verbose = Very_very_verbose then eprintf "+ %s\n%!" cmd;
-  if Sys.command cmd <> 0 then Mach_error.user_errorf "build failed";
+  if run_build cmd <> 0 then Mach_error.user_errorf "build failed";
   ~state, ~reconfigured
 
 let build config script_path =

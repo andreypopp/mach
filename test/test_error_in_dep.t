@@ -15,12 +15,12 @@ Prepare source files with a type error in the dependency:
   > EOF
 
 Test error reporting (should show lib.ml path, not build dir path):
-  $ mach run ./main.ml 2>&1 | head -5
+  $ mach run ./main.ml 2>&1
   File "$TESTCASE_ROOT/lib.ml", line 3, characters 6-12:
   Error: This constant has type string but an expression was expected of type
            int
-  make: *** [$TESTCASE_ROOT/.config/mach/build/__Users__andreypopp__Workspace__rrun___build__.sandbox__389660cafc54601a2b8bfb7b787599ac__default__test__lib.ml/lib.cmo] Error 2
-  mach: internal error, uncaught exception:
+  mach: build failed
+  [1]
 
 Now test error in .mli file:
   $ rm -rf .config
@@ -41,9 +41,8 @@ Now test error in .mli file:
   > EOF
 
 Test error reporting for .mli (should show lib2.mli path, not build dir path):
-  $ mach run ./main2.ml 2>&1 | head -5
+  $ mach run ./main2.ml
   File "$TESTCASE_ROOT/lib2.mli", line 3, characters 0-0:
   Error: Syntax error
-  make: *** [$TESTCASE_ROOT/.config/mach/build/__Users__andreypopp__Workspace__rrun___build__.sandbox__389660cafc54601a2b8bfb7b787599ac__default__test__lib2.ml/lib2.cmi] Error 2
-  mach: internal error, uncaught exception:
-        Failure("Command failed: make -s all -C '$TESTCASE_ROOT/.config/mach/build/__Users__andreypopp__Workspace__rrun___build__.sandbox__389660cafc54601a2b8bfb7b787599ac__default__test__main2.ml'")
+  mach: build failed
+  [1]

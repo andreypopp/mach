@@ -1,5 +1,20 @@
 # TODO
 
+## Error output overhaul
+
+Right now when we fail, we print lots of noise from make/ninja.
+
+Let's generate Makefiles/Ninja files by making sure each command invocation is
+piped through a special formatter which prefixes each line with the special
+token `>>>`.
+
+Then when we run make/ninja, we parse its output line by line. For lines
+starting with `>>>`, we strip the prefix and print them to stderr. For other
+lines we ignore them.
+
+The special formatter is `mach format-cmd-output` subcommand which reads from stdin
+and writes to stdout, prefixing each line with `>>>`.
+
 ## Optimise reconfiguration: .mli addition/removal should reconfigure a single module only
 
 ## Optimise reconfiguration: do not reconfigure unaffected modules

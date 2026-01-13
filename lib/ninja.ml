@@ -9,6 +9,9 @@ let create () =
   bprintf buf "rule cmd\n  command = $cmd\n\n";
   buf
 
+let var buf name value =
+  bprintf buf "%s = %s\n\n" name value
+
 let contents = Buffer.contents
 
 let include_ buf path = bprintf buf "subninja %s\n" path
