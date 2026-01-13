@@ -1,6 +1,6 @@
 # mach
 
-mach is an OCaml runtime tailored for scripting.
+a tiny build system for OCaml
 
 ## `mach run SCRIPT`
 
