@@ -3,7 +3,7 @@
 (** Build backend type *)
 type build_backend = Make | Ninja
 
-val string_of_build_backend : build_backend -> string
+val build_backend_to_string : build_backend -> string
 val build_backend_of_string : string -> build_backend
 
 type error = [`User_error of string]
@@ -12,6 +12,7 @@ type error = [`User_error of string]
 type t = {
   home : string;
   build_backend : build_backend;
+  mach_executable_path : string;
 }
 
 (** Get the current configuration.

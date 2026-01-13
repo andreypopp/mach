@@ -11,7 +11,7 @@ end
 
 type build_backend = Make | Ninja
 
-let string_of_build_backend = function Make -> "make" | Ninja -> "ninja"
+let build_backend_to_string = function Make -> "make" | Ninja -> "ninja"
 let build_backend_of_string = function
   | "make" -> Make
   | "ninja" -> Ninja
@@ -24,9 +24,24 @@ type error = [`User_error of string]
 type t = {
   home: string;
   build_backend: build_backend;
+  mach_executable_path: string;
 }
 
 let default_build_backend = Make
+
+let mach_executable_path =
+  lazy (
+    match Sys.backend_type with
+    | Sys.Native -> Unix.realpath Sys.executable_name
+    | Sys.Bytecode ->
+      let script =
+        let path = Sys.argv.(0) in
+        if Filename.is_relative path then Filename.(Sys.getcwd () / path) else path
+      in
+      sprintf "%s -I +unix unix.cma %s"
+        (Filename.quote Sys.executable_name) (Filename.quote (Unix.realpath script))
+    | Sys.Other _ -> failwith "mach must be run as a native/bytecode executable"
+  )
 
 let parse_file path =
   In_channel.with_open_text path (fun ic ->
@@ -66,13 +81,14 @@ let find_mach_config () =
   search (Sys.getcwd ())
 
 let make_config home =
+  let mach_executable_path = Lazy.force mach_executable_path in
   let mach_path = Filename.(home / "Mach") in
   if Sys.file_exists mach_path then
     match parse_file mach_path with
-    | Ok build_backend -> Ok { home; build_backend }
+    | Ok build_backend -> Ok { home; build_backend; mach_executable_path }
     | Error _ as err -> err
   else
-    Ok { home; build_backend = default_build_backend }
+    Ok { home; build_backend = default_build_backend; mach_executable_path }
 
 let config =
   lazy (
@@ -81,8 +97,9 @@ let config =
     | None ->
       match find_mach_config () with
       | Some (home, mach_path) ->
+        let mach_executable_path = Lazy.force mach_executable_path in
         (match parse_file mach_path with
-        | Ok build_backend -> Ok { home; build_backend }
+        | Ok build_backend -> Ok { home; build_backend; mach_executable_path }
         | Error _ as err -> err)
       | None ->
         let home = match Sys.getenv_opt "XDG_STATE_HOME" with

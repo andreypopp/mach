@@ -9,7 +9,7 @@ let or_exit = function
     exit 1
 
 let run verbose script_path args =
-  Mach_lib.verbose := verbose;
+  Mach_log.verbose := verbose;
   let config = Mach_config.get () |> or_exit in
   let ~state, ~reconfigured:_ = build config script_path |> or_exit in
   let exe_path = Mach_state.exe_path config state in
@@ -44,7 +44,7 @@ let build_cmd =
   let doc = "Build an OCaml script without executing it" in
   let info = Cmd.info "build" ~doc in
   let f verbose watch script_path =
-    Mach_lib.verbose := verbose;
+    Mach_log.verbose := verbose;
     let config = Mach_config.get () |> or_exit in
     if watch then Mach_lib.watch config script_path |> or_exit
     else build config script_path |> or_exit |> ignore
