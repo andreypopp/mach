@@ -35,22 +35,6 @@ let rec mkdir_p path =
 
 let write_file path content = Out_channel.with_open_text path (fun oc -> output_string oc content)
 
-(* --- Preprocessing --- *)
-
-let is_empty_line line = String.for_all (function ' ' | '\t' -> true | _ -> false) line
-let is_directive line = String.length line >= 1 && line.[0] = '#'
-
-let preprocess_source ~source_path oc ic =
-  fprintf oc "# 1 %S\n" source_path;
-  let rec loop in_header =
-    match In_channel.input_line ic with
-    | None -> ()
-    | Some line when is_empty_line line -> Buffer.output_line oc line; loop in_header
-    | Some line when in_header && is_directive line -> Buffer.output_line oc ""; loop true
-    | Some line -> Buffer.output_line oc line; loop false
-  in
-  loop true
-
 (* --- Build backend types (re-exported from Mach_config) --- *)
 
 type build_backend = Mach_config.build_backend = Make | Ninja
@@ -59,7 +43,7 @@ type build_backend = Mach_config.build_backend = Make | Ninja
 
 let pp source_path =
   In_channel.with_open_text source_path (fun ic ->
-    preprocess_source ~source_path stdout ic);
+    Mach_state.preprocess_source ~source_path stdout ic);
   flush stdout
 
 (* --- Configure --- *)

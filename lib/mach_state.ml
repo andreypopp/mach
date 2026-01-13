@@ -34,6 +34,17 @@ let is_empty_line line = String.for_all (function ' ' | '\t' -> true | _ -> fals
 let is_shebang line = String.length line >= 2 && line.[0] = '#' && line.[1] = '!'
 let is_directive line = String.length line >= 1 && line.[0] = '#'
 
+let preprocess_source ~source_path oc ic =
+  fprintf oc "# 1 %S\n" source_path;
+  let rec loop in_header =
+    match In_channel.input_line ic with
+    | None -> ()
+    | Some line when is_empty_line line -> output_line oc line; loop in_header
+    | Some line when in_header && is_directive line -> output_line oc ""; loop true
+    | Some line -> output_line oc line; loop false
+  in
+  loop true
+
 let is_require_path s =
   String.length s > 0 && (
     String.starts_with ~prefix:"/" s ||
@@ -86,16 +97,8 @@ let source_dirs state =
 
 let all_libs state =
   let seen = Hashtbl.create 16 in
-  let libs = ref [] in
-  List.iter (fun entry ->
-    List.iter (fun lib ->
-      if not (Hashtbl.mem seen lib) then begin
-        Hashtbl.add seen lib ();
-        libs := lib :: !libs
-      end
-    ) entry.libs
-  ) state.entries;
-  List.rev !libs
+  List.iter (fun e -> List.iter (fun l -> Hashtbl.replace seen l ()) e.libs) state.entries;
+  Hashtbl.fold (fun l () acc -> l :: acc) seen [] |> List.sort String.compare
 
 let read path =
   if not (Sys.file_exists path) then None

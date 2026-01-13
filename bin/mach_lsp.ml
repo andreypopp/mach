@@ -44,10 +44,7 @@ module Merlin_server = struct
       in
       let directives =
         List.fold_left (fun directives (dep_dir : string) ->
-          let include_flags = ["-I"; dep_dir] in
-          let directives = `CMT build_dir :: `B build_dir :: directives in
-          let directives = if include_flags = [] then directives else (`FLG include_flags)::directives in
-          directives
+          (`FLG ["-I"; dep_dir]) :: `CMT build_dir :: `B build_dir :: directives
         ) directives dep_dirs
       in
       let directives =

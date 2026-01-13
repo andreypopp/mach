@@ -304,6 +304,9 @@ val all_libs : t -> string list
 
 (** Extract #require directives from a source file *)
 val extract_requires : string -> (requires:string list * libs:string list, Mach_error.t) result
+
+(** Preprocess source file, stripping directives while preserving line numbers *)
+val preprocess_source : source_path:string -> out_channel -> in_channel -> unit
 end = struct
 open Printf
 
@@ -340,6 +343,17 @@ let file_stat path =
 let is_empty_line line = String.for_all (function ' ' | '\t' -> true | _ -> false) line
 let is_shebang line = String.length line >= 2 && line.[0] = '#' && line.[1] = '!'
 let is_directive line = String.length line >= 1 && line.[0] = '#'
+
+let preprocess_source ~source_path oc ic =
+  fprintf oc "# 1 %S\n" source_path;
+  let rec loop in_header =
+    match In_channel.input_line ic with
+    | None -> ()
+    | Some line when is_empty_line line -> output_line oc line; loop in_header
+    | Some line when in_header && is_directive line -> output_line oc ""; loop true
+    | Some line -> output_line oc line; loop false
+  in
+  loop true
 
 let is_require_path s =
   String.length s > 0 && (
@@ -393,16 +407,8 @@ let source_dirs state =
 
 let all_libs state =
   let seen = Hashtbl.create 16 in
-  let libs = ref [] in
-  List.iter (fun entry ->
-    List.iter (fun lib ->
-      if not (Hashtbl.mem seen lib) then begin
-        Hashtbl.add seen lib ();
-        libs := lib :: !libs
-      end
-    ) entry.libs
-  ) state.entries;
-  List.rev !libs
+  List.iter (fun e -> List.iter (fun l -> Hashtbl.replace seen l ()) e.libs) state.entries;
+  Hashtbl.fold (fun l () acc -> l :: acc) seen [] |> List.sort String.compare
 
 let read path =
   if not (Sys.file_exists path) then None
@@ -560,22 +566,6 @@ let rec mkdir_p path =
 
 let write_file path content = Out_channel.with_open_text path (fun oc -> output_string oc content)
 
-(* --- Preprocessing --- *)
-
-let is_empty_line line = String.for_all (function ' ' | '\t' -> true | _ -> false) line
-let is_directive line = String.length line >= 1 && line.[0] = '#'
-
-let preprocess_source ~source_path oc ic =
-  fprintf oc "# 1 %S\n" source_path;
-  let rec loop in_header =
-    match In_channel.input_line ic with
-    | None -> ()
-    | Some line when is_empty_line line -> Buffer.output_line oc line; loop in_header
-    | Some line when in_header && is_directive line -> Buffer.output_line oc ""; loop true
-    | Some line -> Buffer.output_line oc line; loop false
-  in
-  loop true
-
 (* --- Build backend types (re-exported from Mach_config) --- *)
 
 type build_backend = Mach_config.build_backend = Make | Ninja
@@ -584,7 +574,7 @@ type build_backend = Mach_config.build_backend = Make | Ninja
 
 let pp source_path =
   In_channel.with_open_text source_path (fun ic ->
-    preprocess_source ~source_path stdout ic);
+    Mach_state.preprocess_source ~source_path stdout ic);
   flush stdout
 
 (* --- Configure --- *)
