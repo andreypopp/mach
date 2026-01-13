@@ -1,1 +1,1 @@
-print_endline "B";;
+let b () = print_endline "B";;

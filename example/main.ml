@@ -5,7 +5,8 @@
 
 open Cmdliner
 
-let () =
-  Lib.hello_world ()
-
-let () = print_endline "sss"
+let () = 
+  let doc = "A simple Hello World command-line application." in
+  let term = Term.(const Lib.hello_world $ const ()) in
+  let cmd = Cmd.v (Cmd.info "hello_world" ~doc) term in
+  exit (Cmd.eval cmd)
