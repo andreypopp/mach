@@ -1,15 +1,5 @@
 open Printf
 
-type error = [ `User_error of string ]
-
-exception User_error of string
-
-let user_error msg = raise (User_error msg)
-
-let catch_user_error f =
-  try Ok (f ())
-  with User_error msg -> Error (`User_error msg)
-
 type file_stat = { mtime : int; size : int }
 
 let equal_file_stat x y = x.mtime = y.mtime && x.size = y.size
@@ -58,7 +48,7 @@ let resolve_require ~source_path ~line path =
   in
   try Unix.realpath path
   with Unix.Unix_error (err, _, _) ->
-    user_error (sprintf "%s:%d: %s: %s" source_path line path (Unix.error_message err))
+    Mach_error.user_errorf "%s:%d: %s: %s" source_path line path (Unix.error_message err)
 
 let extract_requires_exn source_path : requires:string list * libs:string list =
   let rec parse line_num (~requires, ~libs) ic =
@@ -67,7 +57,7 @@ let extract_requires_exn source_path : requires:string list * libs:string list =
     | Some line when is_directive line ->
       let req =
         try Scanf.sscanf line "#require %S%_s" Fun.id
-        with Scanf.Scan_failure _ | End_of_file -> user_error (sprintf "%s:%d: invalid #require directive" source_path line_num)
+        with Scanf.Scan_failure _ | End_of_file -> Mach_error.user_errorf "%s:%d: invalid #require directive" source_path line_num
       in
       if is_require_path req then
         let requires = resolve_require ~source_path ~line:line_num req::requires in
@@ -80,7 +70,8 @@ let extract_requires_exn source_path : requires:string list * libs:string list =
   In_channel.with_open_text source_path (parse 1 (~requires:[], ~libs:[]))
 
 let extract_requires source_path =
-  catch_user_error @@ fun () -> extract_requires_exn source_path
+  try Ok (extract_requires_exn source_path)
+  with Mach_error.Mach_user_error msg -> Error (`User_error msg)
 
 (* --- State functions --- *)
 
@@ -163,7 +154,7 @@ let write path state =
       List.iter (fun l -> output_line oc (sprintf "  lib %s" l)) e.libs
     ) state.entries)
 
-let needs_reconfigure config state =
+let needs_reconfigure_exn config state =
   let build_backend = config.Mach_config.build_backend in
   let mach_path = config.Mach_config.mach_executable_path in
   if state.header.build_backend <> build_backend then
@@ -211,4 +202,5 @@ let collect_exn config entry_path =
   | root::_ as entries -> { header; root; entries = List.rev entries }
 
 let collect config entry_path =
-  catch_user_error @@ fun () -> collect_exn config entry_path
+  try Ok (collect_exn config entry_path)
+  with Mach_error.Mach_user_error msg -> Error (`User_error msg)

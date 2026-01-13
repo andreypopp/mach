@@ -1,7 +1,5 @@
 (** Mach state keep stats of a dependency graph of modules. *)
 
-type error = [ `User_error of string ]
-
 type file_stat = { mtime : int; size : int }
 
 type entry = {
@@ -28,10 +26,13 @@ val read : string -> t option
 val write : string -> t -> unit
 
 (** Check if state needs reconfiguration due to file changes or config changes *)
-val needs_reconfigure : Mach_config.t -> t -> bool
+val needs_reconfigure_exn : Mach_config.t -> t -> bool
 
 (** Collect dependency state starting from an entry point module *)
-val collect : Mach_config.t -> string -> (t, error) result
+val collect_exn : Mach_config.t -> string -> t
+
+(** Collect dependency state starting from an entry point module *)
+val collect : Mach_config.t -> string -> (t, Mach_error.t) result
 
 (** Get the executable path for a state *)
 val exe_path : Mach_config.t -> t -> string
@@ -43,5 +44,4 @@ val source_dirs : t -> string list
 val all_libs : t -> string list
 
 (** Extract #require directives from a source file *)
-val extract_requires : string -> (requires:string list * libs:string list, error) result
-
+val extract_requires : string -> (requires:string list * libs:string list, Mach_error.t) result

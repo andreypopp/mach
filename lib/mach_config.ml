@@ -19,8 +19,6 @@ let build_backend_of_string = function
 
 (* --- Config type and parsing --- *)
 
-type error = [`User_error of string]
-
 type t = {
   home: string;
   build_backend: build_backend;

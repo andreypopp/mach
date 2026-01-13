@@ -1,24 +1,5 @@
 (* mach_lib - Shared code for mach and mach-lsp *)
 
-(* --- User error handling --- *)
-
-(** Used only internally, do not expose outside this module, all functions
-    which raise such exception must convert to `('a, error) result` returning
-    functions before exposing them to public API. *)
-exception Mach_user_error of string
-
-let user_error msg = raise (Mach_user_error msg)
-
-type error = [`User_error of string]
-
-let catch_user_error f =
-  try Ok (f ())
-  with Mach_user_error msg -> Error (`User_error msg)
-
-let or_user_error = function
-  | Ok v -> v
-  | Error (`User_error msg) -> user_error msg
-
 (* --- Utilities --- *)
 
 open Printf
@@ -198,10 +179,10 @@ let configure_exn config source_path =
     match Mach_state.read state_path with
     | None ->
       log_very_verbose "mach:configure: no previous state found, creating one...";
-      Mach_state.collect config source_path |> or_user_error, true
-    | Some state when Mach_state.needs_reconfigure config state ->
+      Mach_state.collect_exn config source_path, true
+    | Some state when Mach_state.needs_reconfigure_exn config state ->
       log_very_verbose "mach:configure: need reconfigure";
-      Mach_state.collect config source_path |> or_user_error, true
+      Mach_state.collect_exn config source_path, true
     | Some state -> state, false
   in
   if needs_reconfigure then begin
@@ -214,7 +195,8 @@ let configure_exn config source_path =
   ~state, ~reconfigured:needs_reconfigure
 
 let configure config source_path =
-  catch_user_error @@ fun () -> configure_exn config source_path
+  try Ok (configure_exn config source_path)
+  with Mach_error.Mach_user_error msg -> Error (`User_error msg)
 
 (* --- Build --- *)
 
@@ -228,11 +210,12 @@ let build_exn config script_path =
   in
   let cmd = sprintf "%s -C %s" cmd (Filename.quote (build_dir_of state.root.ml_path)) in
   if !Mach_log.verbose = Very_very_verbose then eprintf "+ %s\n%!" cmd;
-  if Sys.command cmd <> 0 then user_error "build failed";
+  if Sys.command cmd <> 0 then Mach_error.user_errorf "build failed";
   ~state, ~reconfigured
 
 let build config script_path =
-  catch_user_error @@ fun () -> build_exn config script_path
+  try Ok (build_exn config script_path)
+  with Mach_error.Mach_user_error msg -> Error (`User_error msg)
 
 (* --- Watch mode --- *)
 
@@ -265,7 +248,7 @@ let watch_exn config script_path =
   let exception Restart_watcher in
   let code = Sys.command "command -v watchexec > /dev/null 2>&1" in
   if code <> 0 then
-    user_error "watchexec not found. Install it: https://github.com/watchexec/watchexec";
+    Mach_error.user_errorf "watchexec not found. Install it: https://github.com/watchexec/watchexec";
   let script_path = Unix.realpath script_path in
 
   log_verbose "mach: initial build...";
@@ -340,4 +323,5 @@ let watch_exn config script_path =
   done
 
 let watch config script_path =
-  catch_user_error @@ fun () -> watch_exn config script_path
+  try Ok (watch_exn config script_path)
+  with Mach_error.Mach_user_error msg -> Error (`User_error msg)
