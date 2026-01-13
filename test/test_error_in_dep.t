@@ -1,6 +1,6 @@
 Isolate mach config to a test dir:
 
-  $ source ../env.sh
+  $ . ../env.sh
 
 Prepare source files with a type error in the dependency:
   $ cat << 'EOF' > lib.ml

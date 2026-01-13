@@ -1,6 +1,6 @@
 Test run-build-command subcommand:
 
-  $ source ../env.sh
+  $ . ../env.sh
 
 Test basic command execution:
 
