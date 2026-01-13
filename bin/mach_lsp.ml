@@ -30,7 +30,7 @@ module Merlin_server = struct
         | Error (`User_error msg) -> raise (Failure msg)
       in
       let build_dir = Mach_config.build_dir_of config path in
-      match Mach_state.extract_requires path with
+      match Mach_module.extract_requires path with
       | Error (`User_error msg) -> [`ERROR_MSG msg]
       | Ok (~requires, ~libs:_) ->
       let dep_dirs = parse_includes_args (Filename.concat build_dir "includes.args") in

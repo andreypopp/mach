@@ -28,62 +28,6 @@ let file_stat path =
   let st = Unix.stat path in
   { mtime = Int.of_float st.Unix.st_mtime; size = st.Unix.st_size }
 
-(* --- Parsing --- *)
-
-let is_empty_line line = String.for_all (function ' ' | '\t' -> true | _ -> false) line
-let is_shebang line = String.length line >= 2 && line.[0] = '#' && line.[1] = '!'
-let is_directive line = String.length line >= 1 && line.[0] = '#'
-
-let preprocess_source ~source_path oc ic =
-  fprintf oc "# 1 %S\n" source_path;
-  let rec loop in_header =
-    match In_channel.input_line ic with
-    | None -> ()
-    | Some line when is_empty_line line -> output_line oc line; loop in_header
-    | Some line when in_header && is_directive line -> output_line oc ""; loop true
-    | Some line -> output_line oc line; loop false
-  in
-  loop true
-
-let is_require_path s =
-  String.length s > 0 && (
-    String.starts_with ~prefix:"/" s ||
-    String.starts_with ~prefix:"./" s ||
-    String.starts_with ~prefix:"../" s)
-
-let resolve_require ~source_path ~line path =
-  let path =
-    if Filename.is_relative path
-    then Filename.concat (Filename.dirname source_path) path
-    else path
-  in
-  try Unix.realpath path
-  with Unix.Unix_error (err, _, _) ->
-    Mach_error.user_errorf "%s:%d: %s: %s" source_path line path (Unix.error_message err)
-
-let extract_requires_exn source_path : requires:string list * libs:string list =
-  let rec parse line_num (~requires, ~libs) ic =
-    match In_channel.input_line ic with
-    | Some line when is_shebang line -> parse (line_num + 1) (~requires, ~libs) ic
-    | Some line when is_directive line ->
-      let req =
-        try Scanf.sscanf line "#require %S%_s" Fun.id
-        with Scanf.Scan_failure _ | End_of_file -> Mach_error.user_errorf "%s:%d: invalid #require directive" source_path line_num
-      in
-      if is_require_path req then
-        let requires = resolve_require ~source_path ~line:line_num req::requires in
-        parse (line_num + 1) (~requires, ~libs) ic
-      else
-        parse (line_num + 1) (~requires, ~libs:(req :: libs)) ic
-    | Some line when is_empty_line line -> parse (line_num + 1) (~requires, ~libs) ic
-    | None | Some _ -> ~requires:(List.rev requires), ~libs:(List.rev libs)
-  in
-  In_channel.with_open_text source_path (parse 1 (~requires:[], ~libs:[]))
-
-let extract_requires source_path =
-  try Ok (extract_requires_exn source_path)
-  with Mach_error.Mach_user_error msg -> Error (`User_error msg)
-
 (* --- State functions --- *)
 
 let exe_path config t = Filename.concat (Mach_config.build_dir_of config t.root.ml_path) "a.out"
@@ -174,7 +118,7 @@ let needs_reconfigure_exn config state =
         else
           if not (equal_file_stat (file_stat entry.ml_path) entry.ml_stat)
           then
-            let ~requires, ~libs = extract_requires_exn entry.ml_path in
+            let ~requires, ~libs = Mach_module.extract_requires_exn entry.ml_path in
             if requires <> entry.requires || libs <> entry.libs
             then (Mach_log.log_very_verbose "mach:state: requires/libs changed, need reconfigure"; true)
             else false
@@ -192,7 +136,7 @@ let collect_exn config entry_path =
     if Hashtbl.mem visited ml_path then ()
     else begin
       Hashtbl.add visited ml_path ();
-      let ~requires, ~libs = extract_requires_exn ml_path in
+      let ~requires, ~libs = Mach_module.extract_requires_exn ml_path in
       List.iter dfs requires;
       let mli_path = mli_path_of_ml_if_exists ml_path in
       let mli_stat = Option.map file_stat mli_path in

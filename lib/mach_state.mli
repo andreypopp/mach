@@ -42,9 +42,3 @@ val source_dirs : t -> string list
 
 (** Get all unique ocamlfind library names from entries *)
 val all_libs : t -> string list
-
-(** Extract #require directives from a source file *)
-val extract_requires : string -> (requires:string list * libs:string list, Mach_error.t) result
-
-(** Preprocess source file, stripping directives while preserving line numbers *)
-val preprocess_source : source_path:string -> out_channel -> in_channel -> unit

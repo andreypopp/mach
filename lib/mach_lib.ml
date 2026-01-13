@@ -43,7 +43,7 @@ type build_backend = Mach_config.build_backend = Make | Ninja
 
 let pp source_path =
   In_channel.with_open_text source_path (fun ic ->
-    Mach_state.preprocess_source ~source_path stdout ic);
+    Mach_module.preprocess_source ~source_path stdout ic);
   flush stdout
 
 (* --- Configure --- *)
