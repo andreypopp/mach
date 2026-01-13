@@ -4,7 +4,7 @@ mach is an OCaml runtime tailored for scripting.
 
 ## `mach run SCRIPT`
 
-Define a script in a file `utils.ml`:
+Create a file `utils.ml`:
 ```ocaml
 let greet name =
   Printf.sprintf "Hello, %s!" name
@@ -12,7 +12,7 @@ let greet name =
 
 then `script.ml`:
 ```ocaml
-#!/usr/bin/env mach
+#!/usr/bin/env mach run
 #require "./utils.ml"  (* makes Utils module available *)
 
 let () = print_endline (Utils.greet "world")
@@ -25,17 +25,17 @@ chmod +x script.ml
 ```
 
 On first execution, `mach` will build the script and its dependencies, caching
-the build artifacts in the `~/.config/mach/build/` directory. Subsequent executions
-will reuse the cached artifacts unless the source files have changed.
+the build artifacts in `$MACH_HOME/_mach/build/` (defaults to `~/.local/state/mach/_mach/build/`).
+Subsequent executions will reuse the cached artifacts unless the source files have changed.
 
 ## `mach build SCRIPT`
 
 The command `mach build` builds a script and its dependencies but doesn't
 execute it.
 
-## `mach build --watch SCRIPT`
+## `mach build -w SCRIPT` / `mach build --watch SCRIPT`
 
-If the `--watch` flag is provided, `mach build` watches the source files and
+If the `-w` or `--watch` flag is provided, `mach build` watches the source files and
 rebuilds on changes. Requires `watchexec` program to be available.
 
 ## `mach-lsp`
@@ -52,25 +52,16 @@ mention library name:
 #require "lwt"  (* Makes Lwt module available *)
 ```
 
-## TODO: Libraries
+## Planned Features
 
-It is also to define and build OCaml libraries with `mach`.
+The following features are not yet implemented:
 
-A library is a directory containing a `Machlib` file and an assorted set of
-OCaml source files. All source files in the directory are part of the library.
-The entry point module is derived from the directory name.
+### Libraries
 
-Consuming libraries is done through the `#require ".."` directive (as above)
-where the path is the path to the library directory:
+Define and build OCaml libraries with `mach`. A library would be a directory
+containing a `Machlib` file and OCaml source files, consumed via
+`#require "./path/to/mylib"`.
 
-    #require "./path/to/mylib"  (* Makes Mylib module available *)
+### PPX Preprocessing
 
-## TODO: Preprocessing with PPX
-
-It is possible to use ppx preprocessors on the source files:
-```
-#ppx "ppx_deriving.show"  (* Use ppx_deriving's show preprocessor *)
-```
-
-At the moment only ppx available through `ocamlfind` (usually installed with
-`opam`) are supported.
+Use ppx preprocessors via `#ppx "ppx_deriving.show"` directive.
