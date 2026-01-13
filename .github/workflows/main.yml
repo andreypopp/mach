@@ -23,7 +23,8 @@ jobs:
       - name: checkout tree
         uses: actions/checkout@v4
 
-      - run: cargo install --locked watchexec-cli
+      - run: curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+      - run: cargo binstall watchexec-cli
 
       - name: set-up OCaml ${{ matrix.ocaml-compiler }}
         uses: ocaml/setup-ocaml@v3
