@@ -1,6 +1,16 @@
 # TODO
 
-## Error output overhaul
+## Optimise reconfiguration: .mli addition/removal should reconfigure a single module only
+
+## Optimise reconfiguration: do not reconfigure unaffected modules
+
+## Optimise reconfiguration: do not drop build dir on reconfiguration
+
+## Implement ppx support
+
+## Support passing -H hidden includes args when compiling
+
+## [DONE] Error output overhaul
 
 Right now when we fail, we print lots of noise from make/ninja.
 
@@ -14,16 +24,6 @@ lines we ignore them.
 
 The special formatter is `mach format-cmd-output` subcommand which reads from stdin
 and writes to stdout, prefixing each line with `>>>`.
-
-## Optimise reconfiguration: .mli addition/removal should reconfigure a single module only
-
-## Optimise reconfiguration: do not reconfigure unaffected modules
-
-## Optimise reconfiguration: do not drop build dir on reconfiguration
-
-## Implement ppx support
-
-## Support passing -H hidden includes args when compiling
 
 ## [DONE] Environment configuration
 
