@@ -30,6 +30,33 @@
       (run cmdliner tool-completion --standalone-completion zsh mach)))))))
 
 (subdir
+ man1
+ (rule
+  (target mach.1)
+  (mode promote)
+  (action
+   (with-stdout-to
+    %{target}
+    (progn
+     (run mach --help=groff)))))
+ (rule
+  (target mach-run.1)
+  (mode promote)
+  (action
+   (with-stdout-to
+    %{target}
+    (progn
+     (run mach run --help=groff)))))
+ (rule
+  (target mach-build.1)
+  (mode promote)
+  (action
+   (with-stdout-to
+    %{target}
+    (progn
+     (run mach build --help=groff))))))
+
+(subdir
  bash-completion
  (subdir
   completions

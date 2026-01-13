@@ -1,0 +1,36 @@
+.\" Pipe this output to groff -m man -K utf8 -T utf8 | less -R
+.\"
+.mso an.tmac
+.TH "MACH" 1 "" "Mach" "Mach Manual"
+.\" Disable hyphenation and ragged-right
+.nh
+.ad l
+.SH NAME
+.P
+mach \N'45' Run OCaml scripts with automatic dependency resolution
+.SH COMMANDS
+.TP 4
+\fBbuild\fR [\fB\N'45'\N'45'verbose\fR] [\fB\N'45'\N'45'watch\fR] [\fIOPTION\fR]… \fISCRIPT\fR
+Build an OCaml script without executing it
+.TP 4
+\fBrun\fR [\fB\N'45'\N'45'verbose\fR] [\fIOPTION\fR]… \fISCRIPT\fR [\fIARGS\fR]…
+Run an OCaml script
+.SH COMMON OPTIONS
+.TP 4
+\fB\N'45'\N'45'help\fR[=\fIFMT\fR] (default=\fBauto\fR)
+Show this help in format \fIFMT\fR\N'46' The value \fIFMT\fR must be one of \fBauto\fR, \fBpager\fR, \fBgroff\fR or \fBplain\fR\N'46' With \fBauto\fR, the format is \fBpager\fR or \fBplain\fR whenever the \fBTERM\fR env var is \fBdumb\fR or undefined\N'46'
+.SH EXIT STATUS
+.P
+\fBmach\fR exits with:
+.TP 4
+0
+on success\N'46'
+.TP 4
+123
+on indiscriminate errors reported on standard error\N'46'
+.TP 4
+124
+on command line parsing errors\N'46'
+.TP 4
+125
+on unexpected internal errors (bugs)\N'46'

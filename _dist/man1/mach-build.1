@@ -1,0 +1,46 @@
+.\" Pipe this output to groff -m man -K utf8 -T utf8 | less -R
+.\"
+.mso an.tmac
+.TH "MACH-BUILD" 1 "" "Mach" "Mach Manual"
+.\" Disable hyphenation and ragged-right
+.nh
+.ad l
+.SH NAME
+.P
+mach\N'45'build \N'45' Build an OCaml script without executing it
+.SH SYNOPSIS
+.P
+\fBmach build\fR [\fB\N'45'\N'45'verbose\fR] [\fB\N'45'\N'45'watch\fR] [\fIOPTION\fR]… \fISCRIPT\fR
+.SH ARGUMENTS
+.TP 4
+\fISCRIPT\fR (required)
+OCaml script to run
+.SH OPTIONS
+.TP 4
+\fB\N'45'v\fR, \fB\N'45'\N'45'verbose\fR
+Log external command invocations to stderr\N'46'
+.TP 4
+\fB\N'45'w\fR, \fB\N'45'\N'45'watch\fR
+Watch for changes and rebuild automatically\N'46' Requires watchexec to be installed\N'46'
+.SH COMMON OPTIONS
+.TP 4
+\fB\N'45'\N'45'help\fR[=\fIFMT\fR] (default=\fBauto\fR)
+Show this help in format \fIFMT\fR\N'46' The value \fIFMT\fR must be one of \fBauto\fR, \fBpager\fR, \fBgroff\fR or \fBplain\fR\N'46' With \fBauto\fR, the format is \fBpager\fR or \fBplain\fR whenever the \fBTERM\fR env var is \fBdumb\fR or undefined\N'46'
+.SH EXIT STATUS
+.P
+\fBmach build\fR exits with:
+.TP 4
+0
+on success\N'46'
+.TP 4
+123
+on indiscriminate errors reported on standard error\N'46'
+.TP 4
+124
+on command line parsing errors\N'46'
+.TP 4
+125
+on unexpected internal errors (bugs)\N'46'
+.SH SEE ALSO
+.P
+mach(1)

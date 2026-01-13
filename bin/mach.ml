@@ -56,7 +56,7 @@ let source_arg =
 
 let configure_cmd =
   let doc = "Generate build files for all modules in dependency graph" in
-  let info = Cmd.info "configure" ~doc in
+  let info = Cmd.info "configure" ~doc ~docs:Manpage.s_none in
   let f path =
     let config = Mach_config.get () |> or_exit in
     configure config path |> or_exit |> ignore
@@ -65,12 +65,12 @@ let configure_cmd =
 
 let pp_cmd =
   let doc = "Preprocess source file to stdout (for use with merlin -pp)" in
-  let info = Cmd.info "pp" ~doc in
+  let info = Cmd.info "pp" ~doc ~docs:Manpage.s_none in
   Cmd.v info Term.(const pp $ source_arg)
 
 let run_build_command_cmd =
   let doc = "Run a build command, prefixing output with >>>" in
-  let info = Cmd.info "run-build-command" ~doc in
+  let info = Cmd.info "run-build-command" ~doc ~docs:Manpage.s_none in
   let cmd_arg = Arg.(non_empty & pos_all string [] & info [] ~docv:"COMMAND") in
   let f args =
     let open Unix in
@@ -105,7 +105,7 @@ let run_build_command_cmd =
 
 let cmd =
   let doc = "Run OCaml scripts with automatic dependency resolution" in
-  let info = Cmd.info "mach" ~doc in
+  let info = Cmd.info "mach" ~doc ~man:[`S Manpage.s_synopsis] in
   let default = Term.(ret (const (`Help (`Pager, None)))) in
   Cmd.group ~default info [run_cmd; build_cmd; configure_cmd; pp_cmd; run_build_command_cmd]
 
