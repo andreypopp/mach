@@ -25,6 +25,7 @@ module Merlin_server = struct
   let directives_for_file path : Merlin_dot_protocol.directive list =
     try
       let path = Unix.realpath path in
+      let is_mlx = Filename.extension path = ".mlx" in
       let config = match Mach_config.get () with
         | Ok config -> config
         | Error (`User_error msg) -> raise (Failure msg)
@@ -35,7 +36,12 @@ module Merlin_server = struct
       | Ok (~requires, ~libs:_) ->
       let dep_dirs = parse_includes_args (Filename.concat build_dir "includes.args") in
       let lib_dirs = parse_includes_args (Filename.concat build_dir "lib_includes.args") in
-      let directives = [] in
+      let directives = [`SUFFIX ".mlx .mlx"] in
+      let directives =
+        if is_mlx
+        then `READER ["mlx"] :: directives
+        else directives
+      in
       let directives =
         if lib_dirs = [] then directives
         else

@@ -1,0 +1,11 @@
+#!/usr/bin/env mach run
+#require "./a.ml";;
+#require "./b.ml";;
+
+let hello_world () =
+  A.a ();
+  B.b ();
+  let div ~children () =
+    Printf.sprintf "<div>%s</div>" (String.concat "" children)
+  in
+  print_endline <div>"Hello, World!"</div>

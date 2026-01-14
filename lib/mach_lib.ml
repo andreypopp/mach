@@ -14,6 +14,15 @@ let module_name_of_path path = Filename.(basename path |> remove_extension)
 
 type build_backend = Mach_config.build_backend = Make | Ninja
 
+(* --- Module kind (ML or MLX) --- *)
+
+type module_kind = ML | MLX
+
+let module_kind_of_path path =
+  if Filename.extension path = ".mlx" then MLX else ML
+
+let src_ext_of_kind = function ML -> ".ml" | MLX -> ".mlx"
+
 (* --- PP (for merlin and build) --- *)
 
 let pp source_path =
@@ -33,6 +42,7 @@ type ocaml_module = {
   build_dir: string;
   resolved_requires: string with_loc list;  (* absolute paths *)
   libs: string with_loc list;  (* ocamlfind library names *)
+  kind: module_kind;
 }
 
 let configure_backend config state =
@@ -47,9 +57,10 @@ let configure_backend config state =
   let capture_outf fmt = ksprintf (sprintf "${MACH} run-build-command -- %s") fmt in
   let capture_stderrf fmt = ksprintf (sprintf "${MACH} run-build-command --stderr-only -- %s") fmt in
   let configure_ocaml_module b (m : ocaml_module) =
-    let ml = Filename.(m.build_dir / m.module_name ^ ".ml") in
+    let src_ext = src_ext_of_kind m.kind in
+    let src = Filename.(m.build_dir / m.module_name ^ src_ext) in
     let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
-    B.rulef b ~target:ml ~deps:[m.ml_path] "%s pp %s > %s" cmd m.ml_path ml;
+    B.rulef b ~target:src ~deps:[m.ml_path] "%s pp %s > %s" cmd m.ml_path src;
     Option.iter (fun mli_path ->
       B.rulef b ~target:mli ~deps:[mli_path] "%s pp %s > %s" cmd mli_path mli
     ) m.mli_path;
@@ -59,7 +70,7 @@ let configure_backend config state =
       | [] -> [sprintf "touch %s" args]
       | requires -> List.map (fun (r : _ with_loc) -> sprintf "echo '-I=%s' >> %s" (build_dir_of r.v) args) requires
     in
-    B.rule b ~target:args ~deps:[ml] (sprintf "rm -f %s" args :: recipe);
+    B.rule b ~target:args ~deps:[src] (sprintf "rm -f %s" args :: recipe);
     (* Generate lib_includes.args for ocamlfind library include paths (only if libs present) *)
     (match m.libs with
     | [] -> ()
@@ -69,9 +80,11 @@ let configure_backend config state =
       B.rule b ~target:lib_args ~deps:[] [capture_stderrf "ocamlfind query -format '-I=%%d' -recursive %s > %s" libs lib_args])
   in
   let compile_ocaml_module b (m : ocaml_module) =
-    let ml = Filename.(m.build_dir / m.module_name ^ ".ml") in
+    let src_ext = src_ext_of_kind m.kind in
+    let src = Filename.(m.build_dir / m.module_name ^ src_ext) in
     let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
     let args = Filename.(m.build_dir / "includes.args") in
+    let pp_flag = match m.kind with ML -> "" | MLX -> " -pp mlx-pp" in
     let cmi_deps = List.map (fun (r : _ with_loc) -> Filename.(build_dir_of r.v / module_name_of_path r.v ^ ".cmi")) m.resolved_requires in
     let lib_args_dep, lib_args_cmd = match m.libs with
       | [] -> [], ""
@@ -80,13 +93,13 @@ let configure_backend config state =
     match m.mli_path with
     | Some _ -> (* With .mli: compile .mli to .cmi/.cmti first (using ocamlc for speed), then .ml to .cmx *)
       B.rule b ~target:m.cmi ~deps:(mli :: args :: lib_args_dep @ cmi_deps)
-        [capture_outf "ocamlc -bin-annot -c -opaque -args %s%s -o %s %s" args lib_args_cmd m.cmi mli];
-      B.rule b ~target:m.cmx ~deps:([ml; m.cmi; args] @ lib_args_dep)
-        [capture_outf "ocamlopt -bin-annot -c -args %s%s -cmi-file %s -o %s %s" args lib_args_cmd m.cmi m.cmx ml];
+        [capture_outf "ocamlc%s -bin-annot -c -opaque -args %s%s -o %s %s" pp_flag args lib_args_cmd m.cmi mli];
+      B.rule b ~target:m.cmx ~deps:([src; m.cmi; args] @ lib_args_dep)
+        [capture_outf "ocamlopt%s -bin-annot -c -args %s%s -cmi-file %s -o %s -impl %s" pp_flag args lib_args_cmd m.cmi m.cmx src];
       B.rule b ~target:m.cmt ~deps:[m.cmx] []
     | None -> (* Without .mli: ocamlopt produces both .cmi and .cmx *)
-      B.rule b ~target:m.cmx ~deps:(ml :: args :: lib_args_dep @ cmi_deps)
-        [capture_outf "ocamlopt -bin-annot -c -args %s%s -o %s %s" args lib_args_cmd m.cmx ml];
+      B.rule b ~target:m.cmx ~deps:(src :: args :: lib_args_dep @ cmi_deps)
+        [capture_outf "ocamlopt%s -bin-annot -c -args %s%s -o %s -impl %s" pp_flag args lib_args_cmd m.cmx src];
       B.rule b ~target:m.cmi ~deps:[m.cmx] [];
       B.rule b ~target:m.cmt ~deps:[m.cmx] []
   in
@@ -109,10 +122,11 @@ let configure_backend config state =
   let modules = List.map (fun ({ml_path;mli_path;requires=resolved_requires;libs;_} : Mach_state.entry) ->
     let module_name = module_name_of_path ml_path in
     let build_dir = build_dir_of ml_path in
+    let kind = module_kind_of_path ml_path in
     let cmx = Filename.(build_dir / module_name ^ ".cmx") in
     let cmi = Filename.(build_dir / module_name ^ ".cmi") in
     let cmt = Filename.(build_dir / module_name ^ ".cmt") in
-    { ml_path; mli_path; module_name; build_dir; resolved_requires;cmx;cmi;cmt;libs }
+    { ml_path; mli_path; module_name; build_dir; resolved_requires;cmx;cmi;cmt;libs;kind }
   ) state.Mach_state.entries in
   (* Generate per-module build files *)
   List.iter (fun (m : ocaml_module) ->
@@ -272,7 +286,7 @@ let watch_exn config script_path =
       path
     in
     current_watchlist := Some watchlist_path;
-    let cmd = sprintf "watchexec --debounce 200ms --only-emit-events --emit-events-to=stdio --stdin-quit -e ml,mli @%s" watchlist_path in
+    let cmd = sprintf "watchexec --debounce 200ms --only-emit-events --emit-events-to=stdio --stdin-quit -e ml,mli,mlx @%s" watchlist_path in
     log_very_verbose "mach:watch: running: %s" cmd;
 
     let (ic, oc) = Unix.open_process cmd in

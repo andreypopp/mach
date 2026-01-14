@@ -1,7 +1,7 @@
 #!/usr/bin/env mach run --
 
 #require "cmdliner"
-#require "./lib.ml"
+#require "./lib.mlx"
 
 open Cmdliner
 

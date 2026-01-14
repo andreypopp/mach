@@ -10,6 +10,18 @@
 
 ## Support passing -H hidden includes args when compiling
 
+## [DONE] Support .mlx
+
+There's this OCaml dialect called `.mlx` which adds support for jsx syntax.
+
+The command `mlx-pp` preprocesses `.mlx` files to `.ml` files. And I think we
+can use `-pp` flag of `ocamlopt` to preprocess `.mlx` files on the fly.
+
+We want to be able to build `.mlx` files with `mach` tool.
+
+Additionally for LSP/merlin there's `ocamlmerlin-mlx` tool that adds support for
+`.mlx` files. We need to configure it as a READER in `mach-lsp` tool for `.mlx` files.
+
 ## [DONE] Info about ocaml and ocamlfind versions
 
 On startup we should check which ocaml and ocamlfind versions are installed,
