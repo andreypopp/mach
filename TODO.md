@@ -10,6 +10,17 @@
 
 ## Support passing -H hidden includes args when compiling
 
+## [DONE] Info about ocaml and ocamlfind versions
+
+On startup we should check which ocaml and ocamlfind versions are installed,
+store them in config.
+
+We should also persist them in Mach.state header and on reconfiguration check
+if they have changed.
+
+Additionally, no reconfiguration we should check if ocamlfind is installed when
+we found some modules reference libs.
+
 ## [DONE] Error output overhaul
 
 Right now when we fail, we print lots of noise from make/ninja.

@@ -65,10 +65,11 @@ mach-lsp ocaml-merlin # merlin server mode (called by ocamllsp)
 Split across multiple files:
 - `bin/mach.ml` (~110 lines) - CLI entry point
 - `bin/mach_lsp.ml` (~115 lines) - LSP/merlin support
-- `lib/mach_config.ml` (~115 lines) - configuration discovery and parsing
+- `lib/mach_std.ml` (~50 lines) - shared utilities (use `open! Mach_std` in all lib modules)
+- `lib/mach_config.ml` (~130 lines) - configuration discovery, parsing, and toolchain detection
 - `lib/mach_lib.ml` (~330 lines) - core implementation (configure, build, watch)
 - `lib/mach_module.ml` (~60 lines) - module parsing and require extraction
-- `lib/mach_state.ml` (~155 lines) - dependency state caching
+- `lib/mach_state.ml` (~190 lines) - dependency state caching
 - `lib/makefile.ml` (~30 lines) - Makefile build backend
 - `lib/ninja.ml` (~40 lines) - Ninja build backend
 - `lib/s.ml` (~15 lines) - build backend interface signature
@@ -76,6 +77,28 @@ Split across multiple files:
 - `lib/mach_error.ml` (~5 lines) - error handling
 
 The library uses `(wrapped false)` so modules are accessed directly (e.g., `Mach_config`, `Mach_lib`).
+
+### Mach_std Module
+
+`lib/mach_std.ml` provides shared utilities used across the codebase. All library modules should have `open! Mach_std` at the top.
+
+Key exports:
+- `Filename.(/)` - path concatenation operator
+- `Buffer.output_line` - write line with newline
+- `SS` - `Set.Make(String)` for string sets
+- `type 'a with_loc = { v: 'a; filename: string; line: int }` - value with source location
+- `equal_without_loc` - compare `with_loc` values ignoring location (use with `List.equal`)
+- `run_cmd`, `run_cmd_lines` - execute shell commands
+- `mkdir_p`, `rm_rf`, `write_file` - file system utilities
+
+### Toolchain Detection
+
+`Mach_config.toolchain` tracks:
+- `ocaml_version` - from `ocamlopt -version`
+- `ocamlfind_version` - from `ocamlfind query -format '%v' findlib` (None if not installed)
+- `ocamlfind_libs` - set of available library names (empty if ocamlfind not installed)
+
+Libraries referenced via `#require "libname"` are validated at configure time against `ocamlfind_libs`. Errors include source location (file:line).
 
 ### Code Sections (lib/mach_lib.ml)
 
@@ -115,7 +138,8 @@ bin/
   mach_lsp.ml      -- LSP/merlin support
   dune
 lib/
-  mach_config.ml   -- configuration discovery and parsing
+  mach_std.ml      -- shared utilities (open! Mach_std in all modules)
+  mach_config.ml   -- configuration discovery, parsing, toolchain detection
   mach_config.mli
   mach_error.ml    -- error handling
   mach_lib.ml      -- core implementation (configure, build, watch)

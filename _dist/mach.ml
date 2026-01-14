@@ -10,6 +10,57 @@ let user_errorf fmt = Printf.ksprintf (fun msg -> raise (Mach_user_error msg)) f
 
 type t = [`User_error of string]
 end
+module Mach_std = struct
+(** Standard utility functions used across the Mach code. *)
+
+open Printf
+
+module Filename = struct
+  include Filename
+  let (/) = concat
+end
+
+module Buffer = struct
+  include Buffer
+  let output_line oc line = output_string oc line; output_char oc '\n'
+end
+
+module SS = Set.Make(String)
+
+type 'a with_loc = { v: 'a; filename: string; line: int }
+
+let equal_without_loc a b = a.v = b.v
+
+let failwithf fmt = ksprintf failwith fmt
+
+let run_cmd cmd =
+  let ic = Unix.open_process_in cmd in
+  let output = try Some (input_line ic) with End_of_file -> None in
+  match Unix.close_process_in ic with
+  | Unix.WEXITED 0 -> output
+  | _ -> None
+
+let run_cmd_lines cmd =
+  let ic = Unix.open_process_in cmd in
+  let lines = In_channel.input_lines ic in
+  match Unix.close_process_in ic with
+  | Unix.WEXITED 0 -> lines
+  | _ -> []
+
+let rec mkdir_p path =
+  if Sys.file_exists path then ()
+  else begin
+    mkdir_p (Filename.dirname path);
+    (try Unix.mkdir path 0o755 with Unix.Unix_error (Unix.EEXIST, _, _) -> ())
+  end
+
+let rm_rf path =
+  let cmd = sprintf "rm -rf %s" (Filename.quote path) in
+  if Sys.command cmd <> 0 then failwithf "Command failed: %s" cmd
+
+let write_file path content =
+  Out_channel.with_open_text path (fun oc -> output_string oc content)
+end
 module S = struct
 (* s.ml - Module signatures for mach *)
 
@@ -109,18 +160,19 @@ module Mach_module : sig
 (** Modules which are build with mach are .ml files with mach directives. This
     module helps processing those. *)
 
+open! Mach_std
+
 (** Extract #require directives from a source file *)
-val extract_requires : string -> (requires:string list * libs:string list, Mach_error.t) result
+val extract_requires : string -> (requires:string with_loc list * libs:string with_loc list, Mach_error.t) result
 
 (** Extract #require directives from a source file, raises on error *)
-val extract_requires_exn : string -> requires:string list * libs:string list
+val extract_requires_exn : string -> requires:string with_loc list * libs:string with_loc list
 
 (** Preprocess source file, stripping directives while preserving line numbers *)
 val preprocess_source : source_path:string -> out_channel -> in_channel -> unit
 end = struct
+open! Mach_std
 open Printf
-
-let output_line oc line = output_string oc line; output_char oc '\n'
 
 (* --- Parsing --- *)
 
@@ -133,9 +185,9 @@ let preprocess_source ~source_path oc ic =
   let rec loop in_header =
     match In_channel.input_line ic with
     | None -> ()
-    | Some line when is_empty_line line -> output_line oc line; loop in_header
-    | Some line when in_header && is_directive line -> output_line oc ""; loop true
-    | Some line -> output_line oc line; loop false
+    | Some line when is_empty_line line -> Buffer.output_line oc line; loop in_header
+    | Some line when in_header && is_directive line -> Buffer.output_line oc ""; loop true
+    | Some line -> Buffer.output_line oc line; loop false
   in
   loop true
 
@@ -155,7 +207,7 @@ let resolve_require ~source_path ~line path =
   with Unix.Unix_error (err, _, _) ->
     Mach_error.user_errorf "%s:%d: %s: %s" source_path line path (Unix.error_message err)
 
-let extract_requires_exn source_path : requires:string list * libs:string list =
+let extract_requires_exn source_path : requires:string with_loc list * libs:string with_loc list =
   let rec parse line_num (~requires, ~libs) ic =
     match In_channel.input_line ic with
     | Some line when is_shebang line -> parse (line_num + 1) (~requires, ~libs) ic
@@ -165,10 +217,12 @@ let extract_requires_exn source_path : requires:string list * libs:string list =
         with Scanf.Scan_failure _ | End_of_file -> Mach_error.user_errorf "%s:%d: invalid #require directive" source_path line_num
       in
       if is_require_path req then
-        let requires = resolve_require ~source_path ~line:line_num req::requires in
+        let resolved = resolve_require ~source_path ~line:line_num req in
+        let requires = { v = resolved; filename = source_path; line = line_num } :: requires in
         parse (line_num + 1) (~requires, ~libs) ic
       else
-        parse (line_num + 1) (~requires, ~libs:(req :: libs)) ic
+        let lib = { v = req; filename = source_path; line = line_num } in
+        parse (line_num + 1) (~requires, ~libs:(lib :: libs)) ic
     | Some line when is_empty_line line -> parse (line_num + 1) (~requires, ~libs) ic
     | None | Some _ -> ~requires:(List.rev requires), ~libs:(List.rev libs)
   in
@@ -199,17 +253,27 @@ end
 module Mach_config : sig
 (** Mach configuration discovery and parsing *)
 
+open! Mach_std
+
 (** Build backend type *)
 type build_backend = Make | Ninja
 
 val build_backend_to_string : build_backend -> string
 val build_backend_of_string : string -> build_backend
 
+(** Detected toolchain versions *)
+type toolchain = {
+  ocaml_version : string;
+  ocamlfind_version : string option;
+  ocamlfind_libs : SS.t;  (** empty if ocamlfind not installed *)
+}
+
 (** Mach configuration *)
 type t = {
   home : string;
   build_backend : build_backend;
   mach_executable_path : string;
+  toolchain : toolchain;
 }
 
 (** Get the current configuration.
@@ -224,12 +288,8 @@ val build_dir_of : t -> string -> string
 end = struct
 (* mach_config - Mach configuration discovery and parsing *)
 
+open! Mach_std
 open Printf
-
-module Filename = struct
-  include Filename
-  let (/) = concat
-end
 
 (* --- Build backend types --- *)
 
@@ -241,12 +301,38 @@ let build_backend_of_string = function
   | "ninja" -> Ninja
   | s -> failwith (sprintf "unknown build backend: %s" s)
 
+(* --- Toolchain detection --- *)
+
+type toolchain = {
+  ocaml_version: string;
+  ocamlfind_version: string option;
+  ocamlfind_libs: SS.t;  (* empty if ocamlfind not installed *)
+}
+
+let detect_toolchain () =
+  let ocaml_version =
+    match run_cmd "ocamlopt -version" with
+    | Some v -> v
+    | None -> Mach_error.user_errorf "ocamlopt not found"
+  in
+  let ocamlfind_version = run_cmd "ocamlfind query -format '%v' findlib" in
+  let ocamlfind_libs =
+    match ocamlfind_version with
+    | None -> SS.empty
+    | Some _ ->
+        run_cmd_lines "ocamlfind list -describe"
+        |> List.filter_map (fun line -> Scanf.sscanf_opt line "%s@  " Fun.id)
+        |> SS.of_list
+  in
+  { ocaml_version; ocamlfind_version; ocamlfind_libs }
+
 (* --- Config type and parsing --- *)
 
 type t = {
   home: string;
   build_backend: build_backend;
   mach_executable_path: string;
+  toolchain: toolchain;
 }
 
 let default_build_backend = Make
@@ -302,15 +388,16 @@ let find_mach_config () =
   in
   search (Sys.getcwd ())
 
-let make_config home =
+let make_config ?mach_path home =
   let mach_executable_path = Lazy.force mach_executable_path in
-  let mach_path = Filename.(home / "Mach") in
+  let toolchain = detect_toolchain () in
+  let mach_path = Option.value mach_path ~default:Filename.(home / "Mach") in
   if Sys.file_exists mach_path then
     match parse_file mach_path with
-    | Ok build_backend -> Ok { home; build_backend; mach_executable_path }
+    | Ok build_backend -> Ok { home; build_backend; mach_executable_path; toolchain }
     | Error _ as err -> err
   else
-    Ok { home; build_backend = default_build_backend; mach_executable_path }
+    Ok { home; build_backend = default_build_backend; mach_executable_path; toolchain }
 
 let config =
   lazy (
@@ -318,11 +405,7 @@ let config =
     | Some home -> make_config home
     | None ->
       match find_mach_config () with
-      | Some (home, mach_path) ->
-        let mach_executable_path = Lazy.force mach_executable_path in
-        (match parse_file mach_path with
-        | Ok build_backend -> Ok { home; build_backend; mach_executable_path }
-        | Error _ as err -> err)
+      | Some (home, mach_path) -> make_config ~mach_path home
       | None ->
         let home = match Sys.getenv_opt "XDG_STATE_HOME" with
           | Some xdg -> Filename.(xdg / "mach")
@@ -339,6 +422,8 @@ end
 module Mach_state : sig
 (** Mach state keep stats of a dependency graph of modules. *)
 
+open! Mach_std
+
 type file_stat = { mtime : int; size : int }
 
 type entry = {
@@ -346,14 +431,16 @@ type entry = {
   mli_path : string option;
   ml_stat : file_stat;
   mli_stat : file_stat option;
-  requires : string list;  (** absolute paths to required modules *)
-  libs : string list;  (** ocamlfind library names *)
+  requires : string with_loc list;  (** absolute paths to required modules with source location *)
+  libs : string with_loc list;  (** ocamlfind library names with source location *)
 }
 
 (** State metadata for detecting configuration changes *)
 type header = {
   build_backend : Mach_config.build_backend;
   mach_executable_path : string;
+  ocaml_version : string;
+  ocamlfind_version : string option;
 }
 
 type t = { header : header; root : entry; entries : entry list }
@@ -382,6 +469,7 @@ val source_dirs : t -> string list
 (** Get all unique ocamlfind library names from entries *)
 val all_libs : t -> string list
 end = struct
+open! Mach_std
 open Printf
 
 type file_stat = { mtime : int; size : int }
@@ -393,11 +481,16 @@ type entry = {
   mli_path : string option;
   ml_stat : file_stat;
   mli_stat : file_stat option;
-  requires : string list;
-  libs : string list;
+  requires : string with_loc list;
+  libs : string with_loc list;
 }
 
-type header = { build_backend : Mach_config.build_backend; mach_executable_path : string }
+type header = {
+  build_backend : Mach_config.build_backend;
+  mach_executable_path : string;
+  ocaml_version : string;
+  ocamlfind_version : string option;
+}
 
 type t = { header : header; root : entry; entries : entry list }
 
@@ -425,7 +518,7 @@ let source_dirs state =
 
 let all_libs state =
   let seen = Hashtbl.create 16 in
-  List.iter (fun e -> List.iter (fun l -> Hashtbl.replace seen l ()) e.libs) state.entries;
+  List.iter (fun e -> List.iter (fun (l : _ with_loc) -> Hashtbl.replace seen l.v ()) e.libs) state.entries;
   Hashtbl.fold (fun l () acc -> l :: acc) seen [] |> List.sort String.compare
 
 let read path =
@@ -434,10 +527,15 @@ let read path =
     let lines = In_channel.with_open_text path In_channel.input_lines in
     (* Parse header *)
     let header, entry_lines = match lines with
-      | bb_line :: mp_line :: "" :: rest ->
+      | bb_line :: mp_line :: ov_line :: ofv_line :: "" :: rest ->
         let build_backend = Scanf.sscanf bb_line "build_backend %s" Mach_config.build_backend_of_string in
         let mach_executable_path = Scanf.sscanf mp_line "mach_executable_path %s@\n" Fun.id in
-        Some { build_backend; mach_executable_path }, rest
+        let ocaml_version = Scanf.sscanf ov_line "ocaml_version %s@\n" Fun.id in
+        let ocamlfind_version =
+          let v = Scanf.sscanf ofv_line "ocamlfind_version %s@\n" Fun.id in
+          if v = "none" then None else Some v
+        in
+        Some { build_backend; mach_executable_path; ocaml_version; ocamlfind_version }, rest
       | _ -> None, []  (* Missing header = needs reconfigure *)
     in
     match header with
@@ -456,11 +554,14 @@ let read path =
           loop acc (Some { e with mli_path = mli_path_of e.ml_path; mli_stat = Some { mtime = m; size = s } }) rest
         | line :: rest when String.length line > 6 && String.sub line 0 6 = "  lib " ->
           let e = Option.get cur in
-          let lib = Scanf.sscanf line "  lib %s" Fun.id in
+          let filename, line_num, v = Scanf.sscanf line "  lib %s %d %s" (fun f l v -> f, l, v) in
+          let lib : _ with_loc = { filename; line = line_num; v } in
           loop acc (Some { e with libs = lib :: e.libs }) rest
-        | line :: rest when String.length line > 2 && line.[0] = ' ' ->
+        | line :: rest when String.length line > 10 && String.sub line 0 10 = "  requires" ->
           let e = Option.get cur in
-          loop acc (Some { e with requires = Scanf.sscanf line "  requires %s" Fun.id :: e.requires }) rest
+          let filename, line_num, v = Scanf.sscanf line "  requires %s %d %s" (fun f l v -> f, l, v) in
+          let req : _ with_loc = { filename; line = line_num; v } in
+          loop acc (Some { e with requires = req :: e.requires }) rest
         | line :: rest ->
           let acc = match cur with Some cur -> finalize cur :: acc | None -> acc in
           let p, m, s = Scanf.sscanf line "%s %i %d" (fun p m s -> p, m, s) in
@@ -476,22 +577,29 @@ let write path state =
     (* Write header *)
     output_line oc (sprintf "build_backend %s" (Mach_config.build_backend_to_string state.header.build_backend));
     output_line oc (sprintf "mach_executable_path %s" state.header.mach_executable_path);
+    output_line oc (sprintf "ocaml_version %s" state.header.ocaml_version);
+    output_line oc (sprintf "ocamlfind_version %s" (Option.value state.header.ocamlfind_version ~default:"none"));
     output_line oc "";
     (* Write entries *)
     List.iter (fun e ->
       output_line oc (sprintf "%s %i %d" e.ml_path e.ml_stat.mtime e.ml_stat.size);
       Option.iter (fun st -> output_line oc (sprintf "  mli %i %d" st.mtime st.size)) e.mli_stat;
-      List.iter (fun r -> output_line oc (sprintf "  requires %s" r)) e.requires;
-      List.iter (fun l -> output_line oc (sprintf "  lib %s" l)) e.libs
+      List.iter (fun (r : _ with_loc) -> output_line oc (sprintf "  requires %s %d %s" r.filename r.line r.v)) e.requires;
+      List.iter (fun (l : _ with_loc) -> output_line oc (sprintf "  lib %s %d %s" l.filename l.line l.v)) e.libs
     ) state.entries)
 
 let needs_reconfigure_exn config state =
   let build_backend = config.Mach_config.build_backend in
   let mach_path = config.Mach_config.mach_executable_path in
+  let toolchain = config.Mach_config.toolchain in
   if state.header.build_backend <> build_backend then
     (Mach_log.log_very_verbose "mach:state: build backend changed, need reconfigure"; true)
   else if state.header.mach_executable_path <> mach_path then
     (Mach_log.log_very_verbose "mach:state: mach path changed, need reconfigure"; true)
+  else if state.header.ocaml_version <> toolchain.ocaml_version then
+    (Mach_log.log_very_verbose "mach:state: ocaml version changed, need reconfigure"; true)
+  else if state.header.ocamlfind_version <> toolchain.ocamlfind_version then
+    (Mach_log.log_very_verbose "mach:state: ocamlfind version changed, need reconfigure"; true)
   else
     List.exists (fun entry ->
       if not (Sys.file_exists entry.ml_path)
@@ -503,7 +611,8 @@ let needs_reconfigure_exn config state =
           if not (equal_file_stat (file_stat entry.ml_path) entry.ml_stat)
           then
             let ~requires, ~libs = Mach_module.extract_requires_exn entry.ml_path in
-            if requires <> entry.requires || libs <> entry.libs
+            if not (List.equal equal_without_loc requires entry.requires) ||
+               not (List.equal equal_without_loc libs entry.libs)
             then (Mach_log.log_very_verbose "mach:state: requires/libs changed, need reconfigure"; true)
             else false
           else false
@@ -512,8 +621,14 @@ let needs_reconfigure_exn config state =
 let collect_exn config entry_path =
   let build_backend = config.Mach_config.build_backend in
   let mach_executable_path = config.Mach_config.mach_executable_path in
+  let toolchain = config.Mach_config.toolchain in
   let entry_path = Unix.realpath entry_path in
-  let header = { build_backend; mach_executable_path } in
+  let header = {
+    build_backend;
+    mach_executable_path;
+    ocaml_version = toolchain.ocaml_version;
+    ocamlfind_version = toolchain.ocamlfind_version;
+  } in
   let visited = Hashtbl.create 16 in
   let entries = ref [] in
   let rec dfs ml_path =
@@ -521,7 +636,13 @@ let collect_exn config entry_path =
     else begin
       Hashtbl.add visited ml_path ();
       let ~requires, ~libs = Mach_module.extract_requires_exn ml_path in
-      List.iter dfs requires;
+      List.iter (fun (lib : _ with_loc) ->
+        if toolchain.ocamlfind_version = None then
+          Mach_error.user_errorf "%s:%d: library %S requires ocamlfind but ocamlfind is not installed" lib.filename lib.line lib.v
+        else if not (SS.mem lib.v toolchain.ocamlfind_libs) then
+          Mach_error.user_errorf "%s:%d: library %S not found" lib.filename lib.line lib.v
+      ) libs;
+      List.iter (fun (r : _ with_loc) -> dfs r.v) requires;
       let mli_path = mli_path_of_ml_if_exists ml_path in
       let mli_stat = Option.map file_stat mli_path in
       entries := { ml_path; mli_path; ml_stat = file_stat ml_path; mli_stat; requires; libs } :: !entries
@@ -549,8 +670,7 @@ val watch : Mach_config.t -> string -> (unit, Mach_error.t) result
 end = struct
 (* mach_lib - Shared code for mach and mach-lsp *)
 
-(* --- Utilities --- *)
-
+open! Mach_std
 open Printf
 
 type verbose = Mach_log.verbose = Quiet | Verbose | Very_verbose | Very_very_verbose
@@ -558,31 +678,7 @@ type verbose = Mach_log.verbose = Quiet | Verbose | Very_verbose | Very_very_ver
 let log_verbose = Mach_log.log_verbose
 let log_very_verbose = Mach_log.log_very_verbose
 
-module Filename = struct
-  include Filename
-  let (/) = concat
-end
-
-module Buffer = struct
-  include Buffer
-  let output_line oc line = output_string oc line; output_char oc '\n'
-end
-
 let module_name_of_path path = Filename.(basename path |> remove_extension)
-
-let failwithf fmt = ksprintf failwith fmt
-let rm_rf path =
-  let cmd = sprintf "rm -rf %s" (Filename.quote path) in
-  if Sys.command cmd <> 0 then failwithf "Command failed: %s" cmd
-
-let rec mkdir_p path =
-  if Sys.file_exists path then ()
-  else begin
-    mkdir_p (Filename.dirname path);
-    (try Unix.mkdir path 0o755 with Unix.Unix_error (Unix.EEXIST, _, _) -> ())
-  end
-
-let write_file path content = Out_channel.with_open_text path (fun oc -> output_string oc content)
 
 (* --- Build backend types (re-exported from Mach_config) --- *)
 
@@ -605,8 +701,8 @@ type ocaml_module = {
   cmt: string;
   module_name: string;
   build_dir: string;
-  resolved_requires: string list;  (* absolute paths *)
-  libs: string list;  (* ocamlfind library names *)
+  resolved_requires: string with_loc list;  (* absolute paths *)
+  libs: string with_loc list;  (* ocamlfind library names *)
 }
 
 let configure_backend config state =
@@ -618,7 +714,8 @@ let configure_backend config state =
     | Ninja -> (module Ninja), "mach.ninja", "build.ninja"
   in
   let cmd = state.Mach_state.header.mach_executable_path in
-  let compilef fmt = ksprintf (sprintf "${MACH} run-build-command -- %s") fmt in
+  let capture_outf fmt = ksprintf (sprintf "${MACH} run-build-command -- %s") fmt in
+  let capture_stderrf fmt = ksprintf (sprintf "${MACH} run-build-command --stderr-only -- %s") fmt in
   let configure_ocaml_module b (m : ocaml_module) =
     let ml = Filename.(m.build_dir / m.module_name ^ ".ml") in
     let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
@@ -630,7 +727,7 @@ let configure_backend config state =
     let recipe =
       match m.resolved_requires with
       | [] -> [sprintf "touch %s" args]
-      | requires -> List.map (fun p -> sprintf "echo '-I=%s' >> %s" (build_dir_of p) args) requires
+      | requires -> List.map (fun (r : _ with_loc) -> sprintf "echo '-I=%s' >> %s" (build_dir_of r.v) args) requires
     in
     B.rule b ~target:args ~deps:[ml] (sprintf "rm -f %s" args :: recipe);
     (* Generate lib_includes.args for ocamlfind library include paths (only if libs present) *)
@@ -638,14 +735,14 @@ let configure_backend config state =
     | [] -> ()
     | libs ->
       let lib_args = Filename.(m.build_dir / "lib_includes.args") in
-      let libs_str = String.concat " " libs in
-      B.rulef b ~target:lib_args ~deps:[] "ocamlfind query -format '-I=%%d' -recursive %s > %s" libs_str lib_args)
+      let libs = String.concat " " (List.map (fun (l : _ with_loc) -> l.v) libs) in
+      B.rule b ~target:lib_args ~deps:[] [capture_stderrf "ocamlfind query -format '-I=%%d' -recursive %s > %s" libs lib_args])
   in
   let compile_ocaml_module b (m : ocaml_module) =
     let ml = Filename.(m.build_dir / m.module_name ^ ".ml") in
     let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
     let args = Filename.(m.build_dir / "includes.args") in
-    let cmi_deps = List.map (fun p -> Filename.(build_dir_of p / module_name_of_path p ^ ".cmi")) m.resolved_requires in
+    let cmi_deps = List.map (fun (r : _ with_loc) -> Filename.(build_dir_of r.v / module_name_of_path r.v ^ ".cmi")) m.resolved_requires in
     let lib_args_dep, lib_args_cmd = match m.libs with
       | [] -> [], ""
       | _ -> [Filename.(m.build_dir / "lib_includes.args")], sprintf " -args %s" Filename.(m.build_dir / "lib_includes.args")
@@ -653,13 +750,13 @@ let configure_backend config state =
     match m.mli_path with
     | Some _ -> (* With .mli: compile .mli to .cmi/.cmti first (using ocamlc for speed), then .ml to .cmx *)
       B.rule b ~target:m.cmi ~deps:(mli :: args :: lib_args_dep @ cmi_deps)
-        [compilef "ocamlc -bin-annot -c -opaque -args %s%s -o %s %s" args lib_args_cmd m.cmi mli];
+        [capture_outf "ocamlc -bin-annot -c -opaque -args %s%s -o %s %s" args lib_args_cmd m.cmi mli];
       B.rule b ~target:m.cmx ~deps:([ml; m.cmi; args] @ lib_args_dep)
-        [compilef "ocamlopt -bin-annot -c -args %s%s -cmi-file %s -o %s %s" args lib_args_cmd m.cmi m.cmx ml];
+        [capture_outf "ocamlopt -bin-annot -c -args %s%s -cmi-file %s -o %s %s" args lib_args_cmd m.cmi m.cmx ml];
       B.rule b ~target:m.cmt ~deps:[m.cmx] []
     | None -> (* Without .mli: ocamlopt produces both .cmi and .cmx *)
       B.rule b ~target:m.cmx ~deps:(ml :: args :: lib_args_dep @ cmi_deps)
-        [compilef "ocamlopt -bin-annot -c -args %s%s -o %s %s" args lib_args_cmd m.cmx ml];
+        [capture_outf "ocamlopt -bin-annot -c -args %s%s -o %s %s" args lib_args_cmd m.cmx ml];
       B.rule b ~target:m.cmi ~deps:[m.cmx] [];
       B.rule b ~target:m.cmt ~deps:[m.cmx] []
   in
@@ -671,13 +768,13 @@ let configure_backend config state =
     match all_libs with
     | [] ->
       B.rule b ~target:exe_path ~deps:(args :: all_objs)
-        [compilef "ocamlopt -o %s -args %s" exe_path args]
+        [capture_outf "ocamlopt -o %s -args %s" exe_path args]
     | libs ->
       let lib_args = Filename.(root_build_dir / "lib_objects.args") in
       let libs = String.concat " " libs in
-      B.rulef b ~target:lib_args ~deps:[] "ocamlfind query -a-format -recursive -predicates native %s > %s" libs lib_args;
+      B.rule b ~target:lib_args ~deps:[] [capture_stderrf "ocamlfind query -a-format -recursive -predicates native %s > %s" libs lib_args];
       B.rule b ~target:exe_path ~deps:(args :: lib_args :: all_objs)
-        [compilef "ocamlopt -o %s -args %s -args %s" exe_path lib_args args]
+        [capture_outf "ocamlopt -o %s -args %s -args %s" exe_path lib_args args]
   in
   let modules = List.map (fun ({ml_path;mli_path;requires=resolved_requires;libs;_} : Mach_state.entry) ->
     let module_name = module_name_of_path ml_path in
@@ -6597,7 +6694,8 @@ let run_build_command_cmd =
   let doc = "Run a build command, prefixing output with >>>" in
   let info = Cmd.info "run-build-command" ~doc ~docs:Manpage.s_none in
   let cmd_arg = Arg.(non_empty & pos_all string [] & info [] ~docv:"COMMAND") in
-  let f args =
+  let stderr_only_arg = Arg.(value & flag & info ["stderr-only"] ~doc:"Only capture stderr, let stdout pass through") in
+  let f stderr_only args =
     let open Unix in
     let prog, argv = match args with
       | [] -> prerr_endline "mach run-build-command: no command"; exit 1
@@ -6607,7 +6705,7 @@ let run_build_command_cmd =
     let pid = match fork () with
       | 0 ->
         close pipe_read;
-        dup2 pipe_write stdout;
+        if not stderr_only then dup2 pipe_write stdout;
         dup2 pipe_write stderr;
         close pipe_write;
         execvp prog argv
@@ -6626,7 +6724,7 @@ let run_build_command_cmd =
     | WSIGNALED n -> exit (128 + n)
     | WSTOPPED _ -> exit 1
   in
-  Cmd.v info Term.(const f $ cmd_arg)
+  Cmd.v info Term.(const f $ stderr_only_arg $ cmd_arg)
 
 let cmd =
   let doc = "Run OCaml scripts with automatic dependency resolution" in

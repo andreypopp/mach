@@ -72,7 +72,8 @@ let run_build_command_cmd =
   let doc = "Run a build command, prefixing output with >>>" in
   let info = Cmd.info "run-build-command" ~doc ~docs:Manpage.s_none in
   let cmd_arg = Arg.(non_empty & pos_all string [] & info [] ~docv:"COMMAND") in
-  let f args =
+  let stderr_only_arg = Arg.(value & flag & info ["stderr-only"] ~doc:"Only capture stderr, let stdout pass through") in
+  let f stderr_only args =
     let open Unix in
     let prog, argv = match args with
       | [] -> prerr_endline "mach run-build-command: no command"; exit 1
@@ -82,7 +83,7 @@ let run_build_command_cmd =
     let pid = match fork () with
       | 0 ->
         close pipe_read;
-        dup2 pipe_write stdout;
+        if not stderr_only then dup2 pipe_write stdout;
         dup2 pipe_write stderr;
         close pipe_write;
         execvp prog argv
@@ -101,7 +102,7 @@ let run_build_command_cmd =
     | WSIGNALED n -> exit (128 + n)
     | WSTOPPED _ -> exit 1
   in
-  Cmd.v info Term.(const f $ cmd_arg)
+  Cmd.v info Term.(const f $ stderr_only_arg $ cmd_arg)
 
 let cmd =
   let doc = "Run OCaml scripts with automatic dependency resolution" in

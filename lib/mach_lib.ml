@@ -1,7 +1,6 @@
 (* mach_lib - Shared code for mach and mach-lsp *)
 
-(* --- Utilities --- *)
-
+open! Mach_std
 open Printf
 
 type verbose = Mach_log.verbose = Quiet | Verbose | Very_verbose | Very_very_verbose
@@ -9,31 +8,7 @@ type verbose = Mach_log.verbose = Quiet | Verbose | Very_verbose | Very_very_ver
 let log_verbose = Mach_log.log_verbose
 let log_very_verbose = Mach_log.log_very_verbose
 
-module Filename = struct
-  include Filename
-  let (/) = concat
-end
-
-module Buffer = struct
-  include Buffer
-  let output_line oc line = output_string oc line; output_char oc '\n'
-end
-
 let module_name_of_path path = Filename.(basename path |> remove_extension)
-
-let failwithf fmt = ksprintf failwith fmt
-let rm_rf path =
-  let cmd = sprintf "rm -rf %s" (Filename.quote path) in
-  if Sys.command cmd <> 0 then failwithf "Command failed: %s" cmd
-
-let rec mkdir_p path =
-  if Sys.file_exists path then ()
-  else begin
-    mkdir_p (Filename.dirname path);
-    (try Unix.mkdir path 0o755 with Unix.Unix_error (Unix.EEXIST, _, _) -> ())
-  end
-
-let write_file path content = Out_channel.with_open_text path (fun oc -> output_string oc content)
 
 (* --- Build backend types (re-exported from Mach_config) --- *)
 
@@ -56,8 +31,8 @@ type ocaml_module = {
   cmt: string;
   module_name: string;
   build_dir: string;
-  resolved_requires: string list;  (* absolute paths *)
-  libs: string list;  (* ocamlfind library names *)
+  resolved_requires: string with_loc list;  (* absolute paths *)
+  libs: string with_loc list;  (* ocamlfind library names *)
 }
 
 let configure_backend config state =
@@ -69,7 +44,8 @@ let configure_backend config state =
     | Ninja -> (module Ninja), "mach.ninja", "build.ninja"
   in
   let cmd = state.Mach_state.header.mach_executable_path in
-  let compilef fmt = ksprintf (sprintf "${MACH} run-build-command -- %s") fmt in
+  let capture_outf fmt = ksprintf (sprintf "${MACH} run-build-command -- %s") fmt in
+  let capture_stderrf fmt = ksprintf (sprintf "${MACH} run-build-command --stderr-only -- %s") fmt in
   let configure_ocaml_module b (m : ocaml_module) =
     let ml = Filename.(m.build_dir / m.module_name ^ ".ml") in
     let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
@@ -81,7 +57,7 @@ let configure_backend config state =
     let recipe =
       match m.resolved_requires with
       | [] -> [sprintf "touch %s" args]
-      | requires -> List.map (fun p -> sprintf "echo '-I=%s' >> %s" (build_dir_of p) args) requires
+      | requires -> List.map (fun (r : _ with_loc) -> sprintf "echo '-I=%s' >> %s" (build_dir_of r.v) args) requires
     in
     B.rule b ~target:args ~deps:[ml] (sprintf "rm -f %s" args :: recipe);
     (* Generate lib_includes.args for ocamlfind library include paths (only if libs present) *)
@@ -89,14 +65,14 @@ let configure_backend config state =
     | [] -> ()
     | libs ->
       let lib_args = Filename.(m.build_dir / "lib_includes.args") in
-      let libs_str = String.concat " " libs in
-      B.rulef b ~target:lib_args ~deps:[] "ocamlfind query -format '-I=%%d' -recursive %s > %s" libs_str lib_args)
+      let libs = String.concat " " (List.map (fun (l : _ with_loc) -> l.v) libs) in
+      B.rule b ~target:lib_args ~deps:[] [capture_stderrf "ocamlfind query -format '-I=%%d' -recursive %s > %s" libs lib_args])
   in
   let compile_ocaml_module b (m : ocaml_module) =
     let ml = Filename.(m.build_dir / m.module_name ^ ".ml") in
     let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
     let args = Filename.(m.build_dir / "includes.args") in
-    let cmi_deps = List.map (fun p -> Filename.(build_dir_of p / module_name_of_path p ^ ".cmi")) m.resolved_requires in
+    let cmi_deps = List.map (fun (r : _ with_loc) -> Filename.(build_dir_of r.v / module_name_of_path r.v ^ ".cmi")) m.resolved_requires in
     let lib_args_dep, lib_args_cmd = match m.libs with
       | [] -> [], ""
       | _ -> [Filename.(m.build_dir / "lib_includes.args")], sprintf " -args %s" Filename.(m.build_dir / "lib_includes.args")
@@ -104,13 +80,13 @@ let configure_backend config state =
     match m.mli_path with
     | Some _ -> (* With .mli: compile .mli to .cmi/.cmti first (using ocamlc for speed), then .ml to .cmx *)
       B.rule b ~target:m.cmi ~deps:(mli :: args :: lib_args_dep @ cmi_deps)
-        [compilef "ocamlc -bin-annot -c -opaque -args %s%s -o %s %s" args lib_args_cmd m.cmi mli];
+        [capture_outf "ocamlc -bin-annot -c -opaque -args %s%s -o %s %s" args lib_args_cmd m.cmi mli];
       B.rule b ~target:m.cmx ~deps:([ml; m.cmi; args] @ lib_args_dep)
-        [compilef "ocamlopt -bin-annot -c -args %s%s -cmi-file %s -o %s %s" args lib_args_cmd m.cmi m.cmx ml];
+        [capture_outf "ocamlopt -bin-annot -c -args %s%s -cmi-file %s -o %s %s" args lib_args_cmd m.cmi m.cmx ml];
       B.rule b ~target:m.cmt ~deps:[m.cmx] []
     | None -> (* Without .mli: ocamlopt produces both .cmi and .cmx *)
       B.rule b ~target:m.cmx ~deps:(ml :: args :: lib_args_dep @ cmi_deps)
-        [compilef "ocamlopt -bin-annot -c -args %s%s -o %s %s" args lib_args_cmd m.cmx ml];
+        [capture_outf "ocamlopt -bin-annot -c -args %s%s -o %s %s" args lib_args_cmd m.cmx ml];
       B.rule b ~target:m.cmi ~deps:[m.cmx] [];
       B.rule b ~target:m.cmt ~deps:[m.cmx] []
   in
@@ -122,13 +98,13 @@ let configure_backend config state =
     match all_libs with
     | [] ->
       B.rule b ~target:exe_path ~deps:(args :: all_objs)
-        [compilef "ocamlopt -o %s -args %s" exe_path args]
+        [capture_outf "ocamlopt -o %s -args %s" exe_path args]
     | libs ->
       let lib_args = Filename.(root_build_dir / "lib_objects.args") in
       let libs = String.concat " " libs in
-      B.rulef b ~target:lib_args ~deps:[] "ocamlfind query -a-format -recursive -predicates native %s > %s" libs lib_args;
+      B.rule b ~target:lib_args ~deps:[] [capture_stderrf "ocamlfind query -a-format -recursive -predicates native %s > %s" libs lib_args];
       B.rule b ~target:exe_path ~deps:(args :: lib_args :: all_objs)
-        [compilef "ocamlopt -o %s -args %s -args %s" exe_path lib_args args]
+        [capture_outf "ocamlopt -o %s -args %s -args %s" exe_path lib_args args]
   in
   let modules = List.map (fun ({ml_path;mli_path;requires=resolved_requires;libs;_} : Mach_state.entry) ->
     let module_name = module_name_of_path ml_path in

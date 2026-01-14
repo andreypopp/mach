@@ -1,3 +1,4 @@
+open! Mach_std
 open Printf
 
 type file_stat = { mtime : int; size : int }
@@ -9,11 +10,16 @@ type entry = {
   mli_path : string option;
   ml_stat : file_stat;
   mli_stat : file_stat option;
-  requires : string list;
-  libs : string list;
+  requires : string with_loc list;
+  libs : string with_loc list;
 }
 
-type header = { build_backend : Mach_config.build_backend; mach_executable_path : string }
+type header = {
+  build_backend : Mach_config.build_backend;
+  mach_executable_path : string;
+  ocaml_version : string;
+  ocamlfind_version : string option;
+}
 
 type t = { header : header; root : entry; entries : entry list }
 
@@ -41,7 +47,7 @@ let source_dirs state =
 
 let all_libs state =
   let seen = Hashtbl.create 16 in
-  List.iter (fun e -> List.iter (fun l -> Hashtbl.replace seen l ()) e.libs) state.entries;
+  List.iter (fun e -> List.iter (fun (l : _ with_loc) -> Hashtbl.replace seen l.v ()) e.libs) state.entries;
   Hashtbl.fold (fun l () acc -> l :: acc) seen [] |> List.sort String.compare
 
 let read path =
@@ -50,10 +56,15 @@ let read path =
     let lines = In_channel.with_open_text path In_channel.input_lines in
     (* Parse header *)
     let header, entry_lines = match lines with
-      | bb_line :: mp_line :: "" :: rest ->
+      | bb_line :: mp_line :: ov_line :: ofv_line :: "" :: rest ->
         let build_backend = Scanf.sscanf bb_line "build_backend %s" Mach_config.build_backend_of_string in
         let mach_executable_path = Scanf.sscanf mp_line "mach_executable_path %s@\n" Fun.id in
-        Some { build_backend; mach_executable_path }, rest
+        let ocaml_version = Scanf.sscanf ov_line "ocaml_version %s@\n" Fun.id in
+        let ocamlfind_version =
+          let v = Scanf.sscanf ofv_line "ocamlfind_version %s@\n" Fun.id in
+          if v = "none" then None else Some v
+        in
+        Some { build_backend; mach_executable_path; ocaml_version; ocamlfind_version }, rest
       | _ -> None, []  (* Missing header = needs reconfigure *)
     in
     match header with
@@ -72,11 +83,14 @@ let read path =
           loop acc (Some { e with mli_path = mli_path_of e.ml_path; mli_stat = Some { mtime = m; size = s } }) rest
         | line :: rest when String.length line > 6 && String.sub line 0 6 = "  lib " ->
           let e = Option.get cur in
-          let lib = Scanf.sscanf line "  lib %s" Fun.id in
+          let filename, line_num, v = Scanf.sscanf line "  lib %s %d %s" (fun f l v -> f, l, v) in
+          let lib : _ with_loc = { filename; line = line_num; v } in
           loop acc (Some { e with libs = lib :: e.libs }) rest
-        | line :: rest when String.length line > 2 && line.[0] = ' ' ->
+        | line :: rest when String.length line > 10 && String.sub line 0 10 = "  requires" ->
           let e = Option.get cur in
-          loop acc (Some { e with requires = Scanf.sscanf line "  requires %s" Fun.id :: e.requires }) rest
+          let filename, line_num, v = Scanf.sscanf line "  requires %s %d %s" (fun f l v -> f, l, v) in
+          let req : _ with_loc = { filename; line = line_num; v } in
+          loop acc (Some { e with requires = req :: e.requires }) rest
         | line :: rest ->
           let acc = match cur with Some cur -> finalize cur :: acc | None -> acc in
           let p, m, s = Scanf.sscanf line "%s %i %d" (fun p m s -> p, m, s) in
@@ -92,22 +106,29 @@ let write path state =
     (* Write header *)
     output_line oc (sprintf "build_backend %s" (Mach_config.build_backend_to_string state.header.build_backend));
     output_line oc (sprintf "mach_executable_path %s" state.header.mach_executable_path);
+    output_line oc (sprintf "ocaml_version %s" state.header.ocaml_version);
+    output_line oc (sprintf "ocamlfind_version %s" (Option.value state.header.ocamlfind_version ~default:"none"));
     output_line oc "";
     (* Write entries *)
     List.iter (fun e ->
       output_line oc (sprintf "%s %i %d" e.ml_path e.ml_stat.mtime e.ml_stat.size);
       Option.iter (fun st -> output_line oc (sprintf "  mli %i %d" st.mtime st.size)) e.mli_stat;
-      List.iter (fun r -> output_line oc (sprintf "  requires %s" r)) e.requires;
-      List.iter (fun l -> output_line oc (sprintf "  lib %s" l)) e.libs
+      List.iter (fun (r : _ with_loc) -> output_line oc (sprintf "  requires %s %d %s" r.filename r.line r.v)) e.requires;
+      List.iter (fun (l : _ with_loc) -> output_line oc (sprintf "  lib %s %d %s" l.filename l.line l.v)) e.libs
     ) state.entries)
 
 let needs_reconfigure_exn config state =
   let build_backend = config.Mach_config.build_backend in
   let mach_path = config.Mach_config.mach_executable_path in
+  let toolchain = config.Mach_config.toolchain in
   if state.header.build_backend <> build_backend then
     (Mach_log.log_very_verbose "mach:state: build backend changed, need reconfigure"; true)
   else if state.header.mach_executable_path <> mach_path then
     (Mach_log.log_very_verbose "mach:state: mach path changed, need reconfigure"; true)
+  else if state.header.ocaml_version <> toolchain.ocaml_version then
+    (Mach_log.log_very_verbose "mach:state: ocaml version changed, need reconfigure"; true)
+  else if state.header.ocamlfind_version <> toolchain.ocamlfind_version then
+    (Mach_log.log_very_verbose "mach:state: ocamlfind version changed, need reconfigure"; true)
   else
     List.exists (fun entry ->
       if not (Sys.file_exists entry.ml_path)
@@ -119,7 +140,8 @@ let needs_reconfigure_exn config state =
           if not (equal_file_stat (file_stat entry.ml_path) entry.ml_stat)
           then
             let ~requires, ~libs = Mach_module.extract_requires_exn entry.ml_path in
-            if requires <> entry.requires || libs <> entry.libs
+            if not (List.equal equal_without_loc requires entry.requires) ||
+               not (List.equal equal_without_loc libs entry.libs)
             then (Mach_log.log_very_verbose "mach:state: requires/libs changed, need reconfigure"; true)
             else false
           else false
@@ -128,8 +150,14 @@ let needs_reconfigure_exn config state =
 let collect_exn config entry_path =
   let build_backend = config.Mach_config.build_backend in
   let mach_executable_path = config.Mach_config.mach_executable_path in
+  let toolchain = config.Mach_config.toolchain in
   let entry_path = Unix.realpath entry_path in
-  let header = { build_backend; mach_executable_path } in
+  let header = {
+    build_backend;
+    mach_executable_path;
+    ocaml_version = toolchain.ocaml_version;
+    ocamlfind_version = toolchain.ocamlfind_version;
+  } in
   let visited = Hashtbl.create 16 in
   let entries = ref [] in
   let rec dfs ml_path =
@@ -137,7 +165,13 @@ let collect_exn config entry_path =
     else begin
       Hashtbl.add visited ml_path ();
       let ~requires, ~libs = Mach_module.extract_requires_exn ml_path in
-      List.iter dfs requires;
+      List.iter (fun lib ->
+        if toolchain.ocamlfind_version = None then
+          Mach_error.user_errorf "%s:%d: library %S requires ocamlfind but ocamlfind is not installed" lib.filename lib.line lib.v
+        else if not (SS.mem lib.v toolchain.ocamlfind_libs) then
+          Mach_error.user_errorf "%s:%d: library %S not found" lib.filename lib.line lib.v
+      ) libs;
+      List.iter (fun r -> dfs r.v) requires;
       let mli_path = mli_path_of_ml_if_exists ml_path in
       let mli_stat = Option.map file_stat mli_path in
       entries := { ml_path; mli_path; ml_stat = file_stat ml_path; mli_stat; requires; libs } :: !entries

@@ -48,8 +48,8 @@ module Merlin_server = struct
         ) directives dep_dirs
       in
       let directives =
-        List.fold_left (fun directives require ->
-          `S (Filename.dirname require)::directives
+        List.fold_left (fun directives (require : _ Mach_std.with_loc) ->
+          `S (Filename.dirname require.v)::directives
         ) directives requires
       in
       let directives = `S (Filename.dirname path) :: directives in

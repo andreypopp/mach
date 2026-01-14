@@ -1,6 +1,5 @@
+open! Mach_std
 open Printf
-
-let output_line oc line = output_string oc line; output_char oc '\n'
 
 (* --- Parsing --- *)
 
@@ -13,9 +12,9 @@ let preprocess_source ~source_path oc ic =
   let rec loop in_header =
     match In_channel.input_line ic with
     | None -> ()
-    | Some line when is_empty_line line -> output_line oc line; loop in_header
-    | Some line when in_header && is_directive line -> output_line oc ""; loop true
-    | Some line -> output_line oc line; loop false
+    | Some line when is_empty_line line -> Buffer.output_line oc line; loop in_header
+    | Some line when in_header && is_directive line -> Buffer.output_line oc ""; loop true
+    | Some line -> Buffer.output_line oc line; loop false
   in
   loop true
 
@@ -35,7 +34,7 @@ let resolve_require ~source_path ~line path =
   with Unix.Unix_error (err, _, _) ->
     Mach_error.user_errorf "%s:%d: %s: %s" source_path line path (Unix.error_message err)
 
-let extract_requires_exn source_path : requires:string list * libs:string list =
+let extract_requires_exn source_path : requires:string with_loc list * libs:string with_loc list =
   let rec parse line_num (~requires, ~libs) ic =
     match In_channel.input_line ic with
     | Some line when is_shebang line -> parse (line_num + 1) (~requires, ~libs) ic
@@ -45,10 +44,12 @@ let extract_requires_exn source_path : requires:string list * libs:string list =
         with Scanf.Scan_failure _ | End_of_file -> Mach_error.user_errorf "%s:%d: invalid #require directive" source_path line_num
       in
       if is_require_path req then
-        let requires = resolve_require ~source_path ~line:line_num req::requires in
+        let resolved = resolve_require ~source_path ~line:line_num req in
+        let requires = { v = resolved; filename = source_path; line = line_num } :: requires in
         parse (line_num + 1) (~requires, ~libs) ic
       else
-        parse (line_num + 1) (~requires, ~libs:(req :: libs)) ic
+        let lib = { v = req; filename = source_path; line = line_num } in
+        parse (line_num + 1) (~requires, ~libs:(lib :: libs)) ic
     | Some line when is_empty_line line -> parse (line_num + 1) (~requires, ~libs) ic
     | None | Some _ -> ~requires:(List.rev requires), ~libs:(List.rev libs)
   in

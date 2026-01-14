@@ -1,11 +1,7 @@
 (* mach_config - Mach configuration discovery and parsing *)
 
+open! Mach_std
 open Printf
-
-module Filename = struct
-  include Filename
-  let (/) = concat
-end
 
 (* --- Build backend types --- *)
 
@@ -17,12 +13,38 @@ let build_backend_of_string = function
   | "ninja" -> Ninja
   | s -> failwith (sprintf "unknown build backend: %s" s)
 
+(* --- Toolchain detection --- *)
+
+type toolchain = {
+  ocaml_version: string;
+  ocamlfind_version: string option;
+  ocamlfind_libs: SS.t;  (* empty if ocamlfind not installed *)
+}
+
+let detect_toolchain () =
+  let ocaml_version =
+    match run_cmd "ocamlopt -version" with
+    | Some v -> v
+    | None -> Mach_error.user_errorf "ocamlopt not found"
+  in
+  let ocamlfind_version = run_cmd "ocamlfind query -format '%v' findlib" in
+  let ocamlfind_libs =
+    match ocamlfind_version with
+    | None -> SS.empty
+    | Some _ ->
+        run_cmd_lines "ocamlfind list -describe"
+        |> List.filter_map (fun line -> Scanf.sscanf_opt line "%s@  " Fun.id)
+        |> SS.of_list
+  in
+  { ocaml_version; ocamlfind_version; ocamlfind_libs }
+
 (* --- Config type and parsing --- *)
 
 type t = {
   home: string;
   build_backend: build_backend;
   mach_executable_path: string;
+  toolchain: toolchain;
 }
 
 let default_build_backend = Make
@@ -78,15 +100,16 @@ let find_mach_config () =
   in
   search (Sys.getcwd ())
 
-let make_config home =
+let make_config ?mach_path home =
   let mach_executable_path = Lazy.force mach_executable_path in
-  let mach_path = Filename.(home / "Mach") in
+  let toolchain = detect_toolchain () in
+  let mach_path = Option.value mach_path ~default:Filename.(home / "Mach") in
   if Sys.file_exists mach_path then
     match parse_file mach_path with
-    | Ok build_backend -> Ok { home; build_backend; mach_executable_path }
+    | Ok build_backend -> Ok { home; build_backend; mach_executable_path; toolchain }
     | Error _ as err -> err
   else
-    Ok { home; build_backend = default_build_backend; mach_executable_path }
+    Ok { home; build_backend = default_build_backend; mach_executable_path; toolchain }
 
 let config =
   lazy (
@@ -94,11 +117,7 @@ let config =
     | Some home -> make_config home
     | None ->
       match find_mach_config () with
-      | Some (home, mach_path) ->
-        let mach_executable_path = Lazy.force mach_executable_path in
-        (match parse_file mach_path with
-        | Ok build_backend -> Ok { home; build_backend; mach_executable_path }
-        | Error _ as err -> err)
+      | Some (home, mach_path) -> make_config ~mach_path home
       | None ->
         let home = match Sys.getenv_opt "XDG_STATE_HOME" with
           | Some xdg -> Filename.(xdg / "mach")

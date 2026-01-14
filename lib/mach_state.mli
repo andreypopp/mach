@@ -1,5 +1,7 @@
 (** Mach state keep stats of a dependency graph of modules. *)
 
+open! Mach_std
+
 type file_stat = { mtime : int; size : int }
 
 type entry = {
@@ -7,14 +9,16 @@ type entry = {
   mli_path : string option;
   ml_stat : file_stat;
   mli_stat : file_stat option;
-  requires : string list;  (** absolute paths to required modules *)
-  libs : string list;  (** ocamlfind library names *)
+  requires : string with_loc list;  (** absolute paths to required modules with source location *)
+  libs : string with_loc list;  (** ocamlfind library names with source location *)
 }
 
 (** State metadata for detecting configuration changes *)
 type header = {
   build_backend : Mach_config.build_backend;
   mach_executable_path : string;
+  ocaml_version : string;
+  ocamlfind_version : string option;
 }
 
 type t = { header : header; root : entry; entries : entry list }
