@@ -127,7 +127,8 @@ let needs_reconfigure_exn config state =
     (Mach_log.log_very_verbose "mach:state: mach path changed, need reconfigure"; true)
   else if state.header.ocaml_version <> toolchain.ocaml_version then
     (Mach_log.log_very_verbose "mach:state: ocaml version changed, need reconfigure"; true)
-  else if state.header.ocamlfind_version <> toolchain.ocamlfind_version then
+  else if state.header.ocamlfind_version <> None &&
+          state.header.ocamlfind_version <> (Lazy.force toolchain.ocamlfind).ocamlfind_version then
     (Mach_log.log_very_verbose "mach:state: ocamlfind version changed, need reconfigure"; true)
   else
     List.exists (fun entry ->
@@ -152,12 +153,6 @@ let collect_exn config entry_path =
   let mach_executable_path = config.Mach_config.mach_executable_path in
   let toolchain = config.Mach_config.toolchain in
   let entry_path = Unix.realpath entry_path in
-  let header = {
-    build_backend;
-    mach_executable_path;
-    ocaml_version = toolchain.ocaml_version;
-    ocamlfind_version = toolchain.ocamlfind_version;
-  } in
   let visited = Hashtbl.create 16 in
   let entries = ref [] in
   let rec dfs ml_path =
@@ -166,9 +161,10 @@ let collect_exn config entry_path =
       Hashtbl.add visited ml_path ();
       let ~requires, ~libs = Mach_module.extract_requires_exn ml_path in
       List.iter (fun lib ->
-        if toolchain.ocamlfind_version = None then
+        let info = Lazy.force toolchain.ocamlfind in
+        if info.ocamlfind_version = None then
           Mach_error.user_errorf "%s:%d: library %S requires ocamlfind but ocamlfind is not installed" lib.filename lib.line lib.v
-        else if not (SS.mem lib.v toolchain.ocamlfind_libs) then
+        else if not (SS.mem lib.v info.ocamlfind_libs) then
           Mach_error.user_errorf "%s:%d: library %S not found" lib.filename lib.line lib.v
       ) libs;
       List.iter (fun r -> dfs r.v) requires;
@@ -178,6 +174,18 @@ let collect_exn config entry_path =
     end
   in
   dfs entry_path;
+  (* Lazy.is_val checks if lazy was forced, i.e. if any libs were encountered *)
+  let ocamlfind_version =
+    if Lazy.is_val toolchain.ocamlfind
+    then (Lazy.force toolchain.ocamlfind).ocamlfind_version
+    else None
+  in
+  let header = {
+    build_backend;
+    mach_executable_path;
+    ocaml_version = toolchain.ocaml_version;
+    ocamlfind_version;
+  } in
   match !entries with
   | [] -> failwith "Internal error: no entries collected"
   | root::_ as entries -> { header; root; entries = List.rev entries }

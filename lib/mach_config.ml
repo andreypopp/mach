@@ -15,11 +15,27 @@ let build_backend_of_string = function
 
 (* --- Toolchain detection --- *)
 
+type ocamlfind_info = {
+  ocamlfind_version: string option;
+  ocamlfind_libs: SS.t;
+}
+
 type toolchain = {
   ocaml_version: string;
-  ocamlfind_version: string option;
-  ocamlfind_libs: SS.t;  (* empty if ocamlfind not installed *)
+  ocamlfind: ocamlfind_info Lazy.t;
 }
+
+let detect_ocamlfind () =
+  if command_exists "ocamlfind" then
+    let version = run_cmd "ocamlfind query -format '%v' findlib" in
+    let libs =
+      run_cmd_lines "ocamlfind list -describe"
+      |> List.filter_map (fun line -> Scanf.sscanf_opt line "%s@  " Fun.id)
+      |> SS.of_list
+    in
+    { ocamlfind_version = version; ocamlfind_libs = libs }
+  else
+    { ocamlfind_version = None; ocamlfind_libs = SS.empty }
 
 let detect_toolchain () =
   let ocaml_version =
@@ -27,19 +43,7 @@ let detect_toolchain () =
     | Some v -> v
     | None -> Mach_error.user_errorf "ocamlopt not found"
   in
-  let ocamlfind_version, ocamlfind_libs =
-    if command_exists "ocamlfind" then
-      let version = run_cmd "ocamlfind query -format '%v' findlib" in
-      let libs =
-        run_cmd_lines "ocamlfind list -describe"
-        |> List.filter_map (fun line -> Scanf.sscanf_opt line "%s@  " Fun.id)
-        |> SS.of_list
-      in
-      version, libs
-    else
-      None, SS.empty
-  in
-  { ocaml_version; ocamlfind_version; ocamlfind_libs }
+  { ocaml_version; ocamlfind = lazy (detect_ocamlfind ()) }
 
 (* --- Config type and parsing --- *)
 

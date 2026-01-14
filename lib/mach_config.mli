@@ -8,11 +8,16 @@ type build_backend = Make | Ninja
 val build_backend_to_string : build_backend -> string
 val build_backend_of_string : string -> build_backend
 
+(** Ocamlfind information *)
+type ocamlfind_info = {
+  ocamlfind_version : string option;
+  ocamlfind_libs : SS.t;
+}
+
 (** Detected toolchain versions *)
 type toolchain = {
   ocaml_version : string;
-  ocamlfind_version : string option;
-  ocamlfind_libs : SS.t;  (** empty if ocamlfind not installed *)
+  ocamlfind : ocamlfind_info Lazy.t;  (** lazily discovered on first #require "lib" *)
 }
 
 (** Mach configuration *)

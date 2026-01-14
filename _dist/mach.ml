@@ -264,11 +264,16 @@ type build_backend = Make | Ninja
 val build_backend_to_string : build_backend -> string
 val build_backend_of_string : string -> build_backend
 
+(** Ocamlfind information *)
+type ocamlfind_info = {
+  ocamlfind_version : string option;
+  ocamlfind_libs : SS.t;
+}
+
 (** Detected toolchain versions *)
 type toolchain = {
   ocaml_version : string;
-  ocamlfind_version : string option;
-  ocamlfind_libs : SS.t;  (** empty if ocamlfind not installed *)
+  ocamlfind : ocamlfind_info Lazy.t;  (** lazily discovered on first #require "lib" *)
 }
 
 (** Mach configuration *)
@@ -306,11 +311,27 @@ let build_backend_of_string = function
 
 (* --- Toolchain detection --- *)
 
+type ocamlfind_info = {
+  ocamlfind_version: string option;
+  ocamlfind_libs: SS.t;
+}
+
 type toolchain = {
   ocaml_version: string;
-  ocamlfind_version: string option;
-  ocamlfind_libs: SS.t;  (* empty if ocamlfind not installed *)
+  ocamlfind: ocamlfind_info Lazy.t;
 }
+
+let detect_ocamlfind () =
+  if command_exists "ocamlfind" then
+    let version = run_cmd "ocamlfind query -format '%v' findlib" in
+    let libs =
+      run_cmd_lines "ocamlfind list -describe"
+      |> List.filter_map (fun line -> Scanf.sscanf_opt line "%s@  " Fun.id)
+      |> SS.of_list
+    in
+    { ocamlfind_version = version; ocamlfind_libs = libs }
+  else
+    { ocamlfind_version = None; ocamlfind_libs = SS.empty }
 
 let detect_toolchain () =
   let ocaml_version =
@@ -318,19 +339,7 @@ let detect_toolchain () =
     | Some v -> v
     | None -> Mach_error.user_errorf "ocamlopt not found"
   in
-  let ocamlfind_version, ocamlfind_libs =
-    if command_exists "ocamlfind" then
-      let version = run_cmd "ocamlfind query -format '%v' findlib" in
-      let libs =
-        run_cmd_lines "ocamlfind list -describe"
-        |> List.filter_map (fun line -> Scanf.sscanf_opt line "%s@  " Fun.id)
-        |> SS.of_list
-      in
-      version, libs
-    else
-      None, SS.empty
-  in
-  { ocaml_version; ocamlfind_version; ocamlfind_libs }
+  { ocaml_version; ocamlfind = lazy (detect_ocamlfind ()) }
 
 (* --- Config type and parsing --- *)
 
@@ -604,7 +613,8 @@ let needs_reconfigure_exn config state =
     (Mach_log.log_very_verbose "mach:state: mach path changed, need reconfigure"; true)
   else if state.header.ocaml_version <> toolchain.ocaml_version then
     (Mach_log.log_very_verbose "mach:state: ocaml version changed, need reconfigure"; true)
-  else if state.header.ocamlfind_version <> toolchain.ocamlfind_version then
+  else if state.header.ocamlfind_version <> None &&
+          state.header.ocamlfind_version <> (Lazy.force toolchain.ocamlfind).ocamlfind_version then
     (Mach_log.log_very_verbose "mach:state: ocamlfind version changed, need reconfigure"; true)
   else
     List.exists (fun entry ->
@@ -629,12 +639,6 @@ let collect_exn config entry_path =
   let mach_executable_path = config.Mach_config.mach_executable_path in
   let toolchain = config.Mach_config.toolchain in
   let entry_path = Unix.realpath entry_path in
-  let header = {
-    build_backend;
-    mach_executable_path;
-    ocaml_version = toolchain.ocaml_version;
-    ocamlfind_version = toolchain.ocamlfind_version;
-  } in
   let visited = Hashtbl.create 16 in
   let entries = ref [] in
   let rec dfs ml_path =
@@ -643,9 +647,10 @@ let collect_exn config entry_path =
       Hashtbl.add visited ml_path ();
       let ~requires, ~libs = Mach_module.extract_requires_exn ml_path in
       List.iter (fun lib ->
-        if toolchain.ocamlfind_version = None then
+        let info = Lazy.force toolchain.ocamlfind in
+        if info.ocamlfind_version = None then
           Mach_error.user_errorf "%s:%d: library %S requires ocamlfind but ocamlfind is not installed" lib.filename lib.line lib.v
-        else if not (SS.mem lib.v toolchain.ocamlfind_libs) then
+        else if not (SS.mem lib.v info.ocamlfind_libs) then
           Mach_error.user_errorf "%s:%d: library %S not found" lib.filename lib.line lib.v
       ) libs;
       List.iter (fun r -> dfs r.v) requires;
@@ -655,6 +660,18 @@ let collect_exn config entry_path =
     end
   in
   dfs entry_path;
+  (* Lazy.is_val checks if lazy was forced, i.e. if any libs were encountered *)
+  let ocamlfind_version =
+    if Lazy.is_val toolchain.ocamlfind
+    then (Lazy.force toolchain.ocamlfind).ocamlfind_version
+    else None
+  in
+  let header = {
+    build_backend;
+    mach_executable_path;
+    ocaml_version = toolchain.ocaml_version;
+    ocamlfind_version;
+  } in
   match !entries with
   | [] -> failwith "Internal error: no entries collected"
   | root::_ as entries -> { header; root; entries = List.rev entries }
