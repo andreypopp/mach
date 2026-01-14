@@ -1,6 +1,6 @@
 # mach
 
-a tiny build system for OCaml
+A tiny build system for OCaml
 
 ## `mach run SCRIPT`
 
@@ -10,7 +10,7 @@ let greet name =
   Printf.sprintf "Hello, %s!" name
 ```
 
-then `script.ml`:
+Then `script.ml`:
 ```ocaml
 #!/usr/bin/env mach run
 #require "./utils.ml"  (* makes Utils module available *)
@@ -25,7 +25,7 @@ chmod +x script.ml
 ```
 
 On first execution, `mach` will build the script and its dependencies, caching
-the build artifacts in `$MACH_HOME/_mach/build/` (defaults to `~/.local/state/mach/_mach/build/`).
+the build artifacts in `$MACH_HOME/_mach/build/` (`$MACH_HOME` defaults to `~/.local/state/mach`).
 Subsequent executions will reuse the cached artifacts unless the source files have changed.
 
 ## `mach build SCRIPT`
@@ -36,7 +36,7 @@ execute it.
 ## `mach build -w SCRIPT` / `mach build --watch SCRIPT`
 
 If the `-w` or `--watch` flag is provided, `mach build` watches the source files and
-rebuilds on changes. Requires `watchexec` program to be available.
+rebuilds on changes. Requires the `watchexec` program to be available.
 
 ## `mach-lsp`
 
@@ -47,7 +47,7 @@ and libraries. The `ocamllsp` program must be available.
 
 It is possible to depend on libraries available through `ocamlfind` (usually
 installed with `opam`). This is done through the `#require` directive which
-mention library name:
+mentions the library name:
 ```ocaml
 #require "lwt"  (* Makes Lwt module available *)
 ```
@@ -64,4 +64,4 @@ containing a `Machlib` file and OCaml source files, consumed via
 
 ### PPX Preprocessing
 
-Use ppx preprocessors via `#ppx "ppx_deriving.show"` directive.
+Use ppx preprocessors via the `#ppx "ppx_deriving.show"` directive.
