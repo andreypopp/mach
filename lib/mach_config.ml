@@ -27,14 +27,17 @@ let detect_toolchain () =
     | Some v -> v
     | None -> Mach_error.user_errorf "ocamlopt not found"
   in
-  let ocamlfind_version = run_cmd "ocamlfind query -format '%v' findlib 2>/dev/null" in
-  let ocamlfind_libs =
-    match ocamlfind_version with
-    | None -> SS.empty
-    | Some _ ->
+  let ocamlfind_version, ocamlfind_libs =
+    if command_exists "ocamlfind" then
+      let version = run_cmd "ocamlfind query -format '%v' findlib" in
+      let libs =
         run_cmd_lines "ocamlfind list -describe"
         |> List.filter_map (fun line -> Scanf.sscanf_opt line "%s@  " Fun.id)
         |> SS.of_list
+      in
+      version, libs
+    else
+      None, SS.empty
   in
   { ocaml_version; ocamlfind_version; ocamlfind_libs }
 

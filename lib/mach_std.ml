@@ -20,6 +20,9 @@ let equal_without_loc a b = a.v = b.v
 
 let failwithf fmt = ksprintf failwith fmt
 
+let command_exists cmd =
+  Sys.command (sprintf "command -v %s >/dev/null 2>&1" (Filename.quote cmd)) = 0
+
 let run_cmd cmd =
   let ic = Unix.open_process_in cmd in
   let output = try Some (input_line ic) with End_of_file -> None in

@@ -33,6 +33,9 @@ let equal_without_loc a b = a.v = b.v
 
 let failwithf fmt = ksprintf failwith fmt
 
+let command_exists cmd =
+  Sys.command (sprintf "command -v %s >/dev/null 2>&1" (Filename.quote cmd)) = 0
+
 let run_cmd cmd =
   let ic = Unix.open_process_in cmd in
   let output = try Some (input_line ic) with End_of_file -> None in
@@ -315,14 +318,17 @@ let detect_toolchain () =
     | Some v -> v
     | None -> Mach_error.user_errorf "ocamlopt not found"
   in
-  let ocamlfind_version = run_cmd "ocamlfind query -format '%v' findlib" in
-  let ocamlfind_libs =
-    match ocamlfind_version with
-    | None -> SS.empty
-    | Some _ ->
+  let ocamlfind_version, ocamlfind_libs =
+    if command_exists "ocamlfind" then
+      let version = run_cmd "ocamlfind query -format '%v' findlib" in
+      let libs =
         run_cmd_lines "ocamlfind list -describe"
         |> List.filter_map (fun line -> Scanf.sscanf_opt line "%s@  " Fun.id)
         |> SS.of_list
+      in
+      version, libs
+    else
+      None, SS.empty
   in
   { ocaml_version; ocamlfind_version; ocamlfind_libs }
 
@@ -636,13 +642,13 @@ let collect_exn config entry_path =
     else begin
       Hashtbl.add visited ml_path ();
       let ~requires, ~libs = Mach_module.extract_requires_exn ml_path in
-      List.iter (fun (lib : _ with_loc) ->
+      List.iter (fun lib ->
         if toolchain.ocamlfind_version = None then
           Mach_error.user_errorf "%s:%d: library %S requires ocamlfind but ocamlfind is not installed" lib.filename lib.line lib.v
         else if not (SS.mem lib.v toolchain.ocamlfind_libs) then
           Mach_error.user_errorf "%s:%d: library %S not found" lib.filename lib.line lib.v
       ) libs;
-      List.iter (fun (r : _ with_loc) -> dfs r.v) requires;
+      List.iter (fun r -> dfs r.v) requires;
       let mli_path = mli_path_of_ml_if_exists ml_path in
       let mli_stat = Option.map file_stat mli_path in
       entries := { ml_path; mli_path; ml_stat = file_stat ml_path; mli_stat; requires; libs } :: !entries
