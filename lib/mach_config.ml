@@ -27,7 +27,7 @@ let detect_toolchain () =
     | Some v -> v
     | None -> Mach_error.user_errorf "ocamlopt not found"
   in
-  let ocamlfind_version = run_cmd "ocamlfind query -format '%v' findlib" in
+  let ocamlfind_version = run_cmd "ocamlfind query -format '%v' findlib 2>/dev/null" in
   let ocamlfind_libs =
     match ocamlfind_version with
     | None -> SS.empty
