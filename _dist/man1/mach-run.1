@@ -10,7 +10,7 @@
 mach\N'45'run \N'45' Run an OCaml script
 .SH SYNOPSIS
 .P
-\fBmach run\fR [\fB\N'45'\N'45'verbose\fR] [\fIOPTION\fR]… \fISCRIPT\fR [\fIARGS\fR]…
+\fBmach run\fR [\fB\N'45'\N'45'verbose\fR] [\fB\N'45'\N'45'watch\fR] [\fIOPTION\fR]… \fISCRIPT\fR [\fIARGS\fR]…
 .SH ARGUMENTS
 .TP 4
 \fIARGS\fR
@@ -22,6 +22,9 @@ OCaml script to run
 .TP 4
 \fB\N'45'v\fR, \fB\N'45'\N'45'verbose\fR
 Log external command invocations to stderr\N'46'
+.TP 4
+\fB\N'45'w\fR, \fB\N'45'\N'45'watch\fR
+Watch for changes and rebuild automatically\N'46' Requires watchexec to be installed\N'46'
 .SH COMMON OPTIONS
 .TP 4
 \fB\N'45'\N'45'help\fR[=\fIFMT\fR] (default=\fBauto\fR)

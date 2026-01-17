@@ -6556,13 +6556,6 @@ let or_exit = function
     Printf.eprintf "mach: %s\n%!" msg;
     exit 1
 
-let run () script_path args =
-  let config = Mach_config.get () |> or_exit in
-  let ~state, ~reconfigured:_ = build config script_path |> or_exit in
-  let exe_path = Mach_state.exe_path config state in
-  let argv = Array.of_list (exe_path :: args) in
-  Unix.execv exe_path argv
-
 (* --- Watch mode --- *)
 
 let parse_event line =
@@ -6589,7 +6582,7 @@ let read_events ic =
   in
   loop ()
 
-let watch config script_path =
+let watch config script_path ?run_args () =
   let build_dir_of = Mach_config.build_dir_of config in
   let exception Restart_watcher in
   let code = Sys.command "command -v watchexec > /dev/null 2>&1" in
@@ -6599,17 +6592,43 @@ let watch config script_path =
   end;
   let script_path = Unix.realpath script_path in
 
-  Mach_log.log_verbose "mach: initial build...";
-  let ~state:_, ~reconfigured:_ = build config script_path |> or_exit in
-
   (* Track current state for signal handling and cleanup *)
   let current_process = ref None in
   let current_watchlist = ref None in
+  let child_pid : int option ref = ref None in
+
+  let kill_child () =
+    match !child_pid with
+    | None -> ()
+    | Some pid ->
+      (match Unix.waitpid [Unix.WNOHANG] pid with
+      | 0, _ ->
+        Mach_log.log_verbose "mach: stopping previous instance (pid %d)..." pid;
+        Unix.kill pid Sys.sigterm;
+        ignore (Unix.waitpid [] pid)
+      | _ -> ());
+      child_pid := None
+  in
+
+  let start_child state =
+    match run_args with
+    | None -> ()
+    | Some args ->
+      kill_child ();
+      let exe_path = Mach_state.exe_path config state in
+      let argv = Array.of_list (exe_path :: args) in
+      Mach_log.log_verbose "mach: starting %s" script_path;
+      let pid = Unix.create_process exe_path argv Unix.stdin Unix.stdout Unix.stderr in
+      child_pid := Some pid
+  in
 
   let cleanup () =
-    !current_process |> Option.iter (fun (ic, oc) ->
-      begin try close_out oc with _ -> () end;  (* Close stdin to trigger --stdin-quit *)
-      begin try ignore (Unix.close_process (ic, oc)) with _ -> () end;
+    kill_child ();
+    !current_process |> Option.iter (fun (pid, ic) ->
+      begin try close_in ic with _ -> () end;
+      (match Unix.waitpid [Unix.WNOHANG] pid with
+      | 0, _ -> Unix.kill pid Sys.sigterm; ignore (Unix.waitpid [] pid)
+      | _ -> ());
       current_process := None);
     !current_watchlist |> Option.iter (fun path ->
       begin try Sys.remove path with _ -> () end;
@@ -6617,6 +6636,12 @@ let watch config script_path =
   in
 
   Sys.(set_signal sigint (Signal_handle (fun _ -> cleanup (); exit 0)));
+
+  Mach_log.log_verbose "mach: initial build...";
+  (* Don't exit on initial build failure - continue watching for changes *)
+  (match build config script_path with
+  | Ok (~state, ~reconfigured:_) -> start_child state
+  | Error (`User_error msg) -> Mach_log.log_verbose "mach: %s" msg);
 
   let keep_watching = ref true in
   while !keep_watching do
@@ -6643,11 +6668,13 @@ let watch config script_path =
       path
     in
     current_watchlist := Some watchlist_path;
-    let cmd = Printf.sprintf "watchexec --debounce 200ms --only-emit-events --emit-events-to=stdio --stdin-quit -e ml,mli,mlx @%s" watchlist_path in
-    Mach_log.log_very_verbose "mach:watch: running: %s" cmd;
-
-    let (ic, oc) = Unix.open_process cmd in
-    current_process := Some (ic, oc);
+    let args = [| "watchexec"; "--debounce"; "200ms"; "--only-emit-events"; "--emit-events-to=stdio"; "-e"; "ml,mli,mlx"; "@" ^ watchlist_path |] in
+    Mach_log.log_very_verbose "mach:watch: running: %s" (String.concat " " (Array.to_list args));
+    let pipe_read, pipe_write = Unix.pipe () in
+    let pid = Unix.create_process "watchexec" args Unix.stdin pipe_write Unix.stderr in
+    Unix.close pipe_write;
+    let ic = Unix.in_channel_of_descr pipe_read in
+    current_process := Some (pid, ic);
 
     begin try
       while true do
@@ -6660,8 +6687,9 @@ let watch config script_path =
           List.iter (fun p -> Mach_log.log_verbose "mach: file changed: %s" (Filename.basename p)) relevant_paths;
           match build config script_path with
           | Error (`User_error msg) -> Mach_log.log_verbose "mach: %s" msg
-          | Ok (~state:_, ~reconfigured) ->
+          | Ok (~state, ~reconfigured) ->
             Printf.eprintf "mach: build succeeded\n%!";
+            start_child state;
             if reconfigured then begin
               Mach_log.log_verbose "mach:watch: reconfigured, restarting watcher...";
               raise Restart_watcher
@@ -6695,21 +6723,31 @@ let script_arg =
 let args_arg =
   Arg.(value & pos_right 0 string [] & info [] ~docv:"ARGS" ~doc:"Arguments to pass to the script")
 
-let run_cmd =
-  let doc = "Run an OCaml script" in
-  let info = Cmd.info "run" ~doc in
-  Cmd.v info Term.(const run $ verbose_arg $ script_arg $ args_arg)
-
 let watch_arg =
   Arg.(value & flag & info ["w"; "watch"]
     ~doc:"Watch for changes and rebuild automatically. Requires watchexec to be installed.")
+
+let run_cmd =
+  let doc = "Run an OCaml script" in
+  let info = Cmd.info "run" ~doc in
+  let f () watch_mode script_path args =
+    let config = Mach_config.get () |> or_exit in
+    if watch_mode then watch config script_path ~run_args:args ()
+    else begin
+      let ~state, ~reconfigured:_ = build config script_path |> or_exit in
+      let exe_path = Mach_state.exe_path config state in
+      let argv = Array.of_list (exe_path :: args) in
+      Unix.execv exe_path argv
+    end
+  in
+  Cmd.v info Term.(const f $ verbose_arg $ watch_arg $ script_arg $ args_arg)
 
 let build_cmd =
   let doc = "Build an OCaml script without executing it" in
   let info = Cmd.info "build" ~doc in
   let f () watch_mode script_path =
     let config = Mach_config.get () |> or_exit in
-    if watch_mode then watch config script_path
+    if watch_mode then watch config script_path ()
     else build config script_path |> or_exit |> ignore
   in
   Cmd.v info Term.(const f $ verbose_arg $ watch_arg $ script_arg)

@@ -5,7 +5,7 @@ Error reporting tests - user errors should be reported nicely to stderr.
 Test error when script file doesn't exist (cmdliner validates before our code runs):
 
   $ mach run ./nonexistent.ml
-  Usage: mach run [--help] [--verbose] [OPTION]… SCRIPT [ARGS]…
+  Usage: mach run [--help] [--verbose] [--watch] [OPTION]… SCRIPT [ARGS]…
   mach: SCRIPT argument: no ./nonexistent.ml file
   [124]
 
