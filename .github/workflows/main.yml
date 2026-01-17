@@ -3,6 +3,8 @@ name: main
 on:
   pull_request:
   push:
+    branches-ignore:
+      - gh-pages
 
 permissions: read-all
 
