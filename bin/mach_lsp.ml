@@ -22,10 +22,17 @@ module Merlin_server = struct
       in
       read_lines [])
 
-  let directives_for_file path : Merlin_dot_protocol.directive list =
+  let rec directives_for_file path : Merlin_dot_protocol.directive list =
     try
       let path = Unix.realpath path in
-      let is_mlx = Filename.extension path = ".mlx" in
+      let ext = Filename.extension path in
+      (* For .mli files, use the corresponding .ml file *)
+      if ext = ".mli" then
+        let ml_path = Filename.remove_extension path ^ ".ml" in
+        if Sys.file_exists ml_path then directives_for_file ml_path
+        else [`ERROR_MSG (sprintf "No corresponding .ml file for %s" path)]
+      else
+      let is_mlx = ext = ".mlx" in
       let config = match Mach_config.get () with
         | Ok config -> config
         | Error (`User_error msg) -> raise (Failure msg)
