@@ -52,7 +52,10 @@ let watch config script_path =
   let script_path = Unix.realpath script_path in
 
   Mach_log.log_verbose "mach: initial build...";
-  let ~state:_, ~reconfigured:_ = build config script_path |> or_exit in
+  (* Don't exit on initial build failure - continue watching for changes *)
+  (match build config script_path with
+  | Ok (~state:_, ~reconfigured:_) -> ()
+  | Error (`User_error msg) -> Mach_log.log_verbose "mach: %s" msg);
 
   (* Track current state for signal handling and cleanup *)
   let current_process = ref None in
