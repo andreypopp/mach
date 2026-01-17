@@ -1,7 +1,5 @@
 # TODO
 
-## Watch mode doesn't start if initial build fails
-
 ## Optimise reconfiguration: .mli addition/removal should reconfigure a single module only
 
 ## Optimise reconfiguration: do not reconfigure unaffected modules
@@ -11,6 +9,8 @@
 ## Implement ppx support
 
 ## Support passing -H hidden includes args when compiling
+
+## [DONE] Watch mode doesn't start if initial build fails
 
 ## [DONE] Support .mlx
 
