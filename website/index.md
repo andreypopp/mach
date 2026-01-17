@@ -1,0 +1,159 @@
+Start writing OCaml scripts quickly without any boilerplate or setup.
+
+Mach compiles code to native executable on first run, subsequent runs will
+perform only incremental recompilation, if necessary.
+
+It supports dependencies and external libraries (usually installed with
+[opam][]) through `#require` directives.
+
+Usage is as simple as creating a file `main.ml` with contents:
+```ocaml
+#require "./utils.ml"
+#require "lwt"
+let () =
+  Lwt_main.run (Utils.greet "Mach")
+```
+
+and then running:
+```sh
+$ mach run main.ml
+```
+
+[opam]: https://opam.ocaml.org/
+
+## TABLE OF CONTENTS
+
+Below you can find documentation on how to install and use `mach`:
+
+<toc>
+
+## INSTALLATION
+
+`mach` is distributed as a single `mach.ml` source file.
+
+### Installation through homebrew
+
+Install using [homebrew][] (macOS/Linux):
+
+```sh
+$ brew tap mach-build/tap
+$ brew install mach --HEAD
+```
+
+Apart from `mach` executable this install bash/zsh completion scripts and a man
+page.
+
+[homebrew]: https://brew.sh/
+
+### Manual installation
+
+Requires OCaml compiler installed:
+```sh
+wget https://raw.githubusercontent.com/andreypopp/mach/refs/heads/main/_dist/mach.ml
+ocamlopt -I +unix -o mach unix.cmxa mach.ml
+```
+
+## USAGE
+
+Create `hello.ml` file:
+```ocaml
+let () =
+  print_endline "Hello, Mach!"
+```
+
+Run it with `mach run` command:
+```sh
+$ mach run hello.ml
+Hello, Mach!
+```
+
+One can also put `#!/usr/bin/env mach run --` shebang line at the top of the file:
+```ocaml
+#!/usr/bin/env mach run --
+let () =
+  print_endline "Hello, Mach!"
+```
+Make it executable and run:
+```sh
+$ chmod +x hello.ml
+$ ./hello.ml
+Hello, Mach!
+```
+
+### Building without running
+
+To compile without running, use `mach build` command:
+```sh
+$ mach build hello.ml
+```
+This is useful to get compilation errors without executing the code.
+
+### Declaring dependencies between scripts
+
+Scripts can reference other scripts using `#require` directive:
+```ocaml
+#require "utils.ml"
+let () =
+  Utils.greet "Mach"
+```
+
+Where `utils.ml` contains:
+```ocaml
+let greet name =
+  Printf.printf "Hello, %s!\n" name
+```
+Run it:
+```sh
+$ mach run main.ml
+Hello, Mach!
+```
+
+### Declaring dependencies on libraries
+
+You can also depend on external libraries:
+```ocaml
+#require "lwt";;
+let () =
+  let task =
+    Lwt_io.printf "Hello from Lwt!\n"
+  in
+  Lwt_main.run task
+```
+Run it:
+```sh
+$ mach run lwt_example.ml
+Hello from Lwt!
+```
+
+### Editor integration / LSP
+
+Install `mach-lsp` package for LSP support:
+```sh
+$ opam install mach-lsp
+```
+
+Configure your editor to use `mach-lsp` as the language server for OCaml files.
+
+### Support for .mlx syntax dialect
+
+Mach supports [.mlx][] syntax dialect out of the box:
+```ocaml
+let div ~children () =
+  String.concat ", " children
+let () =
+  print_endline <div>"Hello, MLX!"</div>
+```
+
+Run it:
+```sh
+$ mach run example.mlx
+```
+
+[.mlx]: https://github.com/ocaml-mlx/mlx
+
+## CONTRIBUTING
+
+The source code is at [andreypopp/mach][]. Please open issues (and pull
+requests) for any bugs and/or feature requests.
+
+[andreypopp/mach]: https://github.com/andreypopp/mach
