@@ -80,14 +80,6 @@ $ ./hello.ml
 Hello, Mach!
 ```
 
-### Building without running
-
-To compile without running, use `mach build` command:
-```sh
-$ mach build hello.ml
-```
-This is useful to get compilation errors without executing the code.
-
 ### Declaring dependencies between scripts
 
 Scripts can reference other scripts using `#require` directive:
@@ -124,6 +116,28 @@ Run it:
 $ mach run lwt_example.ml
 Hello from Lwt!
 ```
+
+### Building code without running
+
+To compile without running, use `mach build` command:
+```sh
+$ mach build hello.ml
+```
+This is useful to get compilation errors without executing the code.
+
+### Watch mode
+
+Both `mach build` and `mach run` commands support `--watch` mode that starts
+watching source code for changes and rebuilds (and reruns in case of `mach
+run`) the code on each change:
+```sh
+$ mach run --watch hello.ml
+```
+
+Note that [watchexec] tool is required for this feature to work. Install it
+using your package manager (e.g. `brew install watchexec` on macOS).
+
+[watchexec]: https://github.com/watchexec/watchexec
 
 ### Editor integration / LSP
 
