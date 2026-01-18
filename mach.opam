@@ -13,6 +13,7 @@ depends: [
   "cmdliner" {with-dev-setup}
   "ocaml-lsp-server" {with-dev-setup}
   "dune" {with-dev-setup}
+  "mlx" {with-test | with-dev-setup}
 ]
 build: [ ["ocamlopt.opt" "-I" "+unix" "unix.cmxa" "_dist/mach.ml" "-o" "_dist/mach" ] ]
 install: [ ["opam-installer" "--prefix" prefix "mach.install"] ]

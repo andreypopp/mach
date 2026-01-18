@@ -6,17 +6,17 @@ Test error when script file doesn't exist (cmdliner validates before our code ru
 
   $ mach run ./nonexistent.ml
   Usage: mach run [--help] [--verbose] [--watch] [OPTION]… SCRIPT [ARGS]…
-  mach: SCRIPT argument: no ./nonexistent.ml file
+  mach: SCRIPT argument: no './nonexistent.ml' file
   [124]
 
   $ mach build ./nonexistent.ml
   Usage: mach build [--help] [--verbose] [--watch] [OPTION]… SCRIPT
-  mach: SCRIPT argument: no ./nonexistent.ml file
+  mach: SCRIPT argument: no './nonexistent.ml' file
   [124]
 
   $ mach configure ./nonexistent.ml
   Usage: mach configure [--help] [OPTION]… SOURCE
-  mach: SOURCE argument: no ./nonexistent.ml file
+  mach: SOURCE argument: no './nonexistent.ml' file
   [124]
 
 Test error when a required dependency doesn't exist:
