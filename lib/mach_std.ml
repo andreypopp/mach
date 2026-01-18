@@ -13,6 +13,7 @@ module Buffer = struct
 end
 
 module SS = Set.Make(String)
+module SM = Map.Make(String)
 
 type 'a with_loc = { v: 'a; filename: string; line: int }
 

@@ -11,7 +11,7 @@ val build_backend_of_string : string -> build_backend
 (** Ocamlfind information *)
 type ocamlfind_info = {
   ocamlfind_version : string option;
-  ocamlfind_libs : SS.t;
+  ocamlfind_libs : string SM.t;  (** package name -> version *)
 }
 
 (** Detected toolchain versions *)

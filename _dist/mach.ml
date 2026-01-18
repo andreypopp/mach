@@ -26,6 +26,7 @@ module Buffer = struct
 end
 
 module SS = Set.Make(String)
+module SM = Map.Make(String)
 
 type 'a with_loc = { v: 'a; filename: string; line: int }
 
@@ -273,7 +274,7 @@ val build_backend_of_string : string -> build_backend
 (** Ocamlfind information *)
 type ocamlfind_info = {
   ocamlfind_version : string option;
-  ocamlfind_libs : SS.t;
+  ocamlfind_libs : string SM.t;  (** package name -> version *)
 }
 
 (** Detected toolchain versions *)
@@ -319,7 +320,7 @@ let build_backend_of_string = function
 
 type ocamlfind_info = {
   ocamlfind_version: string option;
-  ocamlfind_libs: SS.t;
+  ocamlfind_libs: string SM.t;  (* package name -> version *)
 }
 
 type toolchain = {
@@ -331,13 +332,16 @@ let detect_ocamlfind () =
   if command_exists "ocamlfind" then
     let version = run_cmd "ocamlfind query -format '%v' findlib" in
     let libs =
-      run_cmd_lines "ocamlfind list -describe"
-      |> List.filter_map (fun line -> Scanf.sscanf_opt line "%s@  " Fun.id)
-      |> SS.of_list
+      run_cmd_lines "ocamlfind list"
+      |> List.fold_left (fun acc line ->
+           match Scanf.sscanf_opt line "%s %_s@(version: %[^)])" (fun n v -> n, v) with
+           | Some (name, ver) -> SM.add name ver acc
+           | None -> failwithf "unable to parse `ocamlfind list` line: %s" line)
+         SM.empty
     in
     { ocamlfind_version = version; ocamlfind_libs = libs }
   else
-    { ocamlfind_version = None; ocamlfind_libs = SS.empty }
+    { ocamlfind_version = None; ocamlfind_libs = SM.empty }
 
 let detect_toolchain () =
   let ocaml_version =
@@ -447,13 +451,15 @@ open! Mach_std
 
 type file_stat = { mtime : int; size : int }
 
+type lib = { name : string; version : string }
+
 type entry = {
   ml_path : string;
   mli_path : string option;
   ml_stat : file_stat;
   mli_stat : file_stat option;
   requires : string with_loc list;  (** absolute paths to required modules with source location *)
-  libs : string with_loc list;  (** ocamlfind library names with source location *)
+  libs : lib with_loc list;  (** ocamlfind libraries with version and source location *)
 }
 
 (** State metadata for detecting configuration changes *)
@@ -502,13 +508,15 @@ type file_stat = { mtime : int; size : int }
 
 let equal_file_stat x y = x.mtime = y.mtime && x.size = y.size
 
+type lib = { name : string; version : string }
+
 type entry = {
   ml_path : string;
   mli_path : string option;
   ml_stat : file_stat;
   mli_stat : file_stat option;
   requires : string with_loc list;
-  libs : string with_loc list;
+  libs : lib with_loc list;
 }
 
 type header = {
@@ -544,7 +552,7 @@ let source_dirs state =
 
 let all_libs state =
   let seen = Hashtbl.create 16 in
-  List.iter (fun e -> List.iter (fun (l : _ with_loc) -> Hashtbl.replace seen l.v ()) e.libs) state.entries;
+  List.iter (fun e -> List.iter (fun (l : lib with_loc) -> Hashtbl.replace seen l.v.name ()) e.libs) state.entries;
   Hashtbl.fold (fun l () acc -> l :: acc) seen [] |> List.sort String.compare
 
 let read path =
@@ -580,8 +588,8 @@ let read path =
           loop acc (Some { e with mli_path = mli_path_of e.ml_path; mli_stat = Some { mtime = m; size = s } }) rest
         | line :: rest when String.length line > 6 && String.sub line 0 6 = "  lib " ->
           let e = Option.get cur in
-          let filename, line_num, v = Scanf.sscanf line "  lib %s %d %s" (fun f l v -> f, l, v) in
-          let lib : _ with_loc = { filename; line = line_num; v } in
+          let filename, line_num, name, version = Scanf.sscanf line "  lib %s %d %s %s@\n" (fun f l n v -> f, l, n, v) in
+          let lib : _ with_loc = { filename; line = line_num; v = { name; version } } in
           loop acc (Some { e with libs = lib :: e.libs }) rest
         | line :: rest when String.length line > 10 && String.sub line 0 10 = "  requires" ->
           let e = Option.get cur in
@@ -611,7 +619,7 @@ let write path state =
       output_line oc (sprintf "%s %i %d" e.ml_path e.ml_stat.mtime e.ml_stat.size);
       Option.iter (fun st -> output_line oc (sprintf "  mli %i %d" st.mtime st.size)) e.mli_stat;
       List.iter (fun (r : _ with_loc) -> output_line oc (sprintf "  requires %s %d %s" r.filename r.line r.v)) e.requires;
-      List.iter (fun (l : _ with_loc) -> output_line oc (sprintf "  lib %s %d %s" l.filename l.line l.v)) e.libs
+      List.iter (fun (l : lib with_loc) -> output_line oc (sprintf "  lib %s %d %s %s" l.filename l.line l.v.name l.v.version)) e.libs
     ) state.entries)
 
 type reconfigure_reason =
@@ -643,8 +651,12 @@ let check_reconfigure_exn config state =
       else if not (equal_file_stat (file_stat entry.ml_path) entry.ml_stat)
       then
         let ~requires, ~libs = Mach_module.extract_requires_exn entry.ml_path in
-        if not (List.equal equal_without_loc requires entry.requires) ||
-           not (List.equal equal_without_loc libs entry.libs)
+        let libs_names_equal =
+          List.length libs = List.length entry.libs &&
+          List.for_all2 (fun a b -> a.v = b.v.name && a.filename = b.filename && a.line = b.line)
+            libs entry.libs
+        in
+        if not (List.equal equal_without_loc requires entry.requires) || not libs_names_equal
         then (Mach_log.log_very_verbose "mach:state: requires/libs changed, need reconfigure";
               Some entry.ml_path)
         else None
@@ -665,13 +677,16 @@ let collect_exn config entry_path =
     else begin
       Hashtbl.add visited ml_path ();
       let ~requires, ~libs = Mach_module.extract_requires_exn ml_path in
-      List.iter (fun lib ->
+      let libs = List.map (fun lib ->
         let info = Lazy.force toolchain.ocamlfind in
         if info.ocamlfind_version = None then
           Mach_error.user_errorf "%s:%d: library %S requires ocamlfind but ocamlfind is not installed" lib.filename lib.line lib.v
-        else if not (SS.mem lib.v info.ocamlfind_libs) then
+        else match SM.find_opt lib.v info.ocamlfind_libs with
+        | None ->
           Mach_error.user_errorf "%s:%d: library %S not found" lib.filename lib.line lib.v
-      ) libs;
+        | Some version ->
+          { lib with v = { name = lib.v; version } }
+      ) libs in
       List.iter (fun r -> dfs r.v) requires;
       let mli_path = mli_path_of_ml_if_exists ml_path in
       let mli_stat = Option.map file_stat mli_path in
@@ -751,7 +766,7 @@ type ocaml_module = {
   module_name: string;
   build_dir: string;
   resolved_requires: string with_loc list;  (* absolute paths *)
-  libs: string with_loc list;  (* ocamlfind library names *)
+  libs: Mach_state.lib with_loc list;  (* ocamlfind libraries with versions *)
   kind: module_kind;
 }
 
@@ -786,7 +801,7 @@ let configure_backend config ~state ~prev_state ~changed_modules =
     | [] -> ()
     | libs ->
       let lib_args = Filename.(m.build_dir / "lib_includes.args") in
-      let libs = String.concat " " (List.map (fun (l : _ with_loc) -> l.v) libs) in
+      let libs = String.concat " " (List.map (fun (l : Mach_state.lib with_loc) -> l.v.name) libs) in
       B.rule b ~target:lib_args ~deps:[] [capture_stderrf "ocamlfind query -format '-I=%%d' -recursive %s > %s" libs lib_args])
   in
   let compile_ocaml_module b (m : ocaml_module) =
@@ -906,14 +921,19 @@ let configure_exn config source_path =
     | None, _ ->
       List.iter (fun entry -> rm_rf (build_dir_of entry.Mach_state.ml_path)) state.entries
     | Some set, Make ->
-      List.iter (fun entry ->
-        if SS.mem entry.Mach_state.ml_path set then
-          rm_rf (build_dir_of entry.ml_path)
-      ) state.entries
-    | Some _, Ninja -> ()
+      List.iter (fun entry -> if SS.mem entry.Mach_state.ml_path set then rm_rf (build_dir_of entry.ml_path)) state.entries
+    | Some _, Ninja -> (* will do cleandead instead *) ()
     end;
     mkdir_p build_dir;
     configure_backend config ~state ~prev_state ~changed_modules;
+    begin match config.Mach_config.build_backend with
+    | Make -> ()
+    | Ninja ->
+      (* Ninja requires a full clean on reconfigure to avoid stale build files *)
+      let cmd = sprintf "ninja -C %s -t cleandead > /dev/null" (Filename.quote (build_dir_of state.root.ml_path)) in
+      if !Mach_log.verbose = Very_very_verbose then eprintf "+ %s\n%!" cmd;
+      if Sys.command cmd <> 0 then Mach_error.user_errorf "ninja cleandead failed"
+    end;
     Mach_state.write state_path state
   end;
   ~state, ~reconfigured:(Option.is_some reconfigure_reason)

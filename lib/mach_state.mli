@@ -4,13 +4,15 @@ open! Mach_std
 
 type file_stat = { mtime : int; size : int }
 
+type lib = { name : string; version : string }
+
 type entry = {
   ml_path : string;
   mli_path : string option;
   ml_stat : file_stat;
   mli_stat : file_stat option;
   requires : string with_loc list;  (** absolute paths to required modules with source location *)
-  libs : string with_loc list;  (** ocamlfind library names with source location *)
+  libs : lib with_loc list;  (** ocamlfind libraries with version and source location *)
 }
 
 (** State metadata for detecting configuration changes *)

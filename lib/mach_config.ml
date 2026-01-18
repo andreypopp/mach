@@ -17,7 +17,7 @@ let build_backend_of_string = function
 
 type ocamlfind_info = {
   ocamlfind_version: string option;
-  ocamlfind_libs: SS.t;
+  ocamlfind_libs: string SM.t;  (* package name -> version *)
 }
 
 type toolchain = {
@@ -29,13 +29,16 @@ let detect_ocamlfind () =
   if command_exists "ocamlfind" then
     let version = run_cmd "ocamlfind query -format '%v' findlib" in
     let libs =
-      run_cmd_lines "ocamlfind list -describe"
-      |> List.filter_map (fun line -> Scanf.sscanf_opt line "%s@  " Fun.id)
-      |> SS.of_list
+      run_cmd_lines "ocamlfind list"
+      |> List.fold_left (fun acc line ->
+           match Scanf.sscanf_opt line "%s %_s@(version: %[^)])" (fun n v -> n, v) with
+           | Some (name, ver) -> SM.add name ver acc
+           | None -> failwithf "unable to parse `ocamlfind list` line: %s" line)
+         SM.empty
     in
     { ocamlfind_version = version; ocamlfind_libs = libs }
   else
-    { ocamlfind_version = None; ocamlfind_libs = SS.empty }
+    { ocamlfind_version = None; ocamlfind_libs = SM.empty }
 
 let detect_toolchain () =
   let ocaml_version =

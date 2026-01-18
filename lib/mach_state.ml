@@ -5,13 +5,15 @@ type file_stat = { mtime : int; size : int }
 
 let equal_file_stat x y = x.mtime = y.mtime && x.size = y.size
 
+type lib = { name : string; version : string }
+
 type entry = {
   ml_path : string;
   mli_path : string option;
   ml_stat : file_stat;
   mli_stat : file_stat option;
   requires : string with_loc list;
-  libs : string with_loc list;
+  libs : lib with_loc list;
 }
 
 type header = {
@@ -47,7 +49,7 @@ let source_dirs state =
 
 let all_libs state =
   let seen = Hashtbl.create 16 in
-  List.iter (fun e -> List.iter (fun (l : _ with_loc) -> Hashtbl.replace seen l.v ()) e.libs) state.entries;
+  List.iter (fun e -> List.iter (fun (l : lib with_loc) -> Hashtbl.replace seen l.v.name ()) e.libs) state.entries;
   Hashtbl.fold (fun l () acc -> l :: acc) seen [] |> List.sort String.compare
 
 let read path =
@@ -83,8 +85,8 @@ let read path =
           loop acc (Some { e with mli_path = mli_path_of e.ml_path; mli_stat = Some { mtime = m; size = s } }) rest
         | line :: rest when String.length line > 6 && String.sub line 0 6 = "  lib " ->
           let e = Option.get cur in
-          let filename, line_num, v = Scanf.sscanf line "  lib %s %d %s" (fun f l v -> f, l, v) in
-          let lib : _ with_loc = { filename; line = line_num; v } in
+          let filename, line_num, name, version = Scanf.sscanf line "  lib %s %d %s %s@\n" (fun f l n v -> f, l, n, v) in
+          let lib : _ with_loc = { filename; line = line_num; v = { name; version } } in
           loop acc (Some { e with libs = lib :: e.libs }) rest
         | line :: rest when String.length line > 10 && String.sub line 0 10 = "  requires" ->
           let e = Option.get cur in
@@ -114,7 +116,7 @@ let write path state =
       output_line oc (sprintf "%s %i %d" e.ml_path e.ml_stat.mtime e.ml_stat.size);
       Option.iter (fun st -> output_line oc (sprintf "  mli %i %d" st.mtime st.size)) e.mli_stat;
       List.iter (fun (r : _ with_loc) -> output_line oc (sprintf "  requires %s %d %s" r.filename r.line r.v)) e.requires;
-      List.iter (fun (l : _ with_loc) -> output_line oc (sprintf "  lib %s %d %s" l.filename l.line l.v)) e.libs
+      List.iter (fun (l : lib with_loc) -> output_line oc (sprintf "  lib %s %d %s %s" l.filename l.line l.v.name l.v.version)) e.libs
     ) state.entries)
 
 type reconfigure_reason =
@@ -146,8 +148,12 @@ let check_reconfigure_exn config state =
       else if not (equal_file_stat (file_stat entry.ml_path) entry.ml_stat)
       then
         let ~requires, ~libs = Mach_module.extract_requires_exn entry.ml_path in
-        if not (List.equal equal_without_loc requires entry.requires) ||
-           not (List.equal equal_without_loc libs entry.libs)
+        let libs_names_equal =
+          List.length libs = List.length entry.libs &&
+          List.for_all2 (fun a b -> a.v = b.v.name && a.filename = b.filename && a.line = b.line)
+            libs entry.libs
+        in
+        if not (List.equal equal_without_loc requires entry.requires) || not libs_names_equal
         then (Mach_log.log_very_verbose "mach:state: requires/libs changed, need reconfigure";
               Some entry.ml_path)
         else None
@@ -168,13 +174,16 @@ let collect_exn config entry_path =
     else begin
       Hashtbl.add visited ml_path ();
       let ~requires, ~libs = Mach_module.extract_requires_exn ml_path in
-      List.iter (fun lib ->
+      let libs = List.map (fun lib ->
         let info = Lazy.force toolchain.ocamlfind in
         if info.ocamlfind_version = None then
           Mach_error.user_errorf "%s:%d: library %S requires ocamlfind but ocamlfind is not installed" lib.filename lib.line lib.v
-        else if not (SS.mem lib.v info.ocamlfind_libs) then
+        else match SM.find_opt lib.v info.ocamlfind_libs with
+        | None ->
           Mach_error.user_errorf "%s:%d: library %S not found" lib.filename lib.line lib.v
-      ) libs;
+        | Some version ->
+          { lib with v = { name = lib.v; version } }
+      ) libs in
       List.iter (fun r -> dfs r.v) requires;
       let mli_path = mli_path_of_ml_if_exists ml_path in
       let mli_stat = Option.map file_stat mli_path in

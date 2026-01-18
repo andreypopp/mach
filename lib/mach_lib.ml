@@ -41,7 +41,7 @@ type ocaml_module = {
   module_name: string;
   build_dir: string;
   resolved_requires: string with_loc list;  (* absolute paths *)
-  libs: string with_loc list;  (* ocamlfind library names *)
+  libs: Mach_state.lib with_loc list;  (* ocamlfind libraries with versions *)
   kind: module_kind;
 }
 
@@ -76,7 +76,7 @@ let configure_backend config ~state ~prev_state ~changed_modules =
     | [] -> ()
     | libs ->
       let lib_args = Filename.(m.build_dir / "lib_includes.args") in
-      let libs = String.concat " " (List.map (fun (l : _ with_loc) -> l.v) libs) in
+      let libs = String.concat " " (List.map (fun (l : Mach_state.lib with_loc) -> l.v.name) libs) in
       B.rule b ~target:lib_args ~deps:[] [capture_stderrf "ocamlfind query -format '-I=%%d' -recursive %s > %s" libs lib_args])
   in
   let compile_ocaml_module b (m : ocaml_module) =
