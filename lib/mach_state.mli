@@ -29,8 +29,13 @@ val read : string -> t option
 (** Write state to a file *)
 val write : string -> t -> unit
 
-(** Check if state needs reconfiguration due to file changes or config changes *)
-val needs_reconfigure_exn : Mach_config.t -> t -> bool
+(** Reason for reconfiguration *)
+type reconfigure_reason =
+  | Env_changed  (** Build backend, mach path, or toolchain version changed *)
+  | Modules_changed of SS.t  (** Set of ml_path that need reconfiguration *)
+
+(** Check if state needs reconfiguration, and if so, what kind *)
+val check_reconfigure_exn : Mach_config.t -> t -> reconfigure_reason option
 
 (** Collect dependency state starting from an entry point module *)
 val collect_exn : Mach_config.t -> string -> t

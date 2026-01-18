@@ -1,14 +1,18 @@
 # TODO
 
-## Optimise reconfiguration: .mli addition/removal should reconfigure a single module only
-
-## Optimise reconfiguration: do not reconfigure unaffected modules
-
-## Optimise reconfiguration: do not drop build dir on reconfiguration
-
 ## Implement ppx support
 
 ## Support passing -H hidden includes args when compiling
+
+## [DONE] Optimise reconfiguration: only reconfigure affected modules
+
+We need to improve Mach_state.needs_reconfiguration to return list of modules
+that need to be reconfigured.
+
+We will then drop build dirs of only those modules that need to be reconfigured.
+
+Modules which depend on them will be rebuilt automatically by Makefile as their
+.cmo targets depend on their dependencies' .cmi files.
 
 ## [DONE] Watch mode doesn't start if initial build fails
 

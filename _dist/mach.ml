@@ -194,21 +194,27 @@ let preprocess_source ~source_path oc ic =
   in
   loop true
 
-let is_require_path s =
-  String.length s > 0 && (
-    String.starts_with ~prefix:"/" s ||
-    String.starts_with ~prefix:"./" s ||
-    String.starts_with ~prefix:"../" s)
+let is_require_path s = String.contains s '/'
 
 let resolve_require ~source_path ~line path =
-  let path =
+  let base_path =
     if Filename.is_relative path
     then Filename.concat (Filename.dirname source_path) path
     else path
   in
-  try Unix.realpath path
-  with Unix.Unix_error (err, _, _) ->
-    Mach_error.user_errorf "%s:%d: %s: %s" source_path line path (Unix.error_message err)
+  let candidates = [base_path ^ ".ml"; base_path ^ ".mlx"] in
+  let rec find_file = function
+    | [] ->
+        Mach_error.user_errorf "%s:%d: %s: No such file or directory" source_path line path
+    | candidate :: rest ->
+        if Sys.file_exists candidate then
+          try Unix.realpath candidate
+          with Unix.Unix_error (err, _, _) ->
+            Mach_error.user_errorf "%s:%d: %s: %s" source_path line path (Unix.error_message err)
+        else
+          find_file rest
+  in
+  find_file candidates
 
 let extract_requires_exn source_path : requires:string with_loc list * libs:string with_loc list =
   let rec parse line_num (~requires, ~libs) ic =
@@ -466,8 +472,13 @@ val read : string -> t option
 (** Write state to a file *)
 val write : string -> t -> unit
 
-(** Check if state needs reconfiguration due to file changes or config changes *)
-val needs_reconfigure_exn : Mach_config.t -> t -> bool
+(** Reason for reconfiguration *)
+type reconfigure_reason =
+  | Env_changed  (** Build backend, mach path, or toolchain version changed *)
+  | Modules_changed of SS.t  (** Set of ml_path that need reconfiguration *)
+
+(** Check if state needs reconfiguration, and if so, what kind *)
+val check_reconfigure_exn : Mach_config.t -> t -> reconfigure_reason option
 
 (** Collect dependency state starting from an entry point module *)
 val collect_exn : Mach_config.t -> string -> t
@@ -603,36 +614,44 @@ let write path state =
       List.iter (fun (l : _ with_loc) -> output_line oc (sprintf "  lib %s %d %s" l.filename l.line l.v)) e.libs
     ) state.entries)
 
-let needs_reconfigure_exn config state =
+type reconfigure_reason =
+  | Env_changed
+  | Modules_changed of SS.t
+
+let check_reconfigure_exn config state =
   let build_backend = config.Mach_config.build_backend in
   let mach_path = config.Mach_config.mach_executable_path in
   let toolchain = config.Mach_config.toolchain in
-  if state.header.build_backend <> build_backend then
-    (Mach_log.log_very_verbose "mach:state: build backend changed, need reconfigure"; true)
-  else if state.header.mach_executable_path <> mach_path then
-    (Mach_log.log_very_verbose "mach:state: mach path changed, need reconfigure"; true)
-  else if state.header.ocaml_version <> toolchain.ocaml_version then
-    (Mach_log.log_very_verbose "mach:state: ocaml version changed, need reconfigure"; true)
-  else if state.header.ocamlfind_version <> None &&
-          state.header.ocamlfind_version <> (Lazy.force toolchain.ocamlfind).ocamlfind_version then
-    (Mach_log.log_very_verbose "mach:state: ocamlfind version changed, need reconfigure"; true)
+  (* Check environment first - if changed, need full reconfigure *)
+  let env_changed =
+    state.header.build_backend <> build_backend ||
+    state.header.mach_executable_path <> mach_path ||
+    state.header.ocaml_version <> toolchain.ocaml_version ||
+    (state.header.ocamlfind_version <> None &&
+     state.header.ocamlfind_version <> (Lazy.force toolchain.ocamlfind).ocamlfind_version)
+  in
+  if env_changed then
+    (Mach_log.log_very_verbose "mach:state: environment changed, need reconfigure";
+     Some Env_changed)
   else
-    List.exists (fun entry ->
-      if not (Sys.file_exists entry.ml_path)
-      then (Mach_log.log_very_verbose "mach:state: file removed, need reconfigure"; true)
-      else
-        if mli_path_of_ml_if_exists entry.ml_path <> entry.mli_path
-        then (Mach_log.log_very_verbose "mach:state: .mli added/removed, need reconfigure"; true)
-        else
-          if not (equal_file_stat (file_stat entry.ml_path) entry.ml_stat)
-          then
-            let ~requires, ~libs = Mach_module.extract_requires_exn entry.ml_path in
-            if not (List.equal equal_without_loc requires entry.requires) ||
-               not (List.equal equal_without_loc libs entry.libs)
-            then (Mach_log.log_very_verbose "mach:state: requires/libs changed, need reconfigure"; true)
-            else false
-          else false
-    ) state.entries
+    (* Check each entry for changes *)
+    let changed_modules = SS.of_list @@ List.filter_map (fun entry ->
+      if not (Sys.file_exists entry.ml_path) then None  (* removed files handled by collect_exn *)
+      else if mli_path_of_ml_if_exists entry.ml_path <> entry.mli_path
+      then (Mach_log.log_very_verbose "mach:state: .mli added/removed, need reconfigure";
+            Some entry.ml_path)
+      else if not (equal_file_stat (file_stat entry.ml_path) entry.ml_stat)
+      then
+        let ~requires, ~libs = Mach_module.extract_requires_exn entry.ml_path in
+        if not (List.equal equal_without_loc requires entry.requires) ||
+           not (List.equal equal_without_loc libs entry.libs)
+        then (Mach_log.log_very_verbose "mach:state: requires/libs changed, need reconfigure";
+              Some entry.ml_path)
+        else None
+      else None
+    ) state.entries in
+    if SS.is_empty changed_modules then None
+    else Some (Modules_changed changed_modules)
 
 let collect_exn config entry_path =
   let build_backend = config.Mach_config.build_backend in
@@ -736,7 +755,7 @@ type ocaml_module = {
   kind: module_kind;
 }
 
-let configure_backend config state =
+let configure_backend config ~state ~prev_state ~changed_modules =
   let build_backend = config.Mach_config.build_backend in
   let build_dir_of = Mach_config.build_dir_of config in
   let (module B : S.BUILD), module_file, root_file =
@@ -819,21 +838,33 @@ let configure_backend config state =
     let cmt = Filename.(build_dir / module_name ^ ".cmt") in
     { ml_path; mli_path; module_name; build_dir; resolved_requires;cmx;cmi;cmt;libs;kind }
   ) state.Mach_state.entries in
-  (* Generate per-module build files *)
+  let old_modules = match prev_state with
+    | None -> SS.empty
+    | Some old -> SS.of_list (List.map (fun e -> e.Mach_state.ml_path) old.Mach_state.entries)
+  in
+  (* Generate per-module build files - only for changed/new modules *)
   List.iter (fun (m : ocaml_module) ->
-    mkdir_p m.build_dir;
-    let file_path = Filename.(m.build_dir / module_file) in
-    write_file file_path (
-      let b = B.create () in
-      configure_ocaml_module b m;
-      compile_ocaml_module b m;
-      B.contents b)
+    let needs_configure = match changed_modules with
+      | None -> true  (* full reconfigure *)
+      | Some changed_modules -> SS.mem m.ml_path changed_modules || not (SS.mem m.ml_path old_modules)
+    in
+    if needs_configure then begin
+      log_verbose "mach: configuring %s" m.ml_path;
+      mkdir_p m.build_dir;
+      let file_path = Filename.(m.build_dir / module_file) in
+      write_file file_path (
+        let b = B.create () in
+        configure_ocaml_module b m;
+        compile_ocaml_module b m;
+        B.contents b)
+    end
   ) modules;
   (* Generate root build file *)
   let exe_path = Mach_state.exe_path config state in
   let all_objs = List.map (fun m -> m.cmx) modules in
   let all_libs = Mach_state.all_libs state in
   write_file Filename.(build_dir_of state.root.ml_path / root_file) (
+    log_verbose "mach: configuring %s (root)" state.root.ml_path;
     let b = B.create () in
     B.var b "MACH" cmd;
     List.iter (fun entry ->
@@ -848,24 +879,44 @@ let configure_exn config source_path =
   let source_path = Unix.realpath source_path in
   let build_dir = build_dir_of source_path in
   let state_path = Filename.(build_dir / "Mach.state") in
-  let state, needs_reconfigure =
+  let ~prev_state, ~state, ~reconfigure_reason =
     match Mach_state.read state_path with
     | None ->
       log_very_verbose "mach:configure: no previous state found, creating one...";
-      Mach_state.collect_exn config source_path, true
-    | Some state when Mach_state.needs_reconfigure_exn config state ->
-      log_very_verbose "mach:configure: need reconfigure";
-      Mach_state.collect_exn config source_path, true
-    | Some state -> state, false
+      let state = Mach_state.collect_exn config source_path in
+      ~prev_state:None, ~state, ~reconfigure_reason:(Some Mach_state.Env_changed)
+    | Some state as prev_state ->
+      match Mach_state.check_reconfigure_exn config state with
+      | None -> ~prev_state, ~state, ~reconfigure_reason:None
+      | Some reason ->
+        log_very_verbose "mach:configure: need reconfigure";
+        let state = Mach_state.collect_exn config source_path in
+        ~prev_state, ~state, ~reconfigure_reason:(Some reason)
   in
-  if needs_reconfigure then begin
+  begin match reconfigure_reason with
+  | None -> ()
+  | Some reconfigure_reason ->
     log_verbose "mach: configuring...";
-    List.iter (fun entry -> rm_rf (build_dir_of entry.Mach_state.ml_path)) state.entries;
+    let changed_modules = match reconfigure_reason with
+      | Mach_state.Env_changed -> None  (* full reconfigure *)
+      | Mach_state.Modules_changed set -> Some set
+    in
+    (* Drop build dirs for changed modules *)
+    begin match changed_modules, config.build_backend with
+    | None, _ ->
+      List.iter (fun entry -> rm_rf (build_dir_of entry.Mach_state.ml_path)) state.entries
+    | Some set, Make ->
+      List.iter (fun entry ->
+        if SS.mem entry.Mach_state.ml_path set then
+          rm_rf (build_dir_of entry.ml_path)
+      ) state.entries
+    | Some _, Ninja -> ()
+    end;
     mkdir_p build_dir;
-    configure_backend config state;
+    configure_backend config ~state ~prev_state ~changed_modules;
     Mach_state.write state_path state
   end;
-  ~state, ~reconfigured:needs_reconfigure
+  ~state, ~reconfigured:(Option.is_some reconfigure_reason)
 
 let configure config source_path =
   try Ok (configure_exn config source_path)
@@ -6668,7 +6719,14 @@ let watch config script_path ?run_args () =
       path
     in
     current_watchlist := Some watchlist_path;
-    let args = [| "watchexec"; "--debounce"; "200ms"; "--only-emit-events"; "--emit-events-to=stdio"; "-e"; "ml,mli,mlx"; "@" ^ watchlist_path |] in
+    let args = [|
+      "watchexec";
+      "--debounce"; "200ms";
+      "--only-emit-events";
+      "--emit-events-to=stdio";
+      "--exts"; "ml,mli,mlx";
+      "@" ^ watchlist_path 
+    |] in
     Mach_log.log_very_verbose "mach:watch: running: %s" (String.concat " " (Array.to_list args));
     let pipe_read, pipe_write = Unix.pipe () in
     let pid = Unix.create_process "watchexec" args Unix.stdin pipe_write Unix.stderr in

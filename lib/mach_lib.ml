@@ -45,7 +45,7 @@ type ocaml_module = {
   kind: module_kind;
 }
 
-let configure_backend config state =
+let configure_backend config ~state ~prev_state ~changed_modules =
   let build_backend = config.Mach_config.build_backend in
   let build_dir_of = Mach_config.build_dir_of config in
   let (module B : S.BUILD), module_file, root_file =
@@ -128,21 +128,33 @@ let configure_backend config state =
     let cmt = Filename.(build_dir / module_name ^ ".cmt") in
     { ml_path; mli_path; module_name; build_dir; resolved_requires;cmx;cmi;cmt;libs;kind }
   ) state.Mach_state.entries in
-  (* Generate per-module build files *)
+  let old_modules = match prev_state with
+    | None -> SS.empty
+    | Some old -> SS.of_list (List.map (fun e -> e.Mach_state.ml_path) old.Mach_state.entries)
+  in
+  (* Generate per-module build files - only for changed/new modules *)
   List.iter (fun (m : ocaml_module) ->
-    mkdir_p m.build_dir;
-    let file_path = Filename.(m.build_dir / module_file) in
-    write_file file_path (
-      let b = B.create () in
-      configure_ocaml_module b m;
-      compile_ocaml_module b m;
-      B.contents b)
+    let needs_configure = match changed_modules with
+      | None -> true  (* full reconfigure *)
+      | Some changed_modules -> SS.mem m.ml_path changed_modules || not (SS.mem m.ml_path old_modules)
+    in
+    if needs_configure then begin
+      log_verbose "mach: configuring %s" m.ml_path;
+      mkdir_p m.build_dir;
+      let file_path = Filename.(m.build_dir / module_file) in
+      write_file file_path (
+        let b = B.create () in
+        configure_ocaml_module b m;
+        compile_ocaml_module b m;
+        B.contents b)
+    end
   ) modules;
   (* Generate root build file *)
   let exe_path = Mach_state.exe_path config state in
   let all_objs = List.map (fun m -> m.cmx) modules in
   let all_libs = Mach_state.all_libs state in
   write_file Filename.(build_dir_of state.root.ml_path / root_file) (
+    log_verbose "mach: configuring %s (root)" state.root.ml_path;
     let b = B.create () in
     B.var b "MACH" cmd;
     List.iter (fun entry ->
@@ -157,24 +169,49 @@ let configure_exn config source_path =
   let source_path = Unix.realpath source_path in
   let build_dir = build_dir_of source_path in
   let state_path = Filename.(build_dir / "Mach.state") in
-  let state, needs_reconfigure =
+  let ~prev_state, ~state, ~reconfigure_reason =
     match Mach_state.read state_path with
     | None ->
       log_very_verbose "mach:configure: no previous state found, creating one...";
-      Mach_state.collect_exn config source_path, true
-    | Some state when Mach_state.needs_reconfigure_exn config state ->
-      log_very_verbose "mach:configure: need reconfigure";
-      Mach_state.collect_exn config source_path, true
-    | Some state -> state, false
+      let state = Mach_state.collect_exn config source_path in
+      ~prev_state:None, ~state, ~reconfigure_reason:(Some Mach_state.Env_changed)
+    | Some state as prev_state ->
+      match Mach_state.check_reconfigure_exn config state with
+      | None -> ~prev_state, ~state, ~reconfigure_reason:None
+      | Some reason ->
+        log_very_verbose "mach:configure: need reconfigure";
+        let state = Mach_state.collect_exn config source_path in
+        ~prev_state, ~state, ~reconfigure_reason:(Some reason)
   in
-  if needs_reconfigure then begin
+  begin match reconfigure_reason with
+  | None -> ()
+  | Some reconfigure_reason ->
     log_verbose "mach: configuring...";
-    List.iter (fun entry -> rm_rf (build_dir_of entry.Mach_state.ml_path)) state.entries;
+    let changed_modules = match reconfigure_reason with
+      | Mach_state.Env_changed -> None  (* full reconfigure *)
+      | Mach_state.Modules_changed set -> Some set
+    in
+    (* Drop build dirs for changed modules *)
+    begin match changed_modules, config.build_backend with
+    | None, _ ->
+      List.iter (fun entry -> rm_rf (build_dir_of entry.Mach_state.ml_path)) state.entries
+    | Some set, Make ->
+      List.iter (fun entry -> if SS.mem entry.Mach_state.ml_path set then rm_rf (build_dir_of entry.ml_path)) state.entries
+    | Some _, Ninja -> (* will do cleandead instead *) ()
+    end;
     mkdir_p build_dir;
-    configure_backend config state;
+    configure_backend config ~state ~prev_state ~changed_modules;
+    begin match config.Mach_config.build_backend with
+    | Make -> ()
+    | Ninja ->
+      (* Ninja requires a full clean on reconfigure to avoid stale build files *)
+      let cmd = sprintf "ninja -C %s -t cleandead > /dev/null" (Filename.quote (build_dir_of state.root.ml_path)) in
+      if !Mach_log.verbose = Very_very_verbose then eprintf "+ %s\n%!" cmd;
+      if Sys.command cmd <> 0 then Mach_error.user_errorf "ninja cleandead failed"
+    end;
     Mach_state.write state_path state
   end;
-  ~state, ~reconfigured:needs_reconfigure
+  ~state, ~reconfigured:(Option.is_some reconfigure_reason)
 
 let configure config source_path =
   try Ok (configure_exn config source_path)

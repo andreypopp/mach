@@ -31,9 +31,11 @@ Test that modifying ocaml_version in state triggers reconfigure:
   $ sed -i.bak 's/^ocaml_version .*/ocaml_version 1.0.0/' _mach/build/*__main.ml/Mach.state
 
   $ mach run -vv ./main.ml 2>&1
-  mach:state: ocaml version changed, need reconfigure
+  mach:state: environment changed, need reconfigure
   mach:configure: need reconfigure
   mach: configuring...
+  mach: configuring $TESTCASE_ROOT/main.ml
+  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   hello
 
@@ -42,9 +44,11 @@ Test that modifying ocamlfind_version in state triggers reconfigure:
   $ sed -i.bak 's/^ocamlfind_version .*/ocamlfind_version 0.0.0/' _mach/build/*__main.ml/Mach.state
 
   $ mach run -vv ./main.ml 2>&1
-  mach:state: ocamlfind version changed, need reconfigure
+  mach:state: environment changed, need reconfigure
   mach:configure: need reconfigure
   mach: configuring...
+  mach: configuring $TESTCASE_ROOT/main.ml
+  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   hello
 

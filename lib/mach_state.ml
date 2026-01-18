@@ -117,36 +117,44 @@ let write path state =
       List.iter (fun (l : _ with_loc) -> output_line oc (sprintf "  lib %s %d %s" l.filename l.line l.v)) e.libs
     ) state.entries)
 
-let needs_reconfigure_exn config state =
+type reconfigure_reason =
+  | Env_changed
+  | Modules_changed of SS.t
+
+let check_reconfigure_exn config state =
   let build_backend = config.Mach_config.build_backend in
   let mach_path = config.Mach_config.mach_executable_path in
   let toolchain = config.Mach_config.toolchain in
-  if state.header.build_backend <> build_backend then
-    (Mach_log.log_very_verbose "mach:state: build backend changed, need reconfigure"; true)
-  else if state.header.mach_executable_path <> mach_path then
-    (Mach_log.log_very_verbose "mach:state: mach path changed, need reconfigure"; true)
-  else if state.header.ocaml_version <> toolchain.ocaml_version then
-    (Mach_log.log_very_verbose "mach:state: ocaml version changed, need reconfigure"; true)
-  else if state.header.ocamlfind_version <> None &&
-          state.header.ocamlfind_version <> (Lazy.force toolchain.ocamlfind).ocamlfind_version then
-    (Mach_log.log_very_verbose "mach:state: ocamlfind version changed, need reconfigure"; true)
+  (* Check environment first - if changed, need full reconfigure *)
+  let env_changed =
+    state.header.build_backend <> build_backend ||
+    state.header.mach_executable_path <> mach_path ||
+    state.header.ocaml_version <> toolchain.ocaml_version ||
+    (state.header.ocamlfind_version <> None &&
+     state.header.ocamlfind_version <> (Lazy.force toolchain.ocamlfind).ocamlfind_version)
+  in
+  if env_changed then
+    (Mach_log.log_very_verbose "mach:state: environment changed, need reconfigure";
+     Some Env_changed)
   else
-    List.exists (fun entry ->
-      if not (Sys.file_exists entry.ml_path)
-      then (Mach_log.log_very_verbose "mach:state: file removed, need reconfigure"; true)
-      else
-        if mli_path_of_ml_if_exists entry.ml_path <> entry.mli_path
-        then (Mach_log.log_very_verbose "mach:state: .mli added/removed, need reconfigure"; true)
-        else
-          if not (equal_file_stat (file_stat entry.ml_path) entry.ml_stat)
-          then
-            let ~requires, ~libs = Mach_module.extract_requires_exn entry.ml_path in
-            if not (List.equal equal_without_loc requires entry.requires) ||
-               not (List.equal equal_without_loc libs entry.libs)
-            then (Mach_log.log_very_verbose "mach:state: requires/libs changed, need reconfigure"; true)
-            else false
-          else false
-    ) state.entries
+    (* Check each entry for changes *)
+    let changed_modules = SS.of_list @@ List.filter_map (fun entry ->
+      if not (Sys.file_exists entry.ml_path) then None  (* removed files handled by collect_exn *)
+      else if mli_path_of_ml_if_exists entry.ml_path <> entry.mli_path
+      then (Mach_log.log_very_verbose "mach:state: .mli added/removed, need reconfigure";
+            Some entry.ml_path)
+      else if not (equal_file_stat (file_stat entry.ml_path) entry.ml_stat)
+      then
+        let ~requires, ~libs = Mach_module.extract_requires_exn entry.ml_path in
+        if not (List.equal equal_without_loc requires entry.requires) ||
+           not (List.equal equal_without_loc libs entry.libs)
+        then (Mach_log.log_very_verbose "mach:state: requires/libs changed, need reconfigure";
+              Some entry.ml_path)
+        else None
+      else None
+    ) state.entries in
+    if SS.is_empty changed_modules then None
+    else Some (Modules_changed changed_modules)
 
 let collect_exn config entry_path =
   let build_backend = config.Mach_config.build_backend in
