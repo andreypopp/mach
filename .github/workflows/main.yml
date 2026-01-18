@@ -35,6 +35,6 @@ jobs:
           opam-repositories: |
             default: https://github.com/ocaml/opam-repository.git
 
-      - run: opam install . --deps-only --with-test --with-dev-setup
+      - run: opam install . --deps-only --with-test
       - run: opam exec -- dune build
       - run: opam exec -- dune test
