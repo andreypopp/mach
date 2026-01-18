@@ -12,7 +12,7 @@ Test basic .mli interface file support.
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./lib.ml"
+  > #require "./lib"
   > let () = print_endline Lib.msg
   > EOF
 

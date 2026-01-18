@@ -9,7 +9,7 @@ Start with a dependency:
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./lib.ml"
+  > #require "./lib"
   > let () = print_endline Lib.msg
   > EOF
 

@@ -7,7 +7,7 @@ Prepare source files:
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./lib.ml"
+  > #require "./lib"
   > let () = Lib.greet "World"
   > EOF
 
@@ -34,3 +34,16 @@ Inspect the build dir:
   main.cmx
   main.ml
   main.o
+
+Test absolute path resolution (extension is inferred for absolute paths too):
+  $ cat << 'EOF' > abs_lib.ml
+  > let message = "from absolute path"
+  > EOF
+
+  $ cat << EOF > main_abs.ml
+  > #require "$PWD/abs_lib"
+  > let () = print_endline Abs_lib.message
+  > EOF
+
+  $ mach run ./main_abs.ml
+  from absolute path

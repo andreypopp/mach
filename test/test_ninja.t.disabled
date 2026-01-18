@@ -11,7 +11,7 @@ Prepare source files:
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./lib.ml"
+  > #require "./lib"
   > let () = Lib.greet "World"
   > EOF
 

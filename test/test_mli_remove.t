@@ -14,7 +14,7 @@ Start with .mli:
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./lib.ml"
+  > #require "./lib"
   > let () = print_endline Lib.msg
   > EOF
 
@@ -33,7 +33,7 @@ Now remove .mli:
   $ rm lib.mli
 
   $ cat << 'EOF' > main.ml
-  > #require "./lib.ml"
+  > #require "./lib"
   > let () = print_endline Lib.msg
   > let () = print_endline Lib.internal
   > EOF

@@ -7,7 +7,7 @@ Test replacing a dependency with another.
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./old_lib.ml"
+  > #require "./old_lib"
   > let () = print_endline ("using " ^ Old_lib.name)
   > EOF
 
@@ -23,7 +23,7 @@ Replace with a new dependency:
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./new_lib.ml"
+  > #require "./new_lib"
   > let () = print_endline ("using " ^ New_lib.name)
   > EOF
 

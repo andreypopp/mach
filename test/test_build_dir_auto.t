@@ -5,7 +5,7 @@ Test auto-derived build directory (uses script path to derive build dir location
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./lib.ml"
+  > #require "./lib"
   > let () = Lib.greet "World"
   > EOF
 

@@ -19,7 +19,7 @@ Test .mlx depending on .ml:
   > EOF
 
   $ cat << 'EOF' > app.mlx
-  > #require "./helper.ml"
+  > #require "./helper"
   > let div ~children () = String.concat ", " children
   > let () = print_endline <div>"Starting greeting:"</div>
   > let () = Helper.greet ()
@@ -29,16 +29,49 @@ Test .mlx depending on .ml:
   Starting greeting:
   Hello from ML
 
-Test .ml depending on .mlx:
+Test .ml depending on .mlx (tests .mlx fallback when no .ml exists):
   $ cat << 'EOF' > widget.mlx
   > let div ~children () = String.concat ", " children
   > let render () = print_endline <div>"Widget rendered"</div>
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./widget.mlx"
+  > #require "./widget"
   > let () = Widget.render ()
   > EOF
 
   $ mach run ./main.ml
   Widget rendered
+
+Test .mlx-only resolution explicitly (ensure .ml is not present):
+  $ rm -f mlxonly.ml
+  $ cat << 'EOF' > mlxonly.mlx
+  > let div ~children () = String.concat ", " children
+  > let message () = <div>"MLX only module"</div>
+  > EOF
+
+  $ cat << 'EOF' > main_mlxonly.ml
+  > #require "./mlxonly"
+  > let () = print_endline (Mlxonly.message ())
+  > EOF
+
+  $ mach run ./main_mlxonly.ml
+  MLX only module
+
+Test .ml takes priority when both .ml and .mlx exist:
+  $ cat << 'EOF' > ambiguous.ml
+  > let source () = "from .ml file"
+  > EOF
+
+  $ cat << 'EOF' > ambiguous.mlx
+  > let div ~children () = String.concat ", " children
+  > let source () = <div>"from .mlx file"</div>
+  > EOF
+
+  $ cat << 'EOF' > main_ambiguous.ml
+  > #require "./ambiguous"
+  > let () = print_endline (Ambiguous.source ())
+  > EOF
+
+  $ mach run ./main_ambiguous.ml
+  from .ml file

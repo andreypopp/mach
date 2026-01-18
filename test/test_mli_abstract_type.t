@@ -17,7 +17,7 @@ Test type hiding via .mli (abstract types).
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./counter.ml"
+  > #require "./counter"
   > let () =
   >   let c = Counter.create () in
   >   let c = Counter.incr c in

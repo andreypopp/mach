@@ -6,7 +6,7 @@ installed with [opam][]) through `#require` directives.
 
 Usage is as simple as creating an `.ml` file:
 ```ocaml
-#require "./utils.ml"
+#require "./utils"
 #require "lwt"
 let () =
   Lwt_main.run (Utils.greet "Mach")
@@ -77,9 +77,10 @@ Hello, Mach!
 
 ### Declaring dependencies between scripts
 
-Scripts can reference other scripts using `#require` directive:
+Scripts can reference other scripts using `#require` directive. File extensions
+are omitted — Mach automatically resolves `.ml` and `.mlx` files:
 ```ocaml
-#require "utils.ml"
+#require "./utils"
 let () =
   Utils.greet "Mach"
 ```

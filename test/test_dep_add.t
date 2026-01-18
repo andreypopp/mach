@@ -20,7 +20,7 @@ Create a new library and add it as dependency:
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./lib.ml"
+  > #require "./lib"
   > let () = print_endline Lib.msg
   > EOF
 

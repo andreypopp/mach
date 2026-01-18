@@ -5,14 +5,14 @@
   > EOF
 
   $ cat << 'EOF' > lib_a.ml
-  > #require "./lib_b.ml"
+  > #require "./lib_b"
   > let hello () =
   >   Lib_b.hello ();
   >   print_endline "Hello from lib_a"
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./lib_a.ml"
+  > #require "./lib_a"
   > let () = Lib_a.hello ()
   > EOF
 

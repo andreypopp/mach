@@ -8,7 +8,7 @@ Setup test files:
   > EOF
 
   $ cat > main.ml << 'EOF'
-  > #require "./lib.ml"
+  > #require "./lib"
   > let () = print_int Lib.x
   > EOF
 

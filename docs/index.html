@@ -170,7 +170,7 @@ function copyCode(btn) {
     });
   }
 }
-</script><button class="copy-btn" onclick="copyCode(this)" title="Copy to clipboard">copy</button><pre><code class="language-ocaml">#require &quot;./utils.ml&quot;
+</script><button class="copy-btn" onclick="copyCode(this)" title="Copy to clipboard">copy</button><pre><code class="language-ocaml">#require &quot;./utils&quot;
 #require &quot;lwt&quot;
 let () =
   Lwt_main.run (Utils.greet &quot;Mach&quot;)
@@ -312,7 +312,8 @@ function copyCode(btn) {
 $ ./hello.ml
 Hello, Mach!
 </code></pre></div><h3 id="declaring-dependencies-between-scripts"><a class="anchor" aria-hidden="true" href="#declaring-dependencies-between-scripts"></a>Declaring dependencies between scripts</h3>
-<p>Scripts can reference other scripts using <code>#require</code> directive:</p>
+<p>Scripts can reference other scripts using <code>#require</code> directive. File extensions
+are omitted — Mach automatically resolves <code>.ml</code> and <code>.mlx</code> files:</p>
 <div class="code-block"><script>
 function copyCode(btn) {
   const codeBlock = btn.parentElement.querySelector('pre code');
@@ -328,7 +329,7 @@ function copyCode(btn) {
     });
   }
 }
-</script><button class="copy-btn" onclick="copyCode(this)" title="Copy to clipboard">copy</button><pre><code class="language-ocaml">#require &quot;utils.ml&quot;
+</script><button class="copy-btn" onclick="copyCode(this)" title="Copy to clipboard">copy</button><pre><code class="language-ocaml">#require &quot;./utils&quot;
 let () =
   Utils.greet &quot;Mach&quot;
 </code></pre></div><p>Where <code>utils.ml</code> contains:</p>

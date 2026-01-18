@@ -10,7 +10,7 @@ Prepare source files with a type error in the dependency:
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./lib.ml"
+  > #require "./lib"
   > let () = Lib.greet "World"
   > EOF
 
@@ -36,7 +36,7 @@ Now test error in .mli file:
   > EOF
 
   $ cat << 'EOF' > main2.ml
-  > #require "./lib2.ml"
+  > #require "./lib2"
   > let () = Lib2.greet "World"
   > EOF
 

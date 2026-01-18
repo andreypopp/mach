@@ -5,18 +5,18 @@
   > EOF
 
   $ cat << 'EOF' > a.ml
-  > #require "./lib.ml"
+  > #require "./lib"
   > let greet = Lib.greet
   > EOF
 
   $ cat << 'EOF' > b.ml
-  > #require "./lib.ml"
+  > #require "./lib"
   > let greet = Lib.greet
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./a.ml"
-  > #require "./b.ml"
+  > #require "./a"
+  > #require "./b"
   > let () = A.greet "World"
   > let () = B.greet "World"
   > EOF

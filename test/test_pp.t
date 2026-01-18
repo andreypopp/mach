@@ -6,7 +6,7 @@ Create a test file with shebang and #require directives:
 
   $ cat > script.ml << 'EOF'
   > #!/usr/bin/env mach
-  > #require "./lib.ml"
+  > #require "./lib"
   > 
   > let () = print_endline "hello"
   > EOF

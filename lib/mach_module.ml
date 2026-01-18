@@ -18,21 +18,27 @@ let preprocess_source ~source_path oc ic =
   in
   loop true
 
-let is_require_path s =
-  String.length s > 0 && (
-    String.starts_with ~prefix:"/" s ||
-    String.starts_with ~prefix:"./" s ||
-    String.starts_with ~prefix:"../" s)
+let is_require_path s = String.contains s '/'
 
 let resolve_require ~source_path ~line path =
-  let path =
+  let base_path =
     if Filename.is_relative path
     then Filename.concat (Filename.dirname source_path) path
     else path
   in
-  try Unix.realpath path
-  with Unix.Unix_error (err, _, _) ->
-    Mach_error.user_errorf "%s:%d: %s: %s" source_path line path (Unix.error_message err)
+  let candidates = [base_path ^ ".ml"; base_path ^ ".mlx"] in
+  let rec find_file = function
+    | [] ->
+        Mach_error.user_errorf "%s:%d: %s: No such file or directory" source_path line path
+    | candidate :: rest ->
+        if Sys.file_exists candidate then
+          try Unix.realpath candidate
+          with Unix.Unix_error (err, _, _) ->
+            Mach_error.user_errorf "%s:%d: %s: %s" source_path line path (Unix.error_message err)
+        else
+          find_file rest
+  in
+  find_file candidates
 
 let extract_requires_exn source_path : requires:string with_loc list * libs:string with_loc list =
   let rec parse line_num (~requires, ~libs) ic =

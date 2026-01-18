@@ -7,12 +7,12 @@ Test removing a transitive dependency.
   > EOF
 
   $ cat << 'EOF' > lib_a.ml
-  > #require "./lib_b.ml"
+  > #require "./lib_b"
   > let msg = "lib_a" ^ Lib_b.extra
   > EOF
 
   $ cat << 'EOF' > main.ml
-  > #require "./lib_a.ml"
+  > #require "./lib_a"
   > let () = print_endline Lib_a.msg
   > EOF
 

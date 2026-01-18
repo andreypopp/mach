@@ -41,7 +41,7 @@ Add a dependency - SHOULD reconfigure (structural change):
 
   $ sleep 1
   $ cat << 'EOF' > main.ml
-  > #require "./lib.ml"
+  > #require "./lib"
   > let () = print_endline Lib.msg
   > EOF
 

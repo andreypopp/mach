@@ -22,12 +22,12 @@ Test error when script file doesn't exist (cmdliner validates before our code ru
 Test error when a required dependency doesn't exist:
 
   $ cat << 'EOF' > script.ml
-  > #require "./missing_dep.ml"
+  > #require "./missing_dep"
   > let () = print_endline "hello"
   > EOF
 
   $ mach run ./script.ml
-  mach: $TESTCASE_ROOT/script.ml:1: $TESTCASE_ROOT/./missing_dep.ml: No such file or directory
+  mach: $TESTCASE_ROOT/script.ml:1: ./missing_dep: No such file or directory
   [1]
 
 Test error when build fails:
