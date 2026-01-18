@@ -916,20 +916,18 @@ let configure_exn config source_path =
       | Mach_state.Env_changed -> None  (* full reconfigure *)
       | Mach_state.Modules_changed set -> Some set
     in
-    (* Drop build dirs for changed modules *)
     begin match changed_modules, config.build_backend with
     | None, _ ->
       List.iter (fun entry -> rm_rf (build_dir_of entry.Mach_state.ml_path)) state.entries
     | Some set, Make ->
       List.iter (fun entry -> if SS.mem entry.Mach_state.ml_path set then rm_rf (build_dir_of entry.ml_path)) state.entries
-    | Some _, Ninja -> (* will do cleandead instead *) ()
+    | Some _, Ninja -> (* will do `ninja -t cleandead` instead *) ()
     end;
     mkdir_p build_dir;
     configure_backend config ~state ~prev_state ~changed_modules;
     begin match config.Mach_config.build_backend with
     | Make -> ()
     | Ninja ->
-      (* Ninja requires a full clean on reconfigure to avoid stale build files *)
       let cmd = sprintf "ninja -C %s -t cleandead > /dev/null" (Filename.quote (build_dir_of state.root.ml_path)) in
       if !Mach_log.verbose = Very_very_verbose then eprintf "+ %s\n%!" cmd;
       if Sys.command cmd <> 0 then Mach_error.user_errorf "ninja cleandead failed"
