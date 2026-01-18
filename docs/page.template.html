@@ -10,6 +10,13 @@
       --color-text: #424242;
       --color-text-dim: #666666;
     }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --color-bg: #424242;
+        --color-text: #FFF9EC;
+        --color-text-dim: #999999;
+      }
+    }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       color: var(--color-text);

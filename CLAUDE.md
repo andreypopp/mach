@@ -165,4 +165,9 @@ test_ninja/    -- tests for ninja build backend
   env.sh       -- environment setup for tests (sets MACH_HOME, creates Mach config)
   tests/       -- symlink to ../test/
 plans/         -- implementation plans
+docs/          -- website/documentation
+  Makefile             -- runs website.ml (build/serve targets)
+  index.md             -- source markdown
+  index.html           -- generated from index.md via website.ml
+  page.template.html   -- HTML template with styles (supports dark mode via prefers-color-scheme)
 ```
