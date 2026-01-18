@@ -2,3 +2,4 @@ _opam
 _build
 _dist
 _bin
+docs/index.html
