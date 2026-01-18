@@ -50,18 +50,7 @@ let build_html () =
     Cmarkit_renderer.compose default Markdown_copy_code.renderer
   in
   let content = Cmarkit_renderer.doc_to_string renderer doc in
-  let logo_path = Filename.concat script_dir "logo.svg" in
-  let logo_raw = read_file logo_path in
-  (* Strip XML declaration and DOCTYPE, keep just the SVG element *)
-  let logo =
-    let re = Str.regexp ".*<svg" in
-    let svg_start = Str.search_forward re logo_raw 0 in
-    let svg = String.sub logo_raw svg_start (String.length logo_raw - svg_start) in
-    (* Add inline style to the SVG *)
-    Str.replace_first (Str.regexp "<svg") {|<svg class="logo"|} svg
-  in
   let html = Str.global_replace (Str.regexp_string "{{CONTENT}}") content template in
-  let html = Str.global_replace (Str.regexp_string "{{LOGO}}") logo html in
   html
 
 (* Build command *)

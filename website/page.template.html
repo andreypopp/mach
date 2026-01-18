@@ -78,13 +78,6 @@
       font-size: 1.5em;
       margin-top: 3em;
     }
-    .logo {
-      max-width: 120px;
-      max-height: 120px;
-    }
-    .logo * {
-      fill: var(--color-text);
-    }
     .toc {
       margin-bottom: 2em;
       list-style: square;
@@ -147,12 +140,17 @@
 </head>
 <body>
   <div class="container">
-    <header style="display: flex; flex-direction: row; align-items: center; margin-bottom: 20px;">
-      {{LOGO}}
-      <div style="flex-grow: 1">
-        <h1 style="margin: 0">mach</h1>
-        <div style="margin: 0; font-size: 0.9em; color: var(--color-text-dim)">a tiny build system for OCaml</div>
-      </div>
+    <header style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 5em 0;">
+      <pre style="color: var(--color-text); background: transparent; margin: 0; padding: 0;">
+                                   ░░███      
+ █████████████    ██████    ██████  ░███████  
+░░███░░███░░███  ░░░░░███  ███░░███ ░███░░███ 
+ ░███ ░███ ░███   ███████ ░███ ░░░  ░███ ░███ 
+ ░███ ░███ ░███  ███░░███ ░███  ███ ░███ ░███ 
+ █████░███ █████░░████████░░██████  ████ █████
+░░░░░ ░░░ ░░░░░  ░░░░░░░░  ░░░░░░  ░░░░ ░░░░░ 
+      </pre>
+      <div style="font-size: 90%; color: var(--color-text-dim); font-family: monospace;">a tiny build system for OCaml</div>
     </header>
     {{CONTENT}}
     <footer>2026 / by mach contributors</footer>

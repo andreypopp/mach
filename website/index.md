@@ -1,12 +1,10 @@
-Start writing OCaml scripts quickly without any boilerplate or setup.
+Mach is a tiny build system for OCaml scripts. It compiles code on first run,
+subsequent runs perform incremental compilation, if needed.
 
-Mach compiles code to native executable on first run, subsequent runs will
-perform only incremental recompilation, if necessary.
+Mach supports dependencies between scripts and on external libraries (usually
+installed with [opam][]) through `#require` directives.
 
-It supports dependencies and external libraries (usually installed with
-[opam][]) through `#require` directives.
-
-Usage is as simple as creating a file `main.ml` with contents:
+Usage is as simple as creating an `.ml` file:
 ```ocaml
 #require "./utils.ml"
 #require "lwt"
@@ -21,15 +19,12 @@ $ mach run main.ml
 
 [opam]: https://opam.ocaml.org/
 
-## TABLE OF CONTENTS
-
-Below you can find documentation on how to install and use `mach`:
-
+Below is the documentation for installation and usage:
 <toc>
 
 ## INSTALLATION
 
-`mach` is distributed as a single `mach.ml` source file.
+Mach is distributed as a single `mach.ml` source file.
 
 ### Installation through homebrew
 
@@ -49,8 +44,8 @@ page.
 
 Requires OCaml compiler installed:
 ```sh
-wget https://raw.githubusercontent.com/andreypopp/mach/refs/heads/main/_dist/mach.ml
-ocamlopt -I +unix -o mach unix.cmxa mach.ml
+$ wget https://raw.githubusercontent.com/andreypopp/mach/refs/heads/main/_dist/mach.ml
+$ ocamlopt -I +unix -o mach unix.cmxa mach.ml
 ```
 
 ## USAGE
