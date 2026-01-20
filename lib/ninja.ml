@@ -14,7 +14,7 @@ let var buf name value =
 
 let contents = Buffer.contents
 
-let include_ buf path = bprintf buf "subninja %s\n" path
+let subninja buf path = bprintf buf "subninja %s\n" path
 
 let rule buf ~target ~deps recipe =
   bprintf buf "build %s:" target;

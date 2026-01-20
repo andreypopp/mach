@@ -66,7 +66,7 @@ let write_file path content =
   Out_channel.with_open_text path (fun oc -> output_string oc content)
 end
 module Ninja : sig
-(* ninja.mli - Ninja build backend *)
+(* Ninja file generator API *)
 
 type t
 
@@ -74,7 +74,7 @@ val create : unit -> t
 val contents : t -> string
 
 val var : t -> string -> string -> unit
-val include_ : t -> string -> unit
+val subninja : t -> string -> unit
 val rule : t -> target:string -> deps:string list -> string list -> unit
 val rulef : t -> target:string -> deps:string list -> ('a, unit, string, unit) format4 -> 'a
 val rule_phony : t -> target:string -> deps:string list -> unit
@@ -95,7 +95,7 @@ let var buf name value =
 
 let contents = Buffer.contents
 
-let include_ buf path = bprintf buf "subninja %s\n" path
+let subninja buf path = bprintf buf "subninja %s\n" path
 
 let rule buf ~target ~deps recipe =
   bprintf buf "build %s:" target;
@@ -799,7 +799,7 @@ let configure_backend config ~state ~prev_state ~changed_modules =
     let b = Ninja.create () in
     Ninja.var b "MACH" cmd;
     List.iter (fun entry ->
-      Ninja.include_ b Filename.(build_dir_of entry.Mach_state.ml_path / module_file)) state.entries;
+      Ninja.subninja b Filename.(build_dir_of entry.Mach_state.ml_path / module_file)) state.entries;
     Ninja.rule_phony b ~target:"all" ~deps:[exe_path];
     link_ocaml_module b all_objs all_libs ~exe_path;
     Ninja.contents b
