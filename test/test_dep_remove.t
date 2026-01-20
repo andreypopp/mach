@@ -1,7 +1,5 @@
 Test removing a dependency from the graph.
 
-  $ . ../env.sh
-
 Start with a dependency:
 
   $ cat << 'EOF' > lib.ml

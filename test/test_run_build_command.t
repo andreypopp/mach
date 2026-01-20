@@ -1,7 +1,5 @@
 Test run-build-command subcommand:
 
-  $ . ../env.sh
-
 Test basic command execution:
 
   $ mach run-build-command -- echo hello

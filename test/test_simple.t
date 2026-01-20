@@ -1,6 +1,3 @@
-Isolate mach config to a test dir:
-  $ . ../env.sh
-
 Prepare source files:
   $ cat << 'EOF' > lib.ml
   > let greet name = Printf.printf "Hello, %s!\n" name

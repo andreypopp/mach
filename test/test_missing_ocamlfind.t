@@ -1,7 +1,5 @@
 Test error when using libs without ocamlfind installed.
 
-  $ . ../env.sh
-
 Create a fake ocamlfind that always fails (shadows real one in PATH):
 
   $ mkdir -p fake_bin

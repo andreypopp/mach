@@ -1,7 +1,5 @@
 Error reporting tests - user errors should be reported nicely to stderr.
 
-  $ . ../env.sh
-
 Test error when script file doesn't exist (cmdliner validates before our code runs):
 
   $ mach run ./nonexistent.ml

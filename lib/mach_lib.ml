@@ -10,10 +10,6 @@ let log_very_verbose = Mach_log.log_very_verbose
 
 let module_name_of_path path = Filename.(basename path |> remove_extension)
 
-(* --- Build backend types (re-exported from Mach_config) --- *)
-
-type build_backend = Mach_config.build_backend = Make | Ninja
-
 (* --- Module kind (ML or MLX) --- *)
 
 type module_kind = ML | MLX
@@ -46,13 +42,9 @@ type ocaml_module = {
 }
 
 let configure_backend config ~state ~prev_state ~changed_modules =
-  let build_backend = config.Mach_config.build_backend in
   let build_dir_of = Mach_config.build_dir_of config in
-  let (module B : S.BUILD), module_file, root_file =
-    match build_backend with
-    | Make -> (module Makefile), "mach.mk", "Makefile"
-    | Ninja -> (module Ninja), "mach.ninja", "build.ninja"
-  in
+  let module_file = "mach.ninja" in
+  let root_file = "build.ninja" in
   let cmd = state.Mach_state.header.mach_executable_path in
   let capture_outf fmt = ksprintf (sprintf "${MACH} run-build-command -- %s") fmt in
   let capture_stderrf fmt = ksprintf (sprintf "${MACH} run-build-command --stderr-only -- %s") fmt in
@@ -60,9 +52,9 @@ let configure_backend config ~state ~prev_state ~changed_modules =
     let src_ext = src_ext_of_kind m.kind in
     let src = Filename.(m.build_dir / m.module_name ^ src_ext) in
     let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
-    B.rulef b ~target:src ~deps:[m.ml_path] "%s pp %s > %s" cmd m.ml_path src;
+    Ninja.rulef b ~target:src ~deps:[m.ml_path] "%s pp %s > %s" cmd m.ml_path src;
     Option.iter (fun mli_path ->
-      B.rulef b ~target:mli ~deps:[mli_path] "%s pp %s > %s" cmd mli_path mli
+      Ninja.rulef b ~target:mli ~deps:[mli_path] "%s pp %s > %s" cmd mli_path mli
     ) m.mli_path;
     let args = Filename.(m.build_dir / "includes.args") in
     let recipe =
@@ -70,14 +62,14 @@ let configure_backend config ~state ~prev_state ~changed_modules =
       | [] -> [sprintf "touch %s" args]
       | requires -> List.map (fun (r : _ with_loc) -> sprintf "echo '-I=%s' >> %s" (build_dir_of r.v) args) requires
     in
-    B.rule b ~target:args ~deps:[src] (sprintf "rm -f %s" args :: recipe);
+    Ninja.rule b ~target:args ~deps:[src] (sprintf "rm -f %s" args :: recipe);
     (* Generate lib_includes.args for ocamlfind library include paths (only if libs present) *)
     (match m.libs with
     | [] -> ()
     | libs ->
       let lib_args = Filename.(m.build_dir / "lib_includes.args") in
       let libs = String.concat " " (List.map (fun (l : Mach_state.lib with_loc) -> l.v.name) libs) in
-      B.rule b ~target:lib_args ~deps:[] [capture_stderrf "ocamlfind query -format '-I=%%d' -recursive %s > %s" libs lib_args])
+      Ninja.rule b ~target:lib_args ~deps:[] [capture_stderrf "ocamlfind query -format '-I=%%d' -recursive %s > %s" libs lib_args])
   in
   let compile_ocaml_module b (m : ocaml_module) =
     let src_ext = src_ext_of_kind m.kind in
@@ -92,31 +84,31 @@ let configure_backend config ~state ~prev_state ~changed_modules =
     in
     match m.mli_path with
     | Some _ -> (* With .mli: compile .mli to .cmi/.cmti first (using ocamlc for speed), then .ml to .cmx *)
-      B.rule b ~target:m.cmi ~deps:(mli :: args :: lib_args_dep @ cmi_deps)
+      Ninja.rule b ~target:m.cmi ~deps:(mli :: args :: lib_args_dep @ cmi_deps)
         [capture_outf "ocamlc%s -bin-annot -c -opaque -args %s%s -o %s %s" pp_flag args lib_args_cmd m.cmi mli];
-      B.rule b ~target:m.cmx ~deps:([src; m.cmi; args] @ lib_args_dep)
+      Ninja.rule b ~target:m.cmx ~deps:([src; m.cmi; args] @ lib_args_dep)
         [capture_outf "ocamlopt%s -bin-annot -c -args %s%s -cmi-file %s -o %s -impl %s" pp_flag args lib_args_cmd m.cmi m.cmx src];
-      B.rule b ~target:m.cmt ~deps:[m.cmx] []
+      Ninja.rule b ~target:m.cmt ~deps:[m.cmx] []
     | None -> (* Without .mli: ocamlopt produces both .cmi and .cmx *)
-      B.rule b ~target:m.cmx ~deps:(src :: args :: lib_args_dep @ cmi_deps)
+      Ninja.rule b ~target:m.cmx ~deps:(src :: args :: lib_args_dep @ cmi_deps)
         [capture_outf "ocamlopt%s -bin-annot -c -args %s%s -o %s -impl %s" pp_flag args lib_args_cmd m.cmx src];
-      B.rule b ~target:m.cmi ~deps:[m.cmx] [];
-      B.rule b ~target:m.cmt ~deps:[m.cmx] []
+      Ninja.rule b ~target:m.cmi ~deps:[m.cmx] [];
+      Ninja.rule b ~target:m.cmt ~deps:[m.cmx] []
   in
   let link_ocaml_module b (all_objs : string list) (all_libs : string list) ~exe_path =
     let root_build_dir = Filename.dirname exe_path in
     let args = Filename.(root_build_dir / "all_objects.args") in
     let objs_str = String.concat " " all_objs in
-    B.rulef b ~target:args ~deps:all_objs "printf '%%s\\n' %s > %s" objs_str args;
+    Ninja.rulef b ~target:args ~deps:all_objs "printf '%%s\\n' %s > %s" objs_str args;
     match all_libs with
     | [] ->
-      B.rule b ~target:exe_path ~deps:(args :: all_objs)
+      Ninja.rule b ~target:exe_path ~deps:(args :: all_objs)
         [capture_outf "ocamlopt -o %s -args %s" exe_path args]
     | libs ->
       let lib_args = Filename.(root_build_dir / "lib_objects.args") in
       let libs = String.concat " " libs in
-      B.rule b ~target:lib_args ~deps:[] [capture_stderrf "ocamlfind query -a-format -recursive -predicates native %s > %s" libs lib_args];
-      B.rule b ~target:exe_path ~deps:(args :: lib_args :: all_objs)
+      Ninja.rule b ~target:lib_args ~deps:[] [capture_stderrf "ocamlfind query -a-format -recursive -predicates native %s > %s" libs lib_args];
+      Ninja.rule b ~target:exe_path ~deps:(args :: lib_args :: all_objs)
         [capture_outf "ocamlopt -o %s -args %s -args %s" exe_path lib_args args]
   in
   let modules = List.map (fun ({ml_path;mli_path;requires=resolved_requires;libs;_} : Mach_state.entry) ->
@@ -143,10 +135,10 @@ let configure_backend config ~state ~prev_state ~changed_modules =
       mkdir_p m.build_dir;
       let file_path = Filename.(m.build_dir / module_file) in
       write_file file_path (
-        let b = B.create () in
+        let b = Ninja.create () in
         configure_ocaml_module b m;
         compile_ocaml_module b m;
-        B.contents b)
+        Ninja.contents b)
     end
   ) modules;
   (* Generate root build file *)
@@ -155,13 +147,13 @@ let configure_backend config ~state ~prev_state ~changed_modules =
   let all_libs = Mach_state.all_libs state in
   write_file Filename.(build_dir_of state.root.ml_path / root_file) (
     log_verbose "mach: configuring %s (root)" state.root.ml_path;
-    let b = B.create () in
-    B.var b "MACH" cmd;
+    let b = Ninja.create () in
+    Ninja.var b "MACH" cmd;
     List.iter (fun entry ->
-      B.include_ b Filename.(build_dir_of entry.Mach_state.ml_path / module_file)) state.entries;
-    B.rule_phony b ~target:"all" ~deps:[exe_path];
+      Ninja.include_ b Filename.(build_dir_of entry.Mach_state.ml_path / module_file)) state.entries;
+    Ninja.rule_phony b ~target:"all" ~deps:[exe_path];
     link_ocaml_module b all_objs all_libs ~exe_path;
-    B.contents b
+    Ninja.contents b
   )
 
 let configure_exn config source_path =
@@ -191,22 +183,17 @@ let configure_exn config source_path =
       | Mach_state.Env_changed -> None  (* full reconfigure *)
       | Mach_state.Modules_changed set -> Some set
     in
-    begin match changed_modules, config.build_backend with
-    | None, _ ->
+    (* For full reconfigure, clean build directories; for partial, ninja cleandead handles it *)
+    (match reconfigure_reason with
+    | Env_changed ->
       List.iter (fun entry -> rm_rf (build_dir_of entry.Mach_state.ml_path)) state.entries
-    | Some set, Make ->
-      List.iter (fun entry -> if SS.mem entry.Mach_state.ml_path set then rm_rf (build_dir_of entry.ml_path)) state.entries
-    | Some _, Ninja -> (* will do `ninja -t cleandead` instead *) ()
-    end;
+    | Modules_changed _ -> ());
     mkdir_p build_dir;
     configure_backend config ~state ~prev_state ~changed_modules;
-    begin match config.Mach_config.build_backend with
-    | Make -> ()
-    | Ninja ->
-      let cmd = sprintf "ninja -C %s -t cleandead > /dev/null" (Filename.quote (build_dir_of state.root.ml_path)) in
-      if !Mach_log.verbose = Very_very_verbose then eprintf "+ %s\n%!" cmd;
-      if Sys.command cmd <> 0 then Mach_error.user_errorf "ninja cleandead failed"
-    end;
+    (* Clean up stale build outputs *)
+    let cmd = sprintf "ninja -C %s -t cleandead > /dev/null" (Filename.quote (build_dir_of state.root.ml_path)) in
+    if !Mach_log.verbose = Very_very_verbose then eprintf "+ %s\n%!" cmd;
+    if Sys.command cmd <> 0 then Mach_error.user_errorf "ninja cleandead failed";
     Mach_state.write state_path state
   end;
   ~state, ~reconfigured:(Option.is_some reconfigure_reason)
@@ -234,10 +221,7 @@ let build_exn config script_path =
   let build_dir_of = Mach_config.build_dir_of config in
   let ~state, ~reconfigured = configure_exn config script_path in
   log_verbose "mach: building...";
-  let cmd = match config.Mach_config.build_backend with
-    | Make -> if !Mach_log.verbose = Very_very_verbose then "make all" else "make -s all"
-    | Ninja -> if !Mach_log.verbose = Very_very_verbose then "ninja -v" else "ninja --quiet"
-  in
+  let cmd = if !Mach_log.verbose = Very_very_verbose then "ninja -v" else "ninja --quiet" in
   let cmd = sprintf "%s -C %s" cmd (Filename.quote (build_dir_of state.root.ml_path)) in
   if !Mach_log.verbose = Very_very_verbose then eprintf "+ %s\n%!" cmd;
   if run_build cmd <> 0 then Mach_error.user_errorf "build failed";

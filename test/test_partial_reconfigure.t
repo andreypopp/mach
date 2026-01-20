@@ -1,7 +1,5 @@
 Test partial reconfiguration - only affected modules are reconfigured.
 
-  $ . ../env.sh
-
 Create a script with two dependencies:
 
   $ cat << 'EOF' > lib_a.ml

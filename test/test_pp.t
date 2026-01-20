@@ -1,7 +1,5 @@
 Test mach pp command (preprocessor for merlin)
 
-  $ . ../env.sh
-
 Create a test file with shebang and #require directives:
 
   $ cat > script.ml << 'EOF'

@@ -1,5 +1,3 @@
-  $ . ../env.sh
-
 Test run watch mode with short-lived program:
   $ cat << 'EOF' > hello.ml
   > let () = prerr_endline "v1"

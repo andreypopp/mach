@@ -9,10 +9,6 @@ Test auto-derived build directory (uses script path to derive build dir location
   > let () = Lib.greet "World"
   > EOF
 
-Set XDG_CONFIG_HOME to control where build directory is created:
-
-  $ . ../env.sh
-
 First run - creates build directory:
 
   $ mach run ./main.ml

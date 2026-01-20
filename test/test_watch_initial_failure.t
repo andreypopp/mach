@@ -1,5 +1,3 @@
-  $ . ../env.sh
-
 Prepare source file with syntax error:
   $ cat << 'EOF' > hello.ml
   > print_endline "hello

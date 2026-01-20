@@ -1,7 +1,5 @@
 Test adding a transitive dependency.
 
-  $ . ../env.sh
-
   $ cat << 'EOF' > lib_a.ml
   > let msg = "lib_a only"
   > EOF

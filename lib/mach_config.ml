@@ -3,16 +3,6 @@
 open! Mach_std
 open Printf
 
-(* --- Build backend types --- *)
-
-type build_backend = Make | Ninja
-
-let build_backend_to_string = function Make -> "make" | Ninja -> "ninja"
-let build_backend_of_string = function
-  | "make" -> Make
-  | "ninja" -> Ninja
-  | s -> failwith (sprintf "unknown build backend: %s" s)
-
 (* --- Toolchain detection --- *)
 
 type ocamlfind_info = {
@@ -52,12 +42,9 @@ let detect_toolchain () =
 
 type t = {
   home: string;
-  build_backend: build_backend;
   mach_executable_path: string;
   toolchain: toolchain;
 }
-
-let default_build_backend = Make
 
 let mach_executable_path =
   lazy (
@@ -75,29 +62,21 @@ let mach_executable_path =
 
 let parse_file path =
   In_channel.with_open_text path (fun ic ->
-    let rec loop build_backend line_num =
+    let rec loop line_num =
       match In_channel.input_line ic with
-      | None -> Ok build_backend
+      | None -> Ok ()
       | Some line ->
         let line = String.trim line in
         if line = "" || String.starts_with ~prefix:"#" line then
-          loop build_backend (line_num + 1)
+          loop (line_num + 1)
         else
           match Scanf.sscanf_opt line "%s %S" (fun k v -> k, v) with
           | None ->
             Error (`User_error (sprintf "%s:%d: malformed line" path line_num))
-          | Some (key, value) ->
-            match key with
-            | "build-backend" ->
-              (try
-                let build_backend = build_backend_of_string value in
-                loop build_backend (line_num + 1)
-              with Failure msg ->
-                Error (`User_error (sprintf "%s:%d: %s" path line_num msg)))
-            | _ ->
-              Error (`User_error (sprintf "%s:%d: unknown key: %s" path line_num key))
+          | Some (key, _value) ->
+            Error (`User_error (sprintf "%s:%d: unknown key: %s" path line_num key))
     in
-    loop default_build_backend 1)
+    loop 1)
 
 let find_mach_config () =
   let rec search dir =
@@ -116,10 +95,10 @@ let make_config ?mach_path home =
   let mach_path = Option.value mach_path ~default:Filename.(home / "Mach") in
   if Sys.file_exists mach_path then
     match parse_file mach_path with
-    | Ok build_backend -> Ok { home; build_backend; mach_executable_path; toolchain }
+    | Ok () -> Ok { home; mach_executable_path; toolchain }
     | Error _ as err -> err
   else
-    Ok { home; build_backend = default_build_backend; mach_executable_path; toolchain }
+    Ok { home; mach_executable_path; toolchain }
 
 let config =
   lazy (

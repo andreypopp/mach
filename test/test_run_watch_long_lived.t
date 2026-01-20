@@ -1,5 +1,3 @@
-  $ . ../env.sh
-
 Test run watch mode with long-lived program that gets killed on rebuild:
   $ cat << 'EOF' > server.ml
   > #require "unix"

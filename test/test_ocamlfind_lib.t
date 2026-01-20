@@ -1,6 +1,3 @@
-Isolate mach config to a test dir:
-  $ . ../env.sh
-
 Create a script that uses cmdliner:
   $ cat << 'EOF' > main.ml
   > #require "cmdliner";;

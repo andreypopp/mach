@@ -1,7 +1,5 @@
 Test reconfiguration optimization - only reconfigure when dependency graph changes.
 
-  $ . ../env.sh
-
 Create a simple script:
 
   $ cat << 'EOF' > main.ml

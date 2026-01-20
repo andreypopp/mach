@@ -1,7 +1,5 @@
 Test adding .mli to existing module.
 
-  $ . ../env.sh
-
 Start without .mli:
 
   $ cat << 'EOF' > lib.ml

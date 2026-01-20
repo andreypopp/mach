@@ -1,6 +1,3 @@
-
-  $ . ../env.sh
-
   $ cat << 'EOF' > hello.ml
   > print_endline "hello"
   > EOF

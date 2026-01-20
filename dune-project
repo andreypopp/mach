@@ -1,4 +1,4 @@
-(lang dune 3.20)
+(lang dune 3.21)
 (name mach)
 (generate_opam_files false)
 (package (name mach))

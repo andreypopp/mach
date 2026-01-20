@@ -1,4 +1,4 @@
-(dirs :standard _opam _bin _dist \ test)
+(dirs :standard _opam _bin _dist)
 
 (subdir
  _opam

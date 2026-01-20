@@ -1,7 +1,5 @@
 Test basic .mli interface file support.
 
-  $ . ../env.sh
-
   $ cat << 'EOF' > lib.ml
   > let msg = "hello"
   > let secret = "hidden"

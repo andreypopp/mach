@@ -1,7 +1,5 @@
 Test error when requesting a non-existent ocamlfind library.
 
-  $ . ../env.sh
-
 Create a script that uses a non-existent lib:
 
   $ cat << 'EOF' > main.ml

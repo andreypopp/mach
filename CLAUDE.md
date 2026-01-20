@@ -26,7 +26,7 @@ If you need to test something, create a new cram test `.t` file in `test/`.
 mach run script.ml [args...] # run script
 mach run -v script.ml        # verbose mode (logs build commands)
 mach run -vv script.ml       # very verbose mode
-mach run -vvv script.ml      # very very verbose mode (shows make/ninja output)
+mach run -vvv script.ml      # very very verbose mode (shows ninja output)
 
 mach build script.ml         # build without executing
 mach build -w script.ml      # watch mode: rebuild on file changes
@@ -40,16 +40,6 @@ mach discovers configuration via:
 1. `$MACH_HOME` environment variable (if set)
 2. Walk up from cwd to find a `Mach` config file (like git finds `.git`)
 3. Fall back to `$XDG_STATE_HOME/mach` (default: `~/.local/state/mach`)
-
-When `MACH_HOME` is set or discovered, mach looks for a `Mach` file there to read settings.
-
-**Mach config file format** (`$MACH_HOME/Mach`):
-```
-build-backend "ninja"
-```
-
-Supported keys:
-- `build-backend` - Build system to use: `"make"` (default) or `"ninja"`
 
 ### mach-lsp
 
@@ -70,9 +60,7 @@ Split across multiple files:
 - `lib/mach_lib.ml` (~330 lines) - core implementation (configure, build, watch)
 - `lib/mach_module.ml` (~60 lines) - module parsing and require extraction
 - `lib/mach_state.ml` (~190 lines) - dependency state caching
-- `lib/makefile.ml` (~30 lines) - Makefile build backend
-- `lib/ninja.ml` (~40 lines) - Ninja build backend
-- `lib/s.ml` (~15 lines) - build backend interface signature
+- `lib/ninja.ml` (~40 lines) - Ninja build file generation
 - `lib/mach_log.ml` (~10 lines) - logging utilities
 - `lib/mach_error.ml` (~5 lines) - error handling
 
@@ -103,18 +91,16 @@ Libraries referenced via `#require "libname"` are validated at configure time ag
 ### Code Sections (lib/mach_lib.ml)
 
 The code is organized with comment headers:
-- `(* --- Utilities --- *)` - Path helpers, file I/O
-- `(* --- Build backend types --- *)` - Re-exports from Mach_config
+- `(* --- Module kind (ML or MLX) --- *)` - Module type detection
 - `(* --- PP (for merlin and build) --- *)` - Preprocessor support
 - `(* --- Configure --- *)` - Build configuration generation
-- `(* --- Build --- *)` - Build execution via Make/Ninja
-- `(* --- Watch mode --- *)` - File watching and rebuild
+- `(* --- Build --- *)` - Build execution via Ninja
 
 ### Pipeline
 
 1. **Configure** - Check `Mach.state` freshness; if stale, collect dependencies via DFS and generate per-module build files
 2. **Preprocessing** - Replace shebang and `#require` lines with empty lines (preserves line numbers via `# 1 "path"` directive)
-3. **Build** - Run Make or Ninja which handles compilation order and caching
+3. **Build** - Run Ninja which handles compilation order and caching
 4. **Execution** - `Unix.execv` the resulting binary
 
 ### Build Directories
@@ -123,8 +109,7 @@ The code is organized with comment headers:
 - **Location**: `$MACH_HOME/_mach/build/<normalized-path>/`
 - **Normalized path**: Source path with `/` replaced by `__`
 - **State file**: `Mach.state` tracks file mtimes/sizes for cache invalidation
-- **Build files** (Make backend): `Makefile` (root), `mach.mk` (per-module), `includes.args`, `all_objects.args`
-- **Build files** (Ninja backend): `build.ninja` (root), `mach.ninja` (per-module), `includes.args`, `all_objects.args`
+- **Build files**: `build.ninja` (root), `mach.ninja` (per-module), `includes.args`, `all_objects.args`
 
 ## Code Style
 
@@ -150,19 +135,13 @@ lib/
   mach_module.mli
   mach_state.ml    -- dependency state caching
   mach_state.mli
-  makefile.ml      -- Makefile build backend
-  makefile.mli
-  ninja.ml         -- Ninja build backend
+  ninja.ml         -- Ninja build file generation
   ninja.mli
-  s.ml             -- build backend interface signature
   dune
 test/
   test_*.t     -- cram test case files, add test to this dir
-test_makefile/ -- tests for Makefile build backend
-  env.sh       -- environment setup for tests (sets MACH_HOME, creates Mach config)
-  tests/       -- symlink to ../test/
-test_ninja/    -- tests for ninja build backend
-  env.sh       -- environment setup for tests (sets MACH_HOME, creates Mach config)
+test_ninja/    -- test runner directory
+  env.sh       -- environment setup for tests (sets MACH_HOME)
   tests/       -- symlink to ../test/
 plans/         -- implementation plans
 docs/          -- website/documentation

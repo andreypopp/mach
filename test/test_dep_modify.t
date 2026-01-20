@@ -1,7 +1,5 @@
 Test modifying a dependency.
 
-  $ . ../env.sh
-
   $ cat << 'EOF' > lib.ml
   > let version = "v1"
   > EOF

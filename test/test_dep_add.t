@@ -1,7 +1,5 @@
 Test adding a new dependency to the graph.
 
-  $ . ../env.sh
-
 Start with no dependencies:
 
   $ cat << 'EOF' > main.ml

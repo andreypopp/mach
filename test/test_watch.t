@@ -1,5 +1,3 @@
-  $ . ../env.sh
-
 Prepare source files:
   $ cat << 'EOF' > hello.ml
   > print_endline "hello"

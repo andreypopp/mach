@@ -2,12 +2,6 @@
 
 open! Mach_std
 
-(** Build backend type *)
-type build_backend = Make | Ninja
-
-val build_backend_to_string : build_backend -> string
-val build_backend_of_string : string -> build_backend
-
 (** Ocamlfind information *)
 type ocamlfind_info = {
   ocamlfind_version : string option;
@@ -23,7 +17,6 @@ type toolchain = {
 (** Mach configuration *)
 type t = {
   home : string;
-  build_backend : build_backend;
   mach_executable_path : string;
   toolchain : toolchain;
 }

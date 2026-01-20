@@ -17,7 +17,6 @@ type entry = {
 
 (** State metadata for detecting configuration changes *)
 type header = {
-  build_backend : Mach_config.build_backend;
   mach_executable_path : string;
   ocaml_version : string;
   ocamlfind_version : string option;
@@ -33,7 +32,7 @@ val write : string -> t -> unit
 
 (** Reason for reconfiguration *)
 type reconfigure_reason =
-  | Env_changed  (** Build backend, mach path, or toolchain version changed *)
+  | Env_changed  (** Mach path or toolchain version changed *)
   | Modules_changed of SS.t  (** Set of ml_path that need reconfiguration *)
 
 (** Check if state needs reconfiguration, and if so, what kind *)

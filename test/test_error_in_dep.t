@@ -1,7 +1,3 @@
-Isolate mach config to a test dir:
-
-  $ . ../env.sh
-
 Prepare source files with a type error in the dependency:
   $ cat << 'EOF' > lib.ml
   > let greet name =

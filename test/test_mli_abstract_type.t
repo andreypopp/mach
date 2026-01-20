@@ -1,7 +1,5 @@
 Test type hiding via .mli (abstract types).
 
-  $ . ../env.sh
-
   $ cat << 'EOF' > counter.ml
   > type t = int
   > let create () = 0

@@ -1,6 +1,6 @@
 (cram
  (timeout 30)
+ (setup_scripts env.sh)
  (deps
   (package mach)
-  (package mach-lsp)
-  (file ../env.sh)))
+  (package mach-lsp)))

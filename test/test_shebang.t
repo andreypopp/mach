@@ -1,5 +1,3 @@
-  $ . ../env.sh
-
   $ cat << 'EOF' > myscript.ml
   > #!/usr/bin/env mach
   > print_endline "Hello from shebang script!"

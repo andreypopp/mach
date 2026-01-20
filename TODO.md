@@ -1,5 +1,19 @@
 # TODO
 
+## Remove make build backend 
+
+We are going to remove make build backend and keep only ninja. Please remove any make-related code.
+
+## Implement support for libraries
+
+We consider a directory with `Machlib` file as a library.
+
+It means that all the modules found in that directory (excluding subdirectories) are part of that library.
+
+We compile a library into `.cmxa` file.
+
+When a script depends on a library, we link against that `.cmxa` file.
+
 ## Implement ppx support
 
 ## Support passing -H hidden includes args when compiling

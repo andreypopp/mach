@@ -1,4 +1,0 @@
-(cram
- (deps
-  (package mach)
-  ./env.sh))

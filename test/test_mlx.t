@@ -1,6 +1,3 @@
-Isolate mach config to a test dir:
-  $ . ../env.sh
-
 Check if mlx-pp is available, skip if not:
   $ command -v mlx-pp > /dev/null || exit 80
 

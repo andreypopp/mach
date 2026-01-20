@@ -17,7 +17,6 @@ type entry = {
 }
 
 type header = {
-  build_backend : Mach_config.build_backend;
   mach_executable_path : string;
   ocaml_version : string;
   ocamlfind_version : string option;
@@ -58,15 +57,14 @@ let read path =
     let lines = In_channel.with_open_text path In_channel.input_lines in
     (* Parse header *)
     let header, entry_lines = match lines with
-      | bb_line :: mp_line :: ov_line :: ofv_line :: "" :: rest ->
-        let build_backend = Scanf.sscanf bb_line "build_backend %s" Mach_config.build_backend_of_string in
+      | mp_line :: ov_line :: ofv_line :: "" :: rest ->
         let mach_executable_path = Scanf.sscanf mp_line "mach_executable_path %s@\n" Fun.id in
         let ocaml_version = Scanf.sscanf ov_line "ocaml_version %s@\n" Fun.id in
         let ocamlfind_version =
           let v = Scanf.sscanf ofv_line "ocamlfind_version %s@\n" Fun.id in
           if v = "none" then None else Some v
         in
-        Some { build_backend; mach_executable_path; ocaml_version; ocamlfind_version }, rest
+        Some { mach_executable_path; ocaml_version; ocamlfind_version }, rest
       | _ -> None, []  (* Missing header = needs reconfigure *)
     in
     match header with
@@ -106,7 +104,6 @@ let read path =
 let write path state =
   Out_channel.with_open_text path (fun oc ->
     (* Write header *)
-    output_line oc (sprintf "build_backend %s" (Mach_config.build_backend_to_string state.header.build_backend));
     output_line oc (sprintf "mach_executable_path %s" state.header.mach_executable_path);
     output_line oc (sprintf "ocaml_version %s" state.header.ocaml_version);
     output_line oc (sprintf "ocamlfind_version %s" (Option.value state.header.ocamlfind_version ~default:"none"));
@@ -124,12 +121,10 @@ type reconfigure_reason =
   | Modules_changed of SS.t
 
 let check_reconfigure_exn config state =
-  let build_backend = config.Mach_config.build_backend in
   let mach_path = config.Mach_config.mach_executable_path in
   let toolchain = config.Mach_config.toolchain in
   (* Check environment first - if changed, need full reconfigure *)
   let env_changed =
-    state.header.build_backend <> build_backend ||
     state.header.mach_executable_path <> mach_path ||
     state.header.ocaml_version <> toolchain.ocaml_version ||
     (state.header.ocamlfind_version <> None &&
@@ -163,7 +158,6 @@ let check_reconfigure_exn config state =
     else Some (Modules_changed changed_modules)
 
 let collect_exn config entry_path =
-  let build_backend = config.Mach_config.build_backend in
   let mach_executable_path = config.Mach_config.mach_executable_path in
   let toolchain = config.Mach_config.toolchain in
   let entry_path = Unix.realpath entry_path in
@@ -198,7 +192,6 @@ let collect_exn config entry_path =
     else None
   in
   let header = {
-    build_backend;
     mach_executable_path;
     ocaml_version = toolchain.ocaml_version;
     ocamlfind_version;

@@ -1,7 +1,5 @@
 Test removing .mli from existing module.
 
-  $ . ../env.sh
-
 Start with .mli:
 
   $ cat << 'EOF' > lib.ml

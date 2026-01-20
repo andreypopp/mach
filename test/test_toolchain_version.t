@@ -1,7 +1,5 @@
 Test toolchain version tracking in state file.
 
-  $ . ../env.sh
-
 Create a simple script:
 
   $ cat << 'EOF' > main.ml

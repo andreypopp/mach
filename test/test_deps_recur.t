@@ -1,5 +1,3 @@
-  $ . ../env.sh
-
   $ cat << 'EOF' > lib_b.ml
   > let hello () = print_endline "Hello from lib_b"
   > EOF
