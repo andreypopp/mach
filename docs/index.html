@@ -192,7 +192,8 @@ function copyCode(btn) {
 <ul class="toc"><li data-toc-level="2"><a href="#installation">INSTALLATION</a></li><li data-toc-level="3"><a href="#installation-through-homebrew">Installation through homebrew</a></li><li data-toc-level="3"><a href="#manual-installation">Manual installation</a></li><li data-toc-level="2"><a href="#usage">USAGE</a></li><li data-toc-level="3"><a href="#declaring-dependencies-between-scripts">Declaring dependencies between scripts</a></li><li data-toc-level="3"><a href="#declaring-dependencies-on-libraries">Declaring dependencies on libraries</a></li><li data-toc-level="3"><a href="#building-code-without-running">Building code without running</a></li><li data-toc-level="3"><a href="#watch-mode">Watch mode</a></li><li data-toc-level="3"><a href="#editor-integration--lsp">Editor integration / LSP</a></li><li data-toc-level="3"><a href="#support-for-mlx-syntax-dialect">Support for .mlx syntax dialect</a></li><li data-toc-level="2"><a href="#contributing">CONTRIBUTING</a></li></ul>
 </p>
 <h2 id="installation"><a class="anchor" aria-hidden="true" href="#installation"></a>INSTALLATION</h2>
-<p>Mach is distributed as a single <code>mach.ml</code> source file.</p>
+<p>Mach is distributed as a single <code>mach.ml</code> source file. It requires OCaml
+toolchain and Ninja build system to be installed.</p>
 <h3 id="installation-through-homebrew"><a class="anchor" aria-hidden="true" href="#installation-through-homebrew"></a>Installation through homebrew</h3>
 <p>Install using <a href="https://brew.sh/">homebrew</a> (macOS/Linux):</p>
 <div class="code-block"><script>
@@ -382,7 +383,7 @@ function copyCode(btn) {
     });
   }
 }
-</script><button class="copy-btn" onclick="copyCode(this)" title="Copy to clipboard">copy</button><pre><code class="language-ocaml">#require &quot;lwt&quot;;;
+</script><button class="copy-btn" onclick="copyCode(this)" title="Copy to clipboard">copy</button><pre><code class="language-ocaml">#require &quot;lwt&quot;
 let () =
   let task =
     Lwt_io.printf &quot;Hello from Lwt!\n&quot;
@@ -406,7 +407,8 @@ function copyCode(btn) {
 }
 </script><button class="copy-btn" onclick="copyCode(this)" title="Copy to clipboard">copy</button><pre><code class="language-sh">$ mach run lwt_example.ml
 Hello from Lwt!
-</code></pre></div><h3 id="building-code-without-running"><a class="anchor" aria-hidden="true" href="#building-code-without-running"></a>Building code without running</h3>
+</code></pre></div><p>External libraries require <code>ocamlfind</code> to be installed.</p>
+<h3 id="building-code-without-running"><a class="anchor" aria-hidden="true" href="#building-code-without-running"></a>Building code without running</h3>
 <p>To compile without running, use <code>mach build</code> command:</p>
 <div class="code-block"><script>
 function copyCode(btn) {

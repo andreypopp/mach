@@ -4,8 +4,8 @@
 #require "cmarkit"
 #require "str"
 #require "cmdliner"
-#require "./markdown_toc.ml"
-#require "./markdown_copy_code.ml"
+#require "./markdown_toc"
+#require "./markdown_copy_code"
 
 let script_dir =
   let this_file = __FILE__ in

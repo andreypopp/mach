@@ -24,7 +24,8 @@ Below is the documentation for installation and usage:
 
 ## INSTALLATION
 
-Mach is distributed as a single `mach.ml` source file.
+Mach is distributed as a single `mach.ml` source file. It requires OCaml
+toolchain and Ninja build system to be installed.
 
 ### Installation through homebrew
 
@@ -100,7 +101,7 @@ Hello, Mach!
 
 You can also depend on external libraries:
 ```ocaml
-#require "lwt";;
+#require "lwt"
 let () =
   let task =
     Lwt_io.printf "Hello from Lwt!\n"
@@ -112,6 +113,8 @@ Run it:
 $ mach run lwt_example.ml
 Hello from Lwt!
 ```
+
+External libraries require `ocamlfind` to be installed.
 
 ### Building code without running
 
