@@ -16,6 +16,7 @@ depends: [
   "mlx" {with-test | with-dev-setup}
   "sexplib0" {with-test | with-dev-setup}
   "parsexp" {with-test | with-dev-setup}
+  "ppx_sexp_conv" {with-test | with-dev-setup}
   "ocamlfind" {with-test}
 ]
 build: [ ["ocamlopt.opt" "-I" "+unix" "unix.cmxa" "_dist/mach.ml" "-o" "_dist/mach" ] ]
