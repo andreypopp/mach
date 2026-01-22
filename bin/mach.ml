@@ -92,7 +92,7 @@ let watch config script_path ?run_args () =
   Mach_log.log_verbose "mach: initial build...";
   (* Don't exit on initial build failure - continue watching for changes *)
   (match build config script_path with
-  | Ok (~state, ~reconfigured:_) -> start_child state
+  | Ok (state, _reconfigured) -> start_child state
   | Error (`User_error msg) -> Mach_log.log_verbose "mach: %s" msg);
 
   let keep_watching = ref true in
@@ -146,7 +146,7 @@ let watch config script_path ?run_args () =
           List.iter (fun p -> Mach_log.log_verbose "mach: file changed: %s" (Filename.basename p)) relevant_paths;
           match build config script_path with
           | Error (`User_error msg) -> Mach_log.log_verbose "mach: %s" msg
-          | Ok (~state, ~reconfigured) ->
+          | Ok (state, reconfigured) ->
             Printf.eprintf "mach: build succeeded\n%!";
             start_child state;
             if reconfigured then begin
@@ -193,7 +193,7 @@ let run_cmd =
     let config = Mach_config.get () |> or_exit in
     if watch_mode then watch config script_path ~run_args:args ()
     else begin
-      let ~state, ~reconfigured:_ = build config script_path |> or_exit in
+      let state, _reconfigured = build config script_path |> or_exit in
       let exe_path = Mach_state.exe_path config state in
       let argv = Array.of_list (exe_path :: args) in
       Unix.execv exe_path argv

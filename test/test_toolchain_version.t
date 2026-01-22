@@ -13,9 +13,9 @@ Build it:
 
 Verify state file contains ocaml_version and ocamlfind_version in header:
 
-  $ grep -c '^ocaml_version ' _mach/build/*__main.ml/Mach.state
+  $ grep -c '(ocaml_version ' _mach/build/*__main.ml/Mach.state
   1
-  $ grep -c '^ocamlfind_version ' _mach/build/*__main.ml/Mach.state
+  $ grep -c '(ocamlfind_version ' _mach/build/*__main.ml/Mach.state
   1
 
 No reconfigure on subsequent run:
@@ -26,7 +26,7 @@ No reconfigure on subsequent run:
 
 Test that modifying ocaml_version in state triggers reconfigure:
 
-  $ sed -i.bak 's/^ocaml_version .*/ocaml_version 1.0.0/' _mach/build/*__main.ml/Mach.state
+  $ sed -i.bak 's/(ocaml_version [^)]*)/(ocaml_version 1.0.0)/' _mach/build/*__main.ml/Mach.state
 
   $ mach run -vv ./main.ml 2>&1
   mach:state: environment changed, need reconfigure
@@ -39,7 +39,7 @@ Test that modifying ocaml_version in state triggers reconfigure:
 
 Test that modifying ocamlfind_version in state triggers reconfigure:
 
-  $ sed -i.bak 's/^ocamlfind_version .*/ocamlfind_version 0.0.0/' _mach/build/*__main.ml/Mach.state
+  $ sed -i.bak 's/(ocamlfind_version ())/(ocamlfind_version (0.0.0))/' _mach/build/*__main.ml/Mach.state
 
   $ mach run -vv ./main.ml 2>&1
   mach:state: environment changed, need reconfigure

@@ -1,6 +1,7 @@
 (** Standard utility functions used across the Mach code. *)
 
 open Printf
+open Sexplib0.Sexp_conv
 
 module Filename = struct
   include Filename
@@ -15,7 +16,7 @@ end
 module SS = Set.Make(String)
 module SM = Map.Make(String)
 
-type 'a with_loc = { v: 'a; filename: string; line: int }
+type 'a with_loc = { v: 'a; filename: string; line: int } [@@deriving sexp]
 
 let equal_without_loc a b = a.v = b.v
 

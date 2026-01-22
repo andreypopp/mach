@@ -7,10 +7,14 @@
 (rule
  (target mach.ml)
  (deps
-  ../_bin/ocamlbundle
   Makefile
+  ../_bin/ocamlbundle
+  ../_bin/cat_parsetree.exe
+  ../lib/mach_lib.cmxa
   (source_tree ../lib)
   (source_tree ../bin)
+  (source_tree ../_opam/lib/parsexp)
+  (source_tree ../_opam/lib/sexplib0)
   (source_tree ../_opam/lib/cmdliner))
  (mode promote)
  (action

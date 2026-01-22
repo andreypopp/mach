@@ -161,19 +161,19 @@ let configure_exn config source_path =
   let source_path = Unix.realpath source_path in
   let build_dir = build_dir_of source_path in
   let state_path = Filename.(build_dir / "Mach.state") in
-  let ~prev_state, ~state, ~reconfigure_reason =
+  let prev_state, state, reconfigure_reason =
     match Mach_state.read state_path with
     | None ->
       log_very_verbose "mach:configure: no previous state found, creating one...";
       let state = Mach_state.collect_exn config source_path in
-      ~prev_state:None, ~state, ~reconfigure_reason:(Some Mach_state.Env_changed)
+      None, state, (Some Mach_state.Env_changed)
     | Some state as prev_state ->
       match Mach_state.check_reconfigure_exn config state with
-      | None -> ~prev_state, ~state, ~reconfigure_reason:None
+      | None -> prev_state, state, None
       | Some reason ->
         log_very_verbose "mach:configure: need reconfigure";
         let state = Mach_state.collect_exn config source_path in
-        ~prev_state, ~state, ~reconfigure_reason:(Some reason)
+        prev_state, state, (Some reason)
   in
   begin match reconfigure_reason with
   | None -> ()
@@ -196,7 +196,7 @@ let configure_exn config source_path =
     if Sys.command cmd <> 0 then Mach_error.user_errorf "ninja cleandead failed";
     Mach_state.write state_path state
   end;
-  ~state, ~reconfigured:(Option.is_some reconfigure_reason)
+  state, (Option.is_some reconfigure_reason)
 
 let configure config source_path =
   try Ok (configure_exn config source_path)
@@ -219,13 +219,13 @@ let run_build cmd =
 
 let build_exn config script_path =
   let build_dir_of = Mach_config.build_dir_of config in
-  let ~state, ~reconfigured = configure_exn config script_path in
+  let state, reconfigured = configure_exn config script_path in
   log_verbose "mach: building...";
   let cmd = if !Mach_log.verbose = Very_very_verbose then "ninja -v" else "ninja --quiet" in
   let cmd = sprintf "%s -C %s" cmd (Filename.quote (build_dir_of state.root.ml_path)) in
   if !Mach_log.verbose = Very_very_verbose then eprintf "+ %s\n%!" cmd;
   if run_build cmd <> 0 then Mach_error.user_errorf "build failed";
-  ~state, ~reconfigured
+  state, reconfigured
 
 let build config script_path =
   try Ok (build_exn config script_path)

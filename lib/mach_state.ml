@@ -1,11 +1,11 @@
 open! Mach_std
-open Printf
+open Sexplib0.Sexp_conv
 
-type file_stat = { mtime : int; size : int }
+type file_stat = { mtime : int; size : int } [@@deriving sexp]
 
 let equal_file_stat x y = x.mtime = y.mtime && x.size = y.size
 
-type lib = { name : string; version : string }
+type lib = { name : string; version : string } [@@deriving sexp]
 
 type entry = {
   ml_path : string;
@@ -14,17 +14,15 @@ type entry = {
   mli_stat : file_stat option;
   requires : string with_loc list;
   libs : lib with_loc list;
-}
+} [@@deriving sexp]
 
 type header = {
   mach_executable_path : string;
   ocaml_version : string;
   ocamlfind_version : string option;
-}
+} [@@deriving sexp]
 
-type t = { header : header; root : entry; entries : entry list }
-
-let output_line oc line = output_string oc line; output_char oc '\n'
+type t = { header : header; root : entry; entries : entry list } [@@deriving sexp]
 
 let mli_path_of_ml_if_exists path =
   let base = Filename.remove_extension path in
@@ -54,67 +52,16 @@ let all_libs state =
 let read path =
   if not (Sys.file_exists path) then None
   else try
-    let lines = In_channel.with_open_text path In_channel.input_lines in
-    (* Parse header *)
-    let header, entry_lines = match lines with
-      | mp_line :: ov_line :: ofv_line :: "" :: rest ->
-        let mach_executable_path = Scanf.sscanf mp_line "mach_executable_path %s@\n" Fun.id in
-        let ocaml_version = Scanf.sscanf ov_line "ocaml_version %s@\n" Fun.id in
-        let ocamlfind_version =
-          let v = Scanf.sscanf ofv_line "ocamlfind_version %s@\n" Fun.id in
-          if v = "none" then None else Some v
-        in
-        Some { mach_executable_path; ocaml_version; ocamlfind_version }, rest
-      | _ -> None, []  (* Missing header = needs reconfigure *)
-    in
-    match header with
-    | None -> None
-    | Some header ->
-      let mli_path_of ml_path =
-        let base = Filename.remove_extension ml_path in
-        Some (base ^ ".mli")
-      in
-      let finalize cur = {cur with requires = List.rev cur.requires; libs = List.rev cur.libs} in
-      let rec loop acc cur = function
-        | [] -> (match cur with Some cur -> finalize cur :: acc | None -> acc)
-        | line :: rest when String.length line > 6 && String.sub line 0 6 = "  mli " ->
-          let e = Option.get cur in
-          let m, s = Scanf.sscanf line "  mli %i %d" (fun m s -> m, s) in
-          loop acc (Some { e with mli_path = mli_path_of e.ml_path; mli_stat = Some { mtime = m; size = s } }) rest
-        | line :: rest when String.length line > 6 && String.sub line 0 6 = "  lib " ->
-          let e = Option.get cur in
-          let filename, line_num, name, version = Scanf.sscanf line "  lib %s %d %s %s@\n" (fun f l n v -> f, l, n, v) in
-          let lib : _ with_loc = { filename; line = line_num; v = { name; version } } in
-          loop acc (Some { e with libs = lib :: e.libs }) rest
-        | line :: rest when String.length line > 10 && String.sub line 0 10 = "  requires" ->
-          let e = Option.get cur in
-          let filename, line_num, v = Scanf.sscanf line "  requires %s %d %s" (fun f l v -> f, l, v) in
-          let req : _ with_loc = { filename; line = line_num; v } in
-          loop acc (Some { e with requires = req :: e.requires }) rest
-        | line :: rest ->
-          let acc = match cur with Some cur -> finalize cur :: acc | None -> acc in
-          let p, m, s = Scanf.sscanf line "%s %i %d" (fun p m s -> p, m, s) in
-          loop acc (Some { ml_path = p; mli_path = None; ml_stat = { mtime = m; size = s }; mli_stat = None; requires = []; libs = [] }) rest
-      in
-      match loop [] None entry_lines with
-      | [] -> None
-      | root::_ as entries -> Some { header; root; entries = List.rev entries }
+    let content = In_channel.with_open_text path In_channel.input_all in
+    let sexp = Parsexp.Single.parse_string_exn content in
+    Some (t_of_sexp sexp)
   with _ -> None
 
 let write path state =
+  let sexp = sexp_of_t state in
   Out_channel.with_open_text path (fun oc ->
-    (* Write header *)
-    output_line oc (sprintf "mach_executable_path %s" state.header.mach_executable_path);
-    output_line oc (sprintf "ocaml_version %s" state.header.ocaml_version);
-    output_line oc (sprintf "ocamlfind_version %s" (Option.value state.header.ocamlfind_version ~default:"none"));
-    output_line oc "";
-    (* Write entries *)
-    List.iter (fun e ->
-      output_line oc (sprintf "%s %i %d" e.ml_path e.ml_stat.mtime e.ml_stat.size);
-      Option.iter (fun st -> output_line oc (sprintf "  mli %i %d" st.mtime st.size)) e.mli_stat;
-      List.iter (fun (r : _ with_loc) -> output_line oc (sprintf "  requires %s %d %s" r.filename r.line r.v)) e.requires;
-      List.iter (fun (l : lib with_loc) -> output_line oc (sprintf "  lib %s %d %s %s" l.filename l.line l.v.name l.v.version)) e.libs
-    ) state.entries)
+    output_string oc (Sexplib0.Sexp.to_string_hum sexp);
+    output_char oc '\n')
 
 type reconfigure_reason =
   | Env_changed
@@ -142,7 +89,7 @@ let check_reconfigure_exn config state =
             Some entry.ml_path)
       else if not (equal_file_stat (file_stat entry.ml_path) entry.ml_stat)
       then
-        let ~requires, ~libs = Mach_module.extract_requires_exn entry.ml_path in
+        let requires, libs = Mach_module.extract_requires_exn entry.ml_path in
         let libs_names_equal =
           List.length libs = List.length entry.libs &&
           List.for_all2 (fun a b -> a.v = b.v.name && a.filename = b.filename && a.line = b.line)
@@ -167,7 +114,7 @@ let collect_exn config entry_path =
     if Hashtbl.mem visited ml_path then ()
     else begin
       Hashtbl.add visited ml_path ();
-      let ~requires, ~libs = Mach_module.extract_requires_exn ml_path in
+      let requires, libs = Mach_module.extract_requires_exn ml_path in
       let libs = List.map (fun lib ->
         let info = Lazy.force toolchain.ocamlfind in
         if info.ocamlfind_version = None then

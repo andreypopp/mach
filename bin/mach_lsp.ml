@@ -40,7 +40,7 @@ module Merlin_server = struct
       let build_dir = Mach_config.build_dir_of config path in
       match Mach_module.extract_requires path with
       | Error (`User_error msg) -> [`ERROR_MSG msg]
-      | Ok (~requires, ~libs:_) ->
+      | Ok (requires, _libs) ->
       let dep_dirs = parse_includes_args (Filename.concat build_dir "includes.args") in
       let lib_dirs = parse_includes_args (Filename.concat build_dir "lib_includes.args") in
       let directives = [`SUFFIX ".mlx .mlx"] in

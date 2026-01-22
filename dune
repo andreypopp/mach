@@ -5,4 +5,4 @@
  (dirs lib)
  (subdir
   lib
-  (dirs cmdliner)))
+  (dirs cmdliner sexplib0 parsexp)))

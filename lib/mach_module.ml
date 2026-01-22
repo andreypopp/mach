@@ -40,10 +40,10 @@ let resolve_require ~source_path ~line path =
   in
   find_file candidates
 
-let extract_requires_exn source_path : requires:string with_loc list * libs:string with_loc list =
-  let rec parse line_num (~requires, ~libs) ic =
+let extract_requires_exn source_path : string with_loc list * string with_loc list =
+  let rec parse line_num (requires, libs) ic =
     match In_channel.input_line ic with
-    | Some line when is_shebang line -> parse (line_num + 1) (~requires, ~libs) ic
+    | Some line when is_shebang line -> parse (line_num + 1) (requires, libs) ic
     | Some line when is_directive line ->
       let req =
         try Scanf.sscanf line "#require %S%_s" Fun.id
@@ -52,14 +52,14 @@ let extract_requires_exn source_path : requires:string with_loc list * libs:stri
       if is_require_path req then
         let resolved = resolve_require ~source_path ~line:line_num req in
         let requires = { v = resolved; filename = source_path; line = line_num } :: requires in
-        parse (line_num + 1) (~requires, ~libs) ic
+        parse (line_num + 1) (requires, libs) ic
       else
         let lib = { v = req; filename = source_path; line = line_num } in
-        parse (line_num + 1) (~requires, ~libs:(lib :: libs)) ic
-    | Some line when is_empty_line line -> parse (line_num + 1) (~requires, ~libs) ic
-    | None | Some _ -> ~requires:(List.rev requires), ~libs:(List.rev libs)
+        parse (line_num + 1) (requires, (lib :: libs)) ic
+    | Some line when is_empty_line line -> parse (line_num + 1) (requires, libs) ic
+    | None | Some _ -> (List.rev requires), (List.rev libs)
   in
-  In_channel.with_open_text source_path (parse 1 (~requires:[], ~libs:[]))
+  In_channel.with_open_text source_path (parse 1 ([], []))
 
 let extract_requires source_path =
   try Ok (extract_requires_exn source_path)

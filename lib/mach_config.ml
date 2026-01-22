@@ -1,6 +1,7 @@
 (* mach_config - Mach configuration discovery and parsing *)
 
 open! Mach_std
+open Sexplib0.Sexp_conv
 open Printf
 
 (* --- Toolchain detection --- *)
@@ -46,6 +47,9 @@ type t = {
   toolchain: toolchain;
 }
 
+(* Config file sexp format *)
+type config_file = unit [@@deriving sexp]
+
 let mach_executable_path =
   lazy (
     match Sys.backend_type with
@@ -61,22 +65,12 @@ let mach_executable_path =
   )
 
 let parse_file path =
-  In_channel.with_open_text path (fun ic ->
-    let rec loop line_num =
-      match In_channel.input_line ic with
-      | None -> Ok ()
-      | Some line ->
-        let line = String.trim line in
-        if line = "" || String.starts_with ~prefix:"#" line then
-          loop (line_num + 1)
-        else
-          match Scanf.sscanf_opt line "%s %S" (fun k v -> k, v) with
-          | None ->
-            Error (`User_error (sprintf "%s:%d: malformed line" path line_num))
-          | Some (key, _value) ->
-            Error (`User_error (sprintf "%s:%d: unknown key: %s" path line_num key))
-    in
-    loop 1)
+  try
+    let content = In_channel.with_open_text path In_channel.input_all in
+    let sexp = Parsexp.Single.parse_string_exn content in
+    Ok (config_file_of_sexp sexp)
+  with exn ->
+    Error (`User_error (sprintf "%s: %s" path (Printexc.to_string exn)))
 
 let find_mach_config () =
   let rec search dir =
