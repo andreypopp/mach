@@ -1,6 +1,6 @@
 (library
  (name mach_lib)
  (wrapped false)
- ;(flags :standard -open Sexplib0.Sexp_conv)
+ (flags :standard -open Sexplib0.Sexp_conv)
  (preprocess (pps ppx_sexp_conv))
  (libraries unix sexplib0 parsexp))

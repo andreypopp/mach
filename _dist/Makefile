@@ -13,6 +13,7 @@ mach.ml: sexplib0.ml parsexp.ml mach_lib.ml cmdliner.ml ../bin/mach.ml
 	@echo 'open Sexplib0' >> $@
 	@cat parsexp.ml >> $@
 	@echo 'open Parsexp' >> $@
+	@echo 'open Sexplib0.Sexp_conv' >> $@
 	@cat mach_lib.ml >> $@
 	@cat cmdliner.ml >> $@
 	@cat ../bin/mach.ml >> $@
