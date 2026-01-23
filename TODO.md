@@ -1,5 +1,18 @@
 # TODO
 
+## Implement proper preprocessing pipeline
+
+Right now we preprocess each module via `ocamlc -pp ...` command. We want to
+implement preprocessing via build system so we can feed preprocessed output to
+`ocamldep` (not needed now but later) and then `ocamlc` without doing
+preprocessing twice.
+
+I think `mach-pp` command can be such driver:
+
+    $ mach pp <src> build_dir/<src.pp.ml> --pp 'mlx-pp'
+
+and then compile `build_dir/<src.pp.ml>` with `ocamlc` without `-pp` flag.
+
 ## Implement support for libraries
 
 We consider a directory with `Machlib` file as a library.
