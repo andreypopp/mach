@@ -87,7 +87,7 @@ let make_config ?mach_path home =
   let mach_executable_path = Lazy.force mach_executable_path in
   let toolchain = detect_toolchain () in
   let mach_path = Option.value mach_path ~default:Filename.(home / "Mach") in
-  if Sys.file_exists mach_path then
+  if Sys.file_exists mach_path && Sys.is_regular_file mach_path then
     match parse_file mach_path with
     | Ok () -> Ok { home; mach_executable_path; toolchain }
     | Error _ as err -> err
