@@ -29,3 +29,21 @@ Test with file that has no directives:
   # 1 "plain.ml"
   let x = 42
   let y = x + 1
+
+Test mach pp with external preprocessor (--pp option):
+
+  $ cat > with_directives.ml << 'EOF'
+  > #!/usr/bin/env mach
+  > #require "./lib"
+  > let x = 42
+  > EOF
+
+Use cat as a simple external preprocessor to verify piping works:
+
+  $ mach pp --pp cat with_directives.ml
+  # 1 "with_directives.ml"
+  
+  
+  let x = 42
+
+

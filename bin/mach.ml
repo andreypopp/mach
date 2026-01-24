@@ -8,6 +8,20 @@ let or_exit = function
     Printf.eprintf "mach: %s\n%!" msg;
     exit 1
 
+(* --- Temp file management --- *)
+
+let temp_filenames = ref []
+let () =
+  at_exit (fun () ->
+    List.iter (fun path ->
+      try Sys.remove path with _ -> ()
+    ) !temp_filenames)
+
+let temp_file prefix suffix =
+  let filename = Filename.temp_file prefix suffix in
+  temp_filenames := filename :: !temp_filenames;
+  filename
+
 (* --- Watch mode --- *)
 
 let parse_event line =
@@ -110,7 +124,7 @@ let watch config script_path ?run_args () =
     Mach_log.log_verbose "mach: watching %d directories (Ctrl+C to stop):" (List.length source_dirs);
     List.iter (fun d -> Mach_log.log_verbose "  %s" d) source_dirs;
     let watchlist_path =
-      let path = Filename.temp_file "mach-watch" ".txt" in
+      let path = temp_file "mach-watch" ".txt" in
       Out_channel.with_open_text path (fun oc ->
         List.iter (fun dir ->
           output_string oc "-W\n";
@@ -225,8 +239,47 @@ let configure_cmd =
 
 let pp_cmd =
   let doc = "Preprocess source file to stdout (for use with merlin -pp)" in
-  let info = Cmd.info "pp" ~doc ~docs:Manpage.s_none in
-  Cmd.v info Term.(const pp $ source_arg)
+  let f source output pp_cmd =
+    let with_output f =
+      match output with
+      | Some o ->
+        let temp = temp_file "mach-pp" ".ml" in
+        Out_channel.with_open_text temp f;
+        Sys.rename temp o
+      | None -> f stdout
+    in
+    let mach_pp oc =
+      In_channel.with_open_text source (fun ic -> pp ~source_path:source ic oc)
+    in
+    let ext_pp input_file cmd =
+      let cmd = Printf.sprintf "%s %s" cmd (Filename.quote input_file) in
+      let full_cmd = match output with
+        | None -> cmd
+        | Some out ->
+          let temp = temp_file "mach-pp" ".ml" in
+          Printf.sprintf "%s > %s && mv %s %s" cmd (Filename.quote temp) (Filename.quote temp) (Filename.quote out)
+      in
+      let code = Sys.command full_cmd in
+      if code <> 0 then begin
+        Printf.eprintf "mach: preprocessor %S failed\n%!" cmd;
+        exit 1
+      end
+    in
+    match pp_cmd with
+    | None ->
+      with_output mach_pp
+    | Some cmd ->
+      let temp = temp_file "mach-pp" ".ml" in
+      Out_channel.with_open_text temp mach_pp;
+      ext_pp temp cmd
+  in
+  Cmd.v
+    Cmd.(info "pp" ~doc ~docs:Manpage.s_none)
+    Term.(
+      const f
+      $ source_arg
+      $ Arg.(value & opt (some string) None & info ["o"; "output"] ~docv:"FILE" ~doc:"Write output to FILE instead of stdout")
+      $ Arg.(value & opt (some string) None & info ["pp"] ~docv:"COMMAND" ~doc:"External preprocessor to run after mach preprocessing"))
 
 let run_build_command_cmd =
   let doc = "Run a build command, prefixing output with >>>" in

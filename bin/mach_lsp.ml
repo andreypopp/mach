@@ -66,7 +66,8 @@ module Merlin_server = struct
         ) directives requires
       in
       let directives = `S (Filename.dirname path) :: directives in
-      `FLG ["-pp"; "mach pp"] :: directives
+      let pp_cmd = if is_mlx then "mach pp --pp mlx-pp" else "mach pp" in
+      `FLG ["-pp"; pp_cmd] :: directives
     with
     | Failure msg -> [`ERROR_MSG msg]
     | Unix.Unix_error (err, _, arg) ->

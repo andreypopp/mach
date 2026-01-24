@@ -14102,10 +14102,6 @@ type verbose = Mach_log.verbose =
   | Verbose 
   | Very_verbose 
   | Very_very_verbose 
-type module_kind =
-  | ML 
-  | MLX 
-val module_kind_of_path : string -> module_kind
 val pp : source_path:string -> in_channel -> out_channel -> unit
 val configure :
   Mach_config.t -> string -> ((Mach_state.t * bool), Mach_error.t) result
@@ -14170,27 +14166,33 @@ let configure_backend config ~state ~prev_state ~changed_modules =
   let capture_stderrf fmt =
     ksprintf (sprintf "${MACH} run-build-command --stderr-only -- %s") fmt in
   let configure_ocaml_module b (m : ocaml_module) =
-    let src = let open Filename in (m.build_dir / m.module_name) ^ ".ml" in
-    let mli = let open Filename in (m.build_dir / m.module_name) ^ ".mli" in
-    let pp_flag = match m.kind with | ML -> "" | MLX -> " --pp mlx-pp" in
-    Ninja.rulef b ~target:src ~deps:[m.ml_path] "%s pp%s %s > %s" cmd pp_flag
-      m.ml_path src;
-    Option.iter
-      (fun mli_path ->
-         Ninja.rulef b ~target:mli ~deps:[mli_path] "%s pp %s > %s" cmd
-           mli_path mli) m.mli_path;
-    (let args = let open Filename in m.build_dir / "includes.args" in
-     let recipe =
-       match m.resolved_requires with
-       | [] -> [sprintf "touch %s" args]
-       | requires ->
-           List.map
-             (fun (r : _ with_loc) ->
-                sprintf "echo '-I=%s' >> %s" (build_dir_of r.v) args)
-             requires in
-     Ninja.rule b ~target:args ~deps:[src] ((sprintf "rm -f %s" args) ::
-       recipe);
-     (match m.libs with
+    let src =
+      let src = let open Filename in (m.build_dir / m.module_name) ^ ".ml" in
+      let pp_flag = match m.kind with | ML -> "" | MLX -> " --pp mlx-pp" in
+      Ninja.rulef b ~target:src ~deps:[m.ml_path] "%s pp%s -o %s %s" cmd
+        pp_flag src m.ml_path;
+      src in
+    let () =
+      Option.iter
+        (fun mli_path ->
+           let mli =
+             let open Filename in (m.build_dir / m.module_name) ^ ".mli" in
+           Ninja.rulef b ~target:mli ~deps:[mli_path] "%s pp -o %s %s" cmd
+             mli mli_path) m.mli_path in
+    let () =
+      let args = let open Filename in m.build_dir / "includes.args" in
+      let recipe =
+        match m.resolved_requires with
+        | [] -> [sprintf "touch %s" args]
+        | requires ->
+            List.map
+              (fun (r : _ with_loc) ->
+                 sprintf "echo '-I=%s' >> %s" (build_dir_of r.v) args)
+              requires in
+      Ninja.rule b ~target:args ~deps:[src] ((sprintf "rm -f %s" args) ::
+        recipe) in
+    let () =
+      match m.libs with
       | [] -> ()
       | libs ->
           let lib_args =
@@ -14202,7 +14204,8 @@ let configure_backend config ~state ~prev_state ~changed_modules =
           Ninja.rule b ~target:lib_args ~deps:[]
             [capture_stderrf
                "ocamlfind query -format '-I=%%d' -recursive %s > %s" libs
-               lib_args])) in
+               lib_args] in
+    () in
   let compile_ocaml_module b (m : ocaml_module) =
     let src = let open Filename in (m.build_dir / m.module_name) ^ ".ml" in
     let mli = let open Filename in (m.build_dir / m.module_name) ^ ".mli" in
@@ -20052,6 +20055,20 @@ let or_exit = function
     Printf.eprintf "mach: %s\n%!" msg;
     exit 1
 
+(* --- Temp file management --- *)
+
+let temp_filenames = ref []
+let () =
+  at_exit (fun () ->
+    List.iter (fun path ->
+      try Sys.remove path with _ -> ()
+    ) !temp_filenames)
+
+let temp_file prefix suffix =
+  let filename = Filename.temp_file prefix suffix in
+  temp_filenames := filename :: !temp_filenames;
+  filename
+
 (* --- Watch mode --- *)
 
 let parse_event line =
@@ -20154,7 +20171,7 @@ let watch config script_path ?run_args () =
     Mach_log.log_verbose "mach: watching %d directories (Ctrl+C to stop):" (List.length source_dirs);
     List.iter (fun d -> Mach_log.log_verbose "  %s" d) source_dirs;
     let watchlist_path =
-      let path = Filename.temp_file "mach-watch" ".txt" in
+      let path = temp_file "mach-watch" ".txt" in
       Out_channel.with_open_text path (fun oc ->
         List.iter (fun dir ->
           output_string oc "-W\n";
@@ -20269,32 +20286,47 @@ let configure_cmd =
 
 let pp_cmd =
   let doc = "Preprocess source file to stdout (for use with merlin -pp)" in
-  let info = Cmd.info "pp" ~doc ~docs:Manpage.s_none in
-  let pp_arg = Arg.(value & opt (some string) None & info ["pp"]
-    ~docv:"COMMAND" ~doc:"External preprocessor to run after mach preprocessing") in
-  let f source pp_cmd =
+  let f source output pp_cmd =
+    let with_output f =
+      match output with
+      | Some o ->
+        let temp = temp_file "mach-pp" ".ml" in
+        Out_channel.with_open_text temp f;
+        Sys.rename temp o
+      | None -> f stdout
+    in
+    let mach_pp oc =
+      In_channel.with_open_text source (fun ic -> pp ~source_path:source ic oc)
+    in
+    let ext_pp input_file cmd =
+      let cmd = Printf.sprintf "%s %s" cmd (Filename.quote input_file) in
+      let full_cmd = match output with
+        | None -> cmd
+        | Some out ->
+          let temp = temp_file "mach-pp" ".ml" in
+          Printf.sprintf "%s > %s && mv %s %s" cmd (Filename.quote temp) (Filename.quote temp) (Filename.quote out)
+      in
+      let code = Sys.command full_cmd in
+      if code <> 0 then begin
+        Printf.eprintf "mach: preprocessor %S failed\n%!" cmd;
+        exit 1
+      end
+    in
     match pp_cmd with
     | None ->
-      In_channel.with_open_text source (fun ic ->
-        pp ~source_path:source ic stdout);
-      flush stdout
+      with_output mach_pp
     | Some cmd ->
-      (* First, run mach preprocessing to a temp file *)
-      let temp = Filename.temp_file "mach-pp" ".ml" in
-      Fun.protect ~finally:(fun () -> try Sys.remove temp with _ -> ())
-        (fun () ->
-          Out_channel.with_open_text temp (fun oc ->
-            In_channel.with_open_text source (fun ic ->
-              pp ~source_path:source ic oc));
-          (* Then run external preprocessor *)
-          let full_cmd = Printf.sprintf "%s %s" cmd (Filename.quote temp) in
-          let code = Sys.command full_cmd in
-          if code <> 0 then begin
-            Printf.eprintf "mach: preprocessor %S failed\n%!" cmd;
-            exit 1
-          end)
+      let temp = temp_file "mach-pp" ".ml" in
+      Out_channel.with_open_text temp mach_pp;
+      ext_pp temp cmd
   in
-  Cmd.v info Term.(const f $ source_arg $ pp_arg)
+  Cmd.v
+    Cmd.(info "pp" ~doc ~docs:Manpage.s_none)
+    Term.(
+      const f
+      $ source_arg
+      $ Arg.(value & opt (some string) None & info ["o"; "output"] ~docv:"FILE" ~doc:"Write output to FILE instead of stdout")
+      $ Arg.(value & opt (some string) None & info ["pp"] ~docv:"COMMAND" ~doc:"External preprocessor to run after mach preprocessing"))
 
 let run_build_command_cmd =
   let doc = "Run a build command, prefixing output with >>>" in
