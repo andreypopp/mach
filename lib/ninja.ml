@@ -16,7 +16,7 @@ let contents = Buffer.contents
 
 let subninja buf path = bprintf buf "subninja %s\n" path
 
-let rule buf ~target ~deps recipe =
+let rule buf ~target ~deps ?dyndep recipe =
   bprintf buf "build %s:" target;
   (match recipe with
   | [] ->
@@ -27,7 +27,8 @@ let rule buf ~target ~deps recipe =
     bprintf buf " cmd";
     List.iter (bprintf buf " %s") deps;
     Buffer.add_char buf '\n';
-    bprintf buf "  cmd = %s\n" (String.concat " && " recipe));
+    bprintf buf "  cmd = %s\n" (String.concat " && " recipe);
+    Option.iter (bprintf buf "  dyndep = %s\n") dyndep);
   Buffer.add_char buf '\n'
 
 let rulef buf ~target ~deps fmt =

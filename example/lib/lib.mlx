@@ -1,6 +1,4 @@
 #!/usr/bin/env mach run
-#require "./a"
-#require "./b"
 
 let hello_world () =
   A.a ();

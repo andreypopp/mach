@@ -2,53 +2,36 @@
 
 open! Mach_std
 
-type file_stat = { mtime : int; size : int }
+type t
 
-type lib = { name : string; version : string }
-
-type entry = {
-  ml_path : string;
-  mli_path : string option;
-  ml_stat : file_stat;
-  mli_stat : file_stat option;
-  requires : string with_loc list;  (** absolute paths to required modules with source location *)
-  libs : lib with_loc list;  (** ocamlfind libraries with version and source location *)
-}
-
-(** State metadata for detecting configuration changes *)
-type header = {
-  mach_executable_path : string;
-  ocaml_version : string;
-  ocamlfind_version : string option;
-}
-
-type t = { header : header; root : entry; entries : entry list }
-
-(** Read state from a file, returns None if file doesn't exist or is invalid *)
 val read : string -> t option
+(** Read state from a file, returns None if file doesn't exist or is invalid. *)
 
-(** Write state to a file *)
 val write : string -> t -> unit
+(** Write state to a file. *)
 
 (** Reason for reconfiguration *)
 type reconfigure_reason =
   | Env_changed  (** Mach path or toolchain version changed *)
-  | Modules_changed of SS.t  (** Set of ml_path that need reconfiguration *)
+  | Paths_changed of SS.t  (** Set of ml_path that need reconfiguration *)
 
-(** Check if state needs reconfiguration, and if so, what kind *)
 val check_reconfigure_exn : Mach_config.t -> t -> reconfigure_reason option
+(** Check if state needs reconfiguration, and if so, what kind. *)
 
-(** Collect dependency state starting from an entry point module *)
-val collect_exn : Mach_config.t -> string -> t
-
-(** Collect dependency state starting from an entry point module *)
 val collect : Mach_config.t -> string -> (t, Mach_error.t) result
+(** Collect dependency state starting from an entry point module. *)
 
-(** Get the executable path for a state *)
-val exe_path : Mach_config.t -> t -> string
+val collect_exn : Mach_config.t -> string -> t
+(** Same as collect but raises on error. *)
 
-(** Get all unique source directories from entries *)
 val source_dirs : t -> string list
+(** All source directories. *)
 
-(** Get all unique ocamlfind library names from entries *)
-val all_libs : t -> string list
+val modules : t -> Mach_module.t list
+(** All modules. *)
+
+val libs : t -> Mach_library.t list
+(** All libraries. *)
+
+val extlibs : t -> string list
+(** All ocamlfind library names from entries *)

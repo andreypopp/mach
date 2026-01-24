@@ -1,6 +1,7 @@
 (* mach - OCaml scripting runtime *)
 
 open Mach_lib
+open Mach_std
 
 let or_exit = function
   | Ok v -> v
@@ -81,7 +82,7 @@ let watch config script_path ?run_args () =
     | None -> ()
     | Some args ->
       kill_child ();
-      let exe_path = Mach_state.exe_path config state in
+      let exe_path = Filename.(Mach_config.build_dir_of config script_path / "a.out") in
       let argv = Array.of_list (exe_path :: args) in
       Mach_log.log_verbose "mach: starting %s" script_path;
       let pid = Unix.create_process exe_path argv Unix.stdin Unix.stdout Unix.stderr in
@@ -106,7 +107,7 @@ let watch config script_path ?run_args () =
   Mach_log.log_verbose "mach: initial build...";
   (* Don't exit on initial build failure - continue watching for changes *)
   (match build config script_path with
-  | Ok (state, _reconfigured) -> start_child state
+  | Ok (_exe_path, state, _reconfigured) -> start_child state
   | Error (`User_error msg) -> Mach_log.log_verbose "mach: %s" msg);
 
   let keep_watching = ref true in
@@ -115,11 +116,16 @@ let watch config script_path ?run_args () =
     let source_dirs = Mach_state.source_dirs state in
     let source_files =
       let files = Hashtbl.create 16 in
-      List.iter (fun (entry : Mach_state.entry) ->
-        Hashtbl.replace files entry.ml_path ();
-        Option.iter (fun mli -> Hashtbl.replace files mli ()) entry.mli_path
-      ) state.entries;
+      let add file = Hashtbl.replace files file () in
+      Mach_state.modules state |> List.iter (fun (m : Mach_module.t) ->
+        add m.path_ml; Option.iter (fun mli -> add mli) m.path_mli);
       files
+    in
+    let lib_dirs =
+      let dirs = Hashtbl.create 16 in
+      let add file = Hashtbl.replace dirs file () in
+      Mach_state.libs state |> List.iter (fun (lib : Mach_library.t) -> add lib.path);
+      dirs
     in
     Mach_log.log_verbose "mach: watching %d directories (Ctrl+C to stop):" (List.length source_dirs);
     List.iter (fun d -> Mach_log.log_verbose "  %s" d) source_dirs;
@@ -139,7 +145,6 @@ let watch config script_path ?run_args () =
       "--debounce"; "200ms";
       "--only-emit-events";
       "--emit-events-to=stdio";
-      "--exts"; "ml,mli,mlx";
       "@" ^ watchlist_path 
     |] in
     Mach_log.log_very_verbose "mach:watch: running: %s" (String.concat " " (Array.to_list args));
@@ -153,14 +158,19 @@ let watch config script_path ?run_args () =
       while true do
         let changed_paths = read_events ic in
         let relevant_paths =
-          List.fold_left (fun acc path -> if Hashtbl.mem source_files path then path :: acc else acc)
-          [] changed_paths
+          List.fold_left (fun acc path ->
+            if Hashtbl.mem source_files path
+            then path :: acc
+            else if Hashtbl.mem lib_dirs (Filename.dirname path)
+            then path :: acc
+            else acc
+          ) [] changed_paths
         in
         if relevant_paths <> [] then begin
           List.iter (fun p -> Mach_log.log_verbose "mach: file changed: %s" (Filename.basename p)) relevant_paths;
           match build config script_path with
           | Error (`User_error msg) -> Mach_log.log_verbose "mach: %s" msg
-          | Ok (state, reconfigured) ->
+          | Ok (_exe_path, state, reconfigured) ->
             Printf.eprintf "mach: build succeeded\n%!";
             start_child state;
             if reconfigured then begin
@@ -207,8 +217,7 @@ let run_cmd =
     let config = Mach_config.get () |> or_exit in
     if watch_mode then watch config script_path ~run_args:args ()
     else begin
-      let state, _reconfigured = build config script_path |> or_exit in
-      let exe_path = Mach_state.exe_path config state in
+      let exe_path, _state, _reconfigured = build config script_path |> or_exit in
       let argv = Array.of_list (exe_path :: args) in
       Unix.execv exe_path argv
     end
@@ -317,10 +326,102 @@ let run_build_command_cmd =
   in
   Cmd.v info Term.(const f $ stderr_only_arg $ cmd_arg)
 
+let dep_cmd =
+  let doc = "Run ocamldep and output ninja dyndep format" in
+  let f input output args =
+    let parse_dep_line line =
+      match String.index_opt line ':' with
+      | None -> None
+      | Some colon_pos ->
+        let target = String.trim (String.sub line 0 colon_pos) in
+        let deps = String.sub line (colon_pos + 1) (String.length line - colon_pos - 1) in
+        let deps =
+          String.split_on_char ' ' deps
+          |> List.filter (fun s -> String.length (String.trim s) > 0)
+          |> List.map String.trim
+        in
+        Some (target, deps)
+    in
+    let deps =
+      let args_flag = match args with None -> "" | Some f -> " -args " ^ Filename.quote f in
+      let cmd = Printf.sprintf "ocamldep -native -one-line%s %s" args_flag (Filename.quote input) in
+      let ic = Unix.open_process_in cmd in
+      let lines = In_channel.input_lines ic in
+      if Unix.close_process_in ic <> Unix.WEXITED 0 then (
+        Printf.eprintf "mach dep: ocamldep failed\n%!"; exit 1);
+      List.filter_map parse_dep_line lines
+    in
+    let tmp = temp_file "mach-dep" ".dep" in
+    Out_channel.with_open_text tmp (fun oc ->
+      Printf.fprintf oc "ninja_dyndep_version = 1\n";
+      List.iter (fun (target, deps) ->
+        if deps = []
+        then Printf.fprintf oc "build %s: dyndep\n" target
+        else Printf.fprintf oc "build %s: dyndep | %s\n" target (String.concat " " deps)
+      ) deps);
+    Sys.rename tmp output
+  in
+  Cmd.v (Cmd.info "dep" ~doc ~docs:Manpage.s_none)
+    Term.(const f
+      $ Arg.(required & pos 0 (some non_dir_file) None & info [] ~docv:"FILE" ~doc:"Source file to analyze")
+      $ Arg.(required & opt (some string) None & info ["o"; "output"] ~docv:"FILE" ~doc:"Output file for dyndep")
+      $ Arg.(value & opt (some string) None & info ["args"] ~docv:"FILE" ~doc:"Args file to pass to ocamldep"))
+
+let link_deps_cmd =
+  let doc = "Read .dep files and output sorted .cmx files for linking" in
+  let f dep_files =
+    (* Parse a .dep file to get (target, deps) *)
+    let parse_dep_file path =
+      let lines = In_channel.with_open_text path In_channel.input_lines in
+      List.filter_map (fun line ->
+        (* Format: "build foo.cmx: dyndep | bar.cmx baz.cmx" or "build foo.cmx: dyndep" *)
+        if String.length line > 6 && String.sub line 0 6 = "build " then
+          match String.index_opt line ':' with
+          | None -> None
+          | Some colon ->
+            let target = String.trim (String.sub line 6 (colon - 6)) in
+            let rest = String.sub line (colon + 1) (String.length line - colon - 1) in
+            let deps = match String.index_opt rest '|' with
+              | None -> []
+              | Some pipe ->
+                String.sub rest (pipe + 1) (String.length rest - pipe - 1)
+                |> String.split_on_char ' '
+                |> List.filter (fun s -> String.length (String.trim s) > 0)
+                |> List.map String.trim
+            in
+            Some (target, deps)
+        else None
+      ) lines
+    in
+    (* Build dependency graph from all .dep files *)
+    let graph = Hashtbl.create 16 in
+    List.iter (fun dep_file ->
+      List.iter (fun (target, deps) ->
+        Hashtbl.replace graph target deps
+      ) (parse_dep_file dep_file)
+    ) dep_files;
+    (* Topological sort *)
+    let visited = Hashtbl.create 16 in
+    let result = ref [] in
+    let rec visit node =
+      if not (Hashtbl.mem visited node) then begin
+        Hashtbl.add visited node ();
+        List.iter visit (Hashtbl.find_opt graph node |> Option.value ~default:[]);
+        result := node :: !result
+      end
+    in
+    Hashtbl.iter (fun node _ -> visit node) graph;
+    (* Output sorted list, one per line for use with -args *)
+    List.iter print_endline (List.rev !result)
+  in
+  Cmd.v (Cmd.info "link-deps" ~doc ~docs:Manpage.s_none)
+    Term.(const f
+      $ Arg.(non_empty & pos_all non_dir_file [] & info [] ~docv:"DEP_FILES" ~doc:".dep files to process"))
+
 let cmd =
   let doc = "Run OCaml scripts with automatic dependency resolution" in
   let info = Cmd.info "mach" ~doc ~man:[`S Manpage.s_synopsis] in
   let default = Term.(ret (const (`Help (`Pager, None)))) in
-  Cmd.group ~default info [run_cmd; build_cmd; configure_cmd; pp_cmd; run_build_command_cmd]
+  Cmd.group ~default info [run_cmd; build_cmd; configure_cmd; pp_cmd; run_build_command_cmd; dep_cmd; link_deps_cmd]
 
 let () = exit (Cmdliner.Cmd.eval cmd)

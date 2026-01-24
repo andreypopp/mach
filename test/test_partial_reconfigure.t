@@ -35,8 +35,8 @@ Change only lib_a's requires (add new require):
 
 Verify reconfiguration happens and build succeeds:
 
-  $ mach run -vv ./main.ml 2>&1 | grep -E "(reconfigure|configuring)"
-  mach:state: requires/libs changed, need reconfigure
+  $ mach run -vv ./main.ml 2>&1 | grep -E "(mach:state:|mach:configure|mach: configuring)"
+  mach:state:$TESTCASE_ROOT/lib_a.ml:module requires changed
   mach:configure: need reconfigure
   mach: configuring...
   mach: configuring $TESTCASE_ROOT/lib_c.ml
@@ -53,7 +53,7 @@ Change lib_b (without changing requires) - should rebuild but not reconfigure:
   > let msg = "lib_b_updated"
   > EOF
 
-  $ mach run -vv ./main.ml 2>&1 | grep -E "(reconfigure|configuring)" || echo "no reconfigure"
+  $ mach run -vv ./main.ml 2>&1 | grep -E "(mach:state:|mach:configure|mach: configuring)" || echo "no reconfigure"
   no reconfigure
 
   $ mach run ./main.ml
@@ -66,8 +66,8 @@ Add .mli file to lib_b - should trigger partial reconfiguration for lib_b only:
   > val msg : string
   > EOF
 
-  $ mach run -vv ./main.ml 2>&1 | grep -E "(reconfigure|configuring)"
-  mach:state: .mli added/removed, need reconfigure
+  $ mach run -vv ./main.ml 2>&1 | grep -E "(mach:state:|mach:configure|mach: configuring)"
+  mach:state:$TESTCASE_ROOT/lib_b.ml:mli presence changed
   mach:configure: need reconfigure
   mach: configuring...
   mach: configuring $TESTCASE_ROOT/lib_b.ml
@@ -81,8 +81,8 @@ Remove .mli file from lib_b - should trigger partial reconfiguration for lib_b o
   $ sleep 1
   $ rm lib_b.mli
 
-  $ mach run -vv ./main.ml 2>&1 | grep -E "(reconfigure|configuring)"
-  mach:state: .mli added/removed, need reconfigure
+  $ mach run -vv ./main.ml 2>&1 | grep -E "(mach:state:|mach:configure|mach: configuring)"
+  mach:state:$TESTCASE_ROOT/lib_b.ml:mli presence changed
   mach:configure: need reconfigure
   mach: configuring...
   mach: configuring $TESTCASE_ROOT/lib_b.ml

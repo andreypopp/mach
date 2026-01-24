@@ -149,8 +149,8 @@
     </header>
     <p>Mach is a tiny build system for OCaml scripts. It compiles code on first run,
 subsequent runs perform incremental compilation, if needed.</p>
-<p>Mach supports dependencies between scripts and on external libraries (usually
-installed with <a href="https://opam.ocaml.org/">opam</a>) through <code>#require</code> directives.</p>
+<p>Mach supports dependencies between scripts, on libraries, and on external
+libraries (usually installed with <a href="https://opam.ocaml.org/">opam</a>) through <code>#require</code> directives.</p>
 <p>Usage is as simple as creating an <code>.ml</code> file:</p>
 <div class="code-block"><script>
 function copyCode(btn) {
@@ -189,7 +189,7 @@ function copyCode(btn) {
 }
 </script><button class="copy-btn" onclick="copyCode(this)" title="Copy to clipboard">copy</button><pre><code class="language-sh">$ mach run main.ml
 </code></pre></div><p>Below is the documentation for installation and usage:
-<ul class="toc"><li data-toc-level="2"><a href="#installation">INSTALLATION</a></li><li data-toc-level="3"><a href="#installation-through-homebrew">Installation through homebrew</a></li><li data-toc-level="3"><a href="#manual-installation">Manual installation</a></li><li data-toc-level="2"><a href="#usage">USAGE</a></li><li data-toc-level="3"><a href="#declaring-dependencies-between-scripts">Declaring dependencies between scripts</a></li><li data-toc-level="3"><a href="#declaring-dependencies-on-libraries">Declaring dependencies on libraries</a></li><li data-toc-level="3"><a href="#building-code-without-running">Building code without running</a></li><li data-toc-level="3"><a href="#watch-mode">Watch mode</a></li><li data-toc-level="3"><a href="#editor-integration--lsp">Editor integration / LSP</a></li><li data-toc-level="3"><a href="#support-for-mlx-syntax-dialect">Support for .mlx syntax dialect</a></li><li data-toc-level="2"><a href="#contributing">CONTRIBUTING</a></li></ul>
+<ul class="toc"><li data-toc-level="2"><a href="#installation">INSTALLATION</a></li><li data-toc-level="3"><a href="#installation-through-homebrew">Installation through homebrew</a></li><li data-toc-level="3"><a href="#manual-installation">Manual installation</a></li><li data-toc-level="2"><a href="#usage">USAGE</a></li><li data-toc-level="3"><a href="#declaring-dependencies-between-scripts">Declaring dependencies between scripts</a></li><li data-toc-level="3"><a href="#declaring-dependencies-on-libraries">Declaring dependencies on libraries</a></li><li data-toc-level="3"><a href="#defining-libraries">Defining libraries</a></li><li data-toc-level="3"><a href="#building-code-without-running">Building code without running</a></li><li data-toc-level="3"><a href="#watch-mode">Watch mode</a></li><li data-toc-level="3"><a href="#editor-integration--lsp">Editor integration / LSP</a></li><li data-toc-level="3"><a href="#support-for-mlx-syntax-dialect">Support for .mlx syntax dialect</a></li><li data-toc-level="2"><a href="#contributing">CONTRIBUTING</a></li></ul>
 </p>
 <h2 id="installation"><a class="anchor" aria-hidden="true" href="#installation"></a>INSTALLATION</h2>
 <p>Mach is distributed as a single <code>mach.ml</code> source file. It requires OCaml
@@ -408,7 +408,105 @@ function copyCode(btn) {
 </script><button class="copy-btn" onclick="copyCode(this)" title="Copy to clipboard">copy</button><pre><code class="language-sh">$ mach run lwt_example.ml
 Hello from Lwt!
 </code></pre></div><p>External libraries require <code>ocamlfind</code> to be installed.</p>
-<h3 id="building-code-without-running"><a class="anchor" aria-hidden="true" href="#building-code-without-running"></a>Building code without running</h3>
+<h3 id="defining-libraries"><a class="anchor" aria-hidden="true" href="#defining-libraries"></a>Defining libraries</h3>
+<p>You can organize code into libraries. A library is a directory containing a
+<code>Machlib</code> file and one or more OCaml modules.</p>
+<p>Create a library directory structure:</p>
+<div class="code-block"><script>
+function copyCode(btn) {
+  const codeBlock = btn.parentElement.querySelector('pre code');
+  if (codeBlock) {
+    let text = codeBlock.textContent;
+    if (codeBlock.classList.contains('language-sh') || codeBlock.classList.contains('language-bash')) {
+      text = text.split('\n').map(line => line.replace(/^\$\s*/, '')).join('\n');
+    }
+    navigator.clipboard.writeText(text).then(() => {
+      const originalText = btn.textContent;
+      btn.textContent = 'done';
+      setTimeout(() => { btn.textContent = originalText; }, 2000);
+    });
+  }
+}
+</script><button class="copy-btn" onclick="copyCode(this)" title="Copy to clipboard">copy</button><pre><code>mylib/
+  Machlib
+  foo.ml
+  bar.ml
+</code></pre></div><p>The <code>Machlib</code> file can be empty, or declare dependencies using <code>(require ...)</code>
+syntax:</p>
+<div class="code-block"><script>
+function copyCode(btn) {
+  const codeBlock = btn.parentElement.querySelector('pre code');
+  if (codeBlock) {
+    let text = codeBlock.textContent;
+    if (codeBlock.classList.contains('language-sh') || codeBlock.classList.contains('language-bash')) {
+      text = text.split('\n').map(line => line.replace(/^\$\s*/, '')).join('\n');
+    }
+    navigator.clipboard.writeText(text).then(() => {
+      const originalText = btn.textContent;
+      btn.textContent = 'done';
+      setTimeout(() => { btn.textContent = originalText; }, 2000);
+    });
+  }
+}
+</script><button class="copy-btn" onclick="copyCode(this)" title="Copy to clipboard">copy</button><pre><code class="language-lisp">(require lwt unix)
+</code></pre></div><p>Create modules in the library:</p>
+<div class="code-block"><script>
+function copyCode(btn) {
+  const codeBlock = btn.parentElement.querySelector('pre code');
+  if (codeBlock) {
+    let text = codeBlock.textContent;
+    if (codeBlock.classList.contains('language-sh') || codeBlock.classList.contains('language-bash')) {
+      text = text.split('\n').map(line => line.replace(/^\$\s*/, '')).join('\n');
+    }
+    navigator.clipboard.writeText(text).then(() => {
+      const originalText = btn.textContent;
+      btn.textContent = 'done';
+      setTimeout(() => { btn.textContent = originalText; }, 2000);
+    });
+  }
+}
+</script><button class="copy-btn" onclick="copyCode(this)" title="Copy to clipboard">copy</button><pre><code class="language-ocaml">(* mylib/foo.ml *)
+let greet name = Printf.printf &quot;Hello, %s!\n&quot; name
+</code></pre></div><div class="code-block"><script>
+function copyCode(btn) {
+  const codeBlock = btn.parentElement.querySelector('pre code');
+  if (codeBlock) {
+    let text = codeBlock.textContent;
+    if (codeBlock.classList.contains('language-sh') || codeBlock.classList.contains('language-bash')) {
+      text = text.split('\n').map(line => line.replace(/^\$\s*/, '')).join('\n');
+    }
+    navigator.clipboard.writeText(text).then(() => {
+      const originalText = btn.textContent;
+      btn.textContent = 'done';
+      setTimeout(() => { btn.textContent = originalText; }, 2000);
+    });
+  }
+}
+</script><button class="copy-btn" onclick="copyCode(this)" title="Copy to clipboard">copy</button><pre><code class="language-ocaml">(* mylib/bar.ml *)
+let message = &quot;from Bar&quot;
+</code></pre></div><p>Library modules can reference each other freely — Mach automatically determines
+the correct compilation order based on dependencies.</p>
+<p>Use the library from a script:</p>
+<div class="code-block"><script>
+function copyCode(btn) {
+  const codeBlock = btn.parentElement.querySelector('pre code');
+  if (codeBlock) {
+    let text = codeBlock.textContent;
+    if (codeBlock.classList.contains('language-sh') || codeBlock.classList.contains('language-bash')) {
+      text = text.split('\n').map(line => line.replace(/^\$\s*/, '')).join('\n');
+    }
+    navigator.clipboard.writeText(text).then(() => {
+      const originalText = btn.textContent;
+      btn.textContent = 'done';
+      setTimeout(() => { btn.textContent = originalText; }, 2000);
+    });
+  }
+}
+</script><button class="copy-btn" onclick="copyCode(this)" title="Copy to clipboard">copy</button><pre><code class="language-ocaml">#require &quot;./mylib&quot;
+let () =
+  Foo.greet &quot;World&quot;;
+  print_endline Bar.message
+</code></pre></div><h3 id="building-code-without-running"><a class="anchor" aria-hidden="true" href="#building-code-without-running"></a>Building code without running</h3>
 <p>To compile without running, use <code>mach build</code> command:</p>
 <div class="code-block"><script>
 function copyCode(btn) {

@@ -3,6 +3,8 @@
 open Printf
 open Sexplib0.Sexp_conv
 
+let (!!) = Lazy.force
+
 module Filename = struct
   include Filename
   let (/) = concat

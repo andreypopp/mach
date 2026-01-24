@@ -18,49 +18,107 @@ let preprocess_source ~source_path oc ic =
   in
   loop true
 
+type require =
+  | Require of string with_loc
+  | Require_lib of string with_loc
+  | Require_extlib of extlib with_loc
+and extlib = { name : string; version : string }
+
 let is_require_path s = String.contains s '/'
 
-let resolve_require ~source_path ~line path =
+let resolve_require_path ~source_path ~line req =
   let base_path =
-    if Filename.is_relative path
-    then Filename.concat (Filename.dirname source_path) path
-    else path
+    if Filename.is_relative req
+    then Filename.concat (Filename.dirname source_path) req
+    else req
   in
-  let candidates = [base_path ^ ".ml"; base_path ^ ".mlx"] in
+  if Sys.file_exists base_path && Sys.is_directory base_path then
+    if Sys.file_exists (Filename.concat base_path "Machlib") then
+      try Require_lib {v=Unix.realpath base_path; filename=source_path; line}
+      with Unix.Unix_error (err, _, _) ->
+        Mach_error.user_errorf "%s:%d: %s: %s" source_path line req (Unix.error_message err)
+    else
+      Mach_error.user_errorf "%s:%d: %s: directory has no Machlib file" source_path line req
+  else
+  let candidates =
+    match Filename.extension base_path with
+    | ".ml" | ".mlx" -> [base_path]
+    | "" -> [base_path ^ ".ml"; base_path ^ ".mlx"]
+    | ext -> Mach_error.user_errorf "%s:%d: %s: invalid file extension %S" source_path line req ext
+  in
   let rec find_file = function
     | [] ->
-        Mach_error.user_errorf "%s:%d: %s: No such file or directory" source_path line path
+        Mach_error.user_errorf "%s:%d: %s: No such file or directory" source_path line req
     | candidate :: rest ->
         if Sys.file_exists candidate then
-          try Unix.realpath candidate
+          try Require {v=Unix.realpath candidate; filename=source_path; line}
           with Unix.Unix_error (err, _, _) ->
-            Mach_error.user_errorf "%s:%d: %s: %s" source_path line path (Unix.error_message err)
+            Mach_error.user_errorf "%s:%d: %s: %s" source_path line req (Unix.error_message err)
         else
           find_file rest
   in
   find_file candidates
 
-let extract_requires_exn source_path : string with_loc list * string with_loc list =
-  let rec parse line_num (requires, libs) ic =
+let resolve_require config ~source_path ~line req =
+  if is_require_path req
+  then resolve_require_path ~source_path ~line req
+  else
+    let info = Lazy.force config.Mach_config.toolchain.ocamlfind in
+    if info.ocamlfind_version = None then
+      Mach_error.user_errorf "%s:%d: library %S requires ocamlfind but ocamlfind is not installed" source_path line req
+    else match SM.find_opt req info.ocamlfind_libs with
+    | None ->
+      Mach_error.user_errorf "%s:%d: library %S not found" source_path line req
+    | Some version ->
+      Require_extlib { v = { name = req; version }; filename = source_path; line }
+
+let equal_require a b =
+  match a, b with
+  | Require a, Require b -> equal_without_loc a b
+  | Require_lib a, Require_lib b -> equal_without_loc a b
+  | Require_extlib a, Require_extlib b ->
+    a.v.name = b.v.name && a.v.version = b.v.version
+  | _ -> false
+
+let extract_requires_exn config source_path =
+  let rec parse line_num acc ic =
     match In_channel.input_line ic with
-    | Some line when is_shebang line -> parse (line_num + 1) (requires, libs) ic
+    | Some line when is_shebang line -> parse (line_num + 1) acc ic
     | Some line when is_directive line ->
       let req =
         try Scanf.sscanf line "#require %S%_s" Fun.id
         with Scanf.Scan_failure _ | End_of_file -> Mach_error.user_errorf "%s:%d: invalid #require directive" source_path line_num
       in
-      if is_require_path req then
-        let resolved = resolve_require ~source_path ~line:line_num req in
-        let requires = { v = resolved; filename = source_path; line = line_num } :: requires in
-        parse (line_num + 1) (requires, libs) ic
-      else
-        let lib = { v = req; filename = source_path; line = line_num } in
-        parse (line_num + 1) (requires, (lib :: libs)) ic
-    | Some line when is_empty_line line -> parse (line_num + 1) (requires, libs) ic
-    | None | Some _ -> (List.rev requires), (List.rev libs)
+      let r = resolve_require config ~source_path ~line:line_num req in
+      parse (line_num + 1) (r :: acc) ic
+    | Some line when is_empty_line line -> parse (line_num + 1) acc ic
+    | None | Some _ -> List.rev acc
   in
-  In_channel.with_open_text source_path (parse 1 ([], []))
+  In_channel.with_open_text source_path (parse 1 [])
 
-let extract_requires source_path =
-  try Ok (extract_requires_exn source_path)
+type t = {
+  path_ml : string;
+  path_mli : string option;
+  requires : require list;
+  kind : kind;
+}
+
+and kind = ML | MLX
+
+let kind_of_path_ml path =
+  if Filename.extension path = ".mlx" then MLX else ML
+
+let path_mli path_ml =
+  let base = Filename.remove_extension path_ml in
+  let mli = base ^ ".mli" in
+  if Sys.file_exists mli then Some mli else None
+
+let of_path_exn config path_ml =
+  let path_mli = path_mli path_ml in
+  let kind = kind_of_path_ml path_ml in
+  let requires = extract_requires_exn config path_ml in
+  { path_ml; path_mli; requires; kind }
+
+let of_path config path_ml =
+  try Ok (of_path_exn config path_ml)
   with Mach_error.Mach_user_error msg -> Error (`User_error msg)

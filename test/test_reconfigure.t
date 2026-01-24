@@ -46,7 +46,7 @@ Add a dependency - SHOULD reconfigure (structural change):
   > EOF
 
   $ mach run -vv ./main.ml 2>&1
-  mach:state: requires/libs changed, need reconfigure
+  mach:state:$TESTCASE_ROOT/main.ml:module requires changed
   mach:configure: need reconfigure
   mach: configuring...
   mach: configuring $TESTCASE_ROOT/lib.ml
@@ -79,7 +79,7 @@ Add .mli file to dependency - SHOULD reconfigure:
   > EOF
 
   $ mach run -vv ./main.ml 2>&1
-  mach:state: .mli added/removed, need reconfigure
+  mach:state:$TESTCASE_ROOT/lib.ml:mli presence changed
   mach:configure: need reconfigure
   mach: configuring...
   mach: configuring $TESTCASE_ROOT/lib.ml
@@ -104,7 +104,7 @@ Remove .mli file - SHOULD reconfigure:
   $ rm lib.mli
 
   $ mach run -vv ./main.ml 2>&1
-  mach:state: .mli added/removed, need reconfigure
+  mach:state:$TESTCASE_ROOT/lib.ml:mli presence changed
   mach:configure: need reconfigure
   mach: configuring...
   mach: configuring $TESTCASE_ROOT/lib.ml

@@ -1,18 +1,48 @@
 # TODO
 
-## Implement support for libraries
-
-We consider a directory with `Machlib` file as a library.
-
-It means that all the modules found in that directory (excluding subdirectories) are part of that library.
-
-We compile a library into `.cmxa` file.
-
-When a script depends on a library, we link against that `.cmxa` file.
-
 ## Implement ppx support
 
 ## Support passing -H hidden includes args when compiling
+
+## [DONE] Implement support for libraries
+
+We consider a directory with `Machlib` file a library.
+
+It means that all the modules found in that directory (excluding
+subdirectories) are part of that library.
+
+Library modules are regular OCaml modules, they contain no mach directives.
+Instead we store dependencies in `Machlib` file
+
+    (require
+      "./some_mod"
+      "./other_lib")
+
+A library is built as a whole, in its own build directory:
+- we copy over all source files to build dir
+- we preprocess .mlx files to .ml files (if any)
+- we run ocamldep for each source file to find dependencies and write `<module>.deps`
+
+We determin if library needs reconfiguration by storing additional info in `Mach.state` file:
+
+    type entry =
+      | Entry_module of ... exising per module config ...
+      | Entry_lib of {
+          mtime: float; (** mtime of a lib dir *)
+          machlib_mtime: float; (** mtime of Machlib file *)
+          modules: (string * string option) list; (** .ml and optional .mli files in the lib *)
+          requires : string with_loc list; (** other required modules / libs, read from Machlib file *)
+          libs : lib with_loc list; (** ocamlfind libs required, read from Machlib file *)
+        }
+      ...
+
+Then we check mtimes of the dir and its `Machlib` file and source files to see
+if anything changed. If dir mtime changed we need to list dir to find out about
+added/removed modules. We don't need to check mtimes of individual source files
+as now build config is stored there.
+
+We compile a library into `.cmxa` file. When a script (or another library)
+depends on a library, we link against that `.cmxa` file.
 
 ## [DONE] Implement proper preprocessing pipeline
 

@@ -10,7 +10,7 @@
 dune build # builds the mach executable
 dune test # builds and runs tests, no need to run `dune build` first
 dune promote # promote test outputs if we see it changed and it's expected
-dune test test_ninja/tests/test_build.t # can also run individual tests
+dune test test/test_build.t # can also run individual tests
 ```
 
 ## Testing
@@ -53,13 +53,14 @@ mach-lsp ocaml-merlin # merlin server mode (called by ocamllsp)
 ## Architecture
 
 Split across multiple files:
-- `bin/mach.ml` (~110 lines) - CLI entry point
-- `bin/mach_lsp.ml` (~115 lines) - LSP/merlin support
-- `lib/mach_std.ml` (~50 lines) - shared utilities (use `open! Mach_std` in all lib modules)
-- `lib/mach_config.ml` (~130 lines) - configuration discovery, parsing, and toolchain detection
-- `lib/mach_lib.ml` (~330 lines) - core implementation (configure, build, watch)
-- `lib/mach_module.ml` (~60 lines) - module parsing and require extraction
-- `lib/mach_state.ml` (~190 lines) - dependency state caching
+- `bin/mach.ml` (~430 lines) - CLI entry point
+- `bin/mach_lsp.ml` (~150 lines) - LSP/merlin support
+- `lib/mach_std.ml` (~55 lines) - shared utilities (use `open! Mach_std` in all lib modules)
+- `lib/mach_config.ml` (~115 lines) - configuration discovery, parsing, and toolchain detection
+- `lib/mach_lib.ml` (~275 lines) - core implementation (configure, build, watch)
+- `lib/mach_library.ml` (~180 lines) - mach library support (multi-module libraries)
+- `lib/mach_module.ml` (~125 lines) - module parsing and require extraction
+- `lib/mach_state.ml` (~230 lines) - dependency state caching
 - `lib/ninja.ml` (~40 lines) - Ninja build file generation
 - `lib/mach_log.ml` (~10 lines) - logging utilities
 - `lib/mach_error.ml` (~5 lines) - error handling
@@ -74,6 +75,7 @@ Key exports:
 - `Filename.(/)` - path concatenation operator
 - `Buffer.output_line` - write line with newline
 - `SS` - `Set.Make(String)` for string sets
+- `SM` - `Map.Make(String)` for string maps
 - `type 'a with_loc = { v: 'a; filename: string; line: int }` - value with source location
 - `equal_without_loc` - compare `with_loc` values ignoring location (use with `List.equal`)
 - `run_cmd`, `run_cmd_lines` - execute shell commands
@@ -84,7 +86,7 @@ Key exports:
 `Mach_config.toolchain` tracks:
 - `ocaml_version` - from `ocamlopt -version`
 - `ocamlfind_version` - from `ocamlfind query -format '%v' findlib` (None if not installed)
-- `ocamlfind_libs` - set of available library names (empty if ocamlfind not installed)
+- `ocamlfind_libs` - map from package name to version (empty if ocamlfind not installed)
 
 Libraries referenced via `#require "libname"` are validated at configure time against `ocamlfind_libs`. Errors include source location (file:line).
 
@@ -129,6 +131,8 @@ lib/
   mach_error.ml    -- error handling
   mach_lib.ml      -- core implementation (configure, build, watch)
   mach_lib.mli
+  mach_library.ml  -- mach library support (multi-module libraries)
+  mach_library.mli
   mach_log.ml      -- logging utilities
   mach_log.mli
   mach_module.ml   -- module parsing and require extraction
@@ -140,9 +144,6 @@ lib/
   dune
 test/
   test_*.t     -- cram test case files, add test to this dir
-test_ninja/    -- test runner directory
-  env.sh       -- environment setup for tests (sets MACH_HOME)
-  tests/       -- symlink to ../test/
 plans/         -- implementation plans
 docs/          -- website/documentation
   Makefile             -- runs website.ml (build/serve targets)

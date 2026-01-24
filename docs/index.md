@@ -1,8 +1,8 @@
 Mach is a tiny build system for OCaml scripts. It compiles code on first run,
 subsequent runs perform incremental compilation, if needed.
 
-Mach supports dependencies between scripts and on external libraries (usually
-installed with [opam][]) through `#require` directives.
+Mach supports dependencies between scripts, on libraries, and on external
+libraries (usually installed with [opam][]) through `#require` directives.
 
 Usage is as simple as creating an `.ml` file:
 ```ocaml
@@ -115,6 +115,47 @@ Hello from Lwt!
 ```
 
 External libraries require `ocamlfind` to be installed.
+
+### Defining libraries
+
+You can organize code into libraries. A library is a directory containing a
+`Machlib` file and one or more OCaml modules.
+
+Create a library directory structure:
+```
+mylib/
+  Machlib
+  foo.ml
+  bar.ml
+```
+
+The `Machlib` file can be empty, or declare dependencies using `(require ...)`
+syntax:
+```lisp
+(require lwt unix)
+```
+
+Create modules in the library:
+```ocaml
+(* mylib/foo.ml *)
+let greet name = Printf.printf "Hello, %s!\n" name
+```
+
+```ocaml
+(* mylib/bar.ml *)
+let message = "from Bar"
+```
+
+Library modules can reference each other freely — Mach automatically determines
+the correct compilation order based on dependencies.
+
+Use the library from a script:
+```ocaml
+#require "./mylib"
+let () =
+  Foo.greet "World";
+  print_endline Bar.message
+```
 
 ### Building code without running
 

@@ -60,7 +60,7 @@ Add a lib - SHOULD reconfigure:
   > EOF
 
   $ mach run -vv ./simple.ml 2>&1
-  mach:state: requires/libs changed, need reconfigure
+  mach:state:$TESTCASE_ROOT/simple.ml:module requires changed
   mach:configure: need reconfigure
   mach: configuring...
   mach: configuring $TESTCASE_ROOT/simple.ml
@@ -83,7 +83,7 @@ Remove the lib - SHOULD reconfigure:
   > EOF
 
   $ mach run -vv ./simple.ml 2>&1
-  mach:state: requires/libs changed, need reconfigure
+  mach:state:$TESTCASE_ROOT/simple.ml:module requires changed
   mach:configure: need reconfigure
   mach: configuring...
   mach: configuring $TESTCASE_ROOT/simple.ml
