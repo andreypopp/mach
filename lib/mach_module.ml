@@ -43,7 +43,7 @@ let resolve_require_path ~source_path ~line req =
   let candidates =
     match Filename.extension base_path with
     | ".ml" | ".mlx" -> [base_path]
-    | "" -> [base_path ^ ".ml"; base_path ^ ".mlx"]
+    | "" -> [base_path; base_path ^ ".ml"; base_path ^ ".mlx"]
     | ext -> Mach_error.user_errorf "%s:%d: %s: invalid file extension %S" source_path line req ext
   in
   let rec find_file = function
