@@ -8,8 +8,8 @@
  (target mach.ml)
  (deps
   Makefile
-  ../_bin/ocamlbundle
-  ../_bin/cat_parsetree.exe
+  ../bin/ocamlbundle
+  ../bin/cat_parsetree.exe
   ../lib/mach_lib.cmxa
   (source_tree ../lib)
   (source_tree ../bin)
