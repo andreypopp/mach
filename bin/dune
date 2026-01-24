@@ -9,7 +9,3 @@
  (package mach-lsp)
  (name mach_lsp)
  (libraries mach_lib cmdliner unix csexp merlin-lib.dot_protocol))
-
-(executable
- (name cat_parsetree)
- (libraries compiler-libs.common))

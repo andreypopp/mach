@@ -14102,7 +14102,11 @@ type verbose = Mach_log.verbose =
   | Verbose 
   | Very_verbose 
   | Very_very_verbose 
-val pp : string -> unit
+type module_kind =
+  | ML 
+  | MLX 
+val module_kind_of_path : string -> module_kind
+val pp : source_path:string -> in_channel -> out_channel -> unit
 val configure :
   Mach_config.t -> string -> ((Mach_state.t * bool), Mach_error.t) result
 val build :
@@ -14143,10 +14147,7 @@ type module_kind =
 let module_kind_of_path path =
   if (Filename.extension path) = ".mlx" then MLX else ML
 let src_ext_of_kind = function | ML -> ".ml" | MLX -> ".mlx"
-let pp source_path =
-  In_channel.with_open_text source_path
-    (fun ic -> Mach_module.preprocess_source ~source_path stdout ic);
-  flush stdout
+let pp ~source_path ic oc = Mach_module.preprocess_source ~source_path oc ic
 type ocaml_module =
   {
   ml_path: string ;
@@ -14169,11 +14170,11 @@ let configure_backend config ~state ~prev_state ~changed_modules =
   let capture_stderrf fmt =
     ksprintf (sprintf "${MACH} run-build-command --stderr-only -- %s") fmt in
   let configure_ocaml_module b (m : ocaml_module) =
-    let src_ext = src_ext_of_kind m.kind in
-    let src = let open Filename in (m.build_dir / m.module_name) ^ src_ext in
+    let src = let open Filename in (m.build_dir / m.module_name) ^ ".ml" in
     let mli = let open Filename in (m.build_dir / m.module_name) ^ ".mli" in
-    Ninja.rulef b ~target:src ~deps:[m.ml_path] "%s pp %s > %s" cmd m.ml_path
-      src;
+    let pp_flag = match m.kind with | ML -> "" | MLX -> " --pp mlx-pp" in
+    Ninja.rulef b ~target:src ~deps:[m.ml_path] "%s pp%s %s > %s" cmd pp_flag
+      m.ml_path src;
     Option.iter
       (fun mli_path ->
          Ninja.rulef b ~target:mli ~deps:[mli_path] "%s pp %s > %s" cmd
@@ -14203,11 +14204,9 @@ let configure_backend config ~state ~prev_state ~changed_modules =
                "ocamlfind query -format '-I=%%d' -recursive %s > %s" libs
                lib_args])) in
   let compile_ocaml_module b (m : ocaml_module) =
-    let src_ext = src_ext_of_kind m.kind in
-    let src = let open Filename in (m.build_dir / m.module_name) ^ src_ext in
+    let src = let open Filename in (m.build_dir / m.module_name) ^ ".ml" in
     let mli = let open Filename in (m.build_dir / m.module_name) ^ ".mli" in
     let args = let open Filename in m.build_dir / "includes.args" in
-    let pp_flag = match m.kind with | ML -> "" | MLX -> " -pp mlx-pp" in
     let cmi_deps =
       List.map
         (fun (r : _ with_loc) ->
@@ -14225,19 +14224,19 @@ let configure_backend config ~state ~prev_state ~changed_modules =
     | Some _ ->
         (Ninja.rule b ~target:(m.cmi)
            ~deps:((mli :: args :: lib_args_dep) @ cmi_deps)
-           [capture_outf "ocamlc%s -bin-annot -c -opaque -args %s%s -o %s %s"
-              pp_flag args lib_args_cmd m.cmi mli];
+           [capture_outf "ocamlc -bin-annot -c -opaque -args %s%s -o %s %s"
+              args lib_args_cmd m.cmi mli];
          Ninja.rule b ~target:(m.cmx)
            ~deps:([src; m.cmi; args] @ lib_args_dep)
            [capture_outf
-              "ocamlopt%s -bin-annot -c -args %s%s -cmi-file %s -o %s -impl %s"
-              pp_flag args lib_args_cmd m.cmi m.cmx src];
+              "ocamlopt -bin-annot -c -args %s%s -cmi-file %s -o %s -impl %s"
+              args lib_args_cmd m.cmi m.cmx src];
          Ninja.rule b ~target:(m.cmt) ~deps:[m.cmx] [])
     | None ->
         (Ninja.rule b ~target:(m.cmx)
            ~deps:((src :: args :: lib_args_dep) @ cmi_deps)
-           [capture_outf "ocamlopt%s -bin-annot -c -args %s%s -o %s -impl %s"
-              pp_flag args lib_args_cmd m.cmx src];
+           [capture_outf "ocamlopt -bin-annot -c -args %s%s -o %s -impl %s"
+              args lib_args_cmd m.cmx src];
          Ninja.rule b ~target:(m.cmi) ~deps:[m.cmx] [];
          Ninja.rule b ~target:(m.cmt) ~deps:[m.cmx] []) in
   let link_ocaml_module b (all_objs : string list) (all_libs : string list)
@@ -20271,7 +20270,31 @@ let configure_cmd =
 let pp_cmd =
   let doc = "Preprocess source file to stdout (for use with merlin -pp)" in
   let info = Cmd.info "pp" ~doc ~docs:Manpage.s_none in
-  Cmd.v info Term.(const pp $ source_arg)
+  let pp_arg = Arg.(value & opt (some string) None & info ["pp"]
+    ~docv:"COMMAND" ~doc:"External preprocessor to run after mach preprocessing") in
+  let f source pp_cmd =
+    match pp_cmd with
+    | None ->
+      In_channel.with_open_text source (fun ic ->
+        pp ~source_path:source ic stdout);
+      flush stdout
+    | Some cmd ->
+      (* First, run mach preprocessing to a temp file *)
+      let temp = Filename.temp_file "mach-pp" ".ml" in
+      Fun.protect ~finally:(fun () -> try Sys.remove temp with _ -> ())
+        (fun () ->
+          Out_channel.with_open_text temp (fun oc ->
+            In_channel.with_open_text source (fun ic ->
+              pp ~source_path:source ic oc));
+          (* Then run external preprocessor *)
+          let full_cmd = Printf.sprintf "%s %s" cmd (Filename.quote temp) in
+          let code = Sys.command full_cmd in
+          if code <> 0 then begin
+            Printf.eprintf "mach: preprocessor %S failed\n%!" cmd;
+            exit 1
+          end)
+  in
+  Cmd.v info Term.(const f $ source_arg $ pp_arg)
 
 let run_build_command_cmd =
   let doc = "Run a build command, prefixing output with >>>" in
