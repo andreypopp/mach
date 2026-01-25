@@ -8,6 +8,23 @@ type verbose = Mach_log.verbose = Quiet | Verbose | Very_verbose | Very_very_ver
 let log_verbose = Mach_log.log_verbose
 let log_very_verbose = Mach_log.log_very_verbose
 
+(* --- Target type --- *)
+
+type target =
+  | Target_executable of string  (** path to module which defines an executable *)
+  | Target_library of string     (** path to library directory *)
+
+let resolve_target config path =
+  let path = Unix.realpath path in
+  match Mach_module.resolve_require config ~source_path:path ~line:0 path with
+  | Mach_module.Require r -> Target_executable r.v
+  | Mach_module.Require_lib r -> Target_library r.v
+  | Mach_module.Require_extlib _ -> failwith "impossible as the input is a path"
+
+let target_path = function
+  | Target_executable p
+  | Target_library p -> p
+
 (* --- PP (for merlin and build) --- *)
 
 let pp ~source_path ic oc =
@@ -77,7 +94,7 @@ let configure_library ~build_dir ninja config (lib : Mach_library.t) =
     ~deps
     ~lib_name
 
-let configure_backend config ~state ~prev_state ~changed_paths script_path =
+let configure_backend config ~target ~state ~prev_state ~changed_paths =
   let build_dir_of = Mach_config.build_dir_of config in
   let module_file = "mach.ninja" in
   let root_file = "build.ninja" in
@@ -126,28 +143,38 @@ let configure_backend config ~state ~prev_state ~changed_paths script_path =
     end
   ) libs;
   (* Generate root build file *)
-  let exe_path = Filename.(build_dir_of script_path / "a.out") in
-  let cmxs = List.map snd modules in
-  let extlibs = Mach_state.extlibs state in
-  write_file Filename.(build_dir_of script_path / root_file) (
-    log_verbose "mach: configuring %s (root)" script_path;
+  let target_path = target_path target in
+  let build_dir = build_dir_of target_path in
+  write_file Filename.(build_dir / root_file) (
+    log_verbose "mach: configuring %s (root)" target_path;
     let b = Ninja.create () in
     Ninja.var b "MACH" cmd;
     List.iter (fun lib -> Ninja.subninja b Filename.(build_dir_of lib.Mach_library.path / module_file)) libs;
     List.iter (fun (m, _cmx) -> Ninja.subninja b Filename.(build_dir_of m.Mach_module.path_ml / module_file)) modules;
-    Ninja.rule_phony b ~target:"all" ~deps:[exe_path];
-    let cmxas = List.map (Mach_library.cmxa config) libs in
-    Mach_ocaml_rules.link_ocaml_executable b config
-      ~exe_path
-      ~extlibs
-      ~cmxs
-      ~cmxas
-      ~build_dir:(build_dir_of script_path);
+    begin match target with
+    | Target_library lib_path ->
+      (* For library targets, just build the library's .cmxa *)
+      let cmxa_path = Filename.(build_dir_of lib_path / Filename.basename lib_path ^ ".cmxa") in
+      Ninja.rule_phony b ~target:"all" ~deps:[cmxa_path]
+    | Target_executable _ ->
+      (* For executable targets, link to a.out *)
+      let exe_path = Filename.(build_dir / "a.out") in
+      let cmxs = List.map snd modules in
+      let extlibs = Mach_state.extlibs state in
+      let cmxas = List.map (Mach_library.cmxa config) libs in
+      Ninja.rule_phony b ~target:"all" ~deps:[exe_path];
+      Mach_ocaml_rules.link_ocaml_executable b config
+        ~exe_path
+        ~extlibs
+        ~cmxs
+        ~cmxas
+        ~build_dir
+    end;
     Ninja.contents b
   )
 
-let configure_exn config source_path =
-  let source_path = Unix.realpath source_path in
+let configure_exn config target =
+  let source_path = target_path target in
   let build_dir_of = Mach_config.build_dir_of config in
   let build_dir = build_dir_of source_path in
   let state_path = Filename.(build_dir / "Mach.state") in
@@ -180,7 +207,7 @@ let configure_exn config source_path =
       Mach_state.modules state |> List.iter (fun m -> rm_rf (build_dir_of m.Mach_module.path_ml));
     | Paths_changed _ -> ());
     mkdir_p build_dir;
-    configure_backend config ~state ~prev_state ~changed_paths source_path;
+    configure_backend config ~target ~state ~prev_state ~changed_paths;
     (* Clean up stale build outputs *)
     let cmd = sprintf "ninja -C %s -t cleandead > /dev/null" (Filename.quote build_dir) in
     if !Mach_log.verbose = Very_very_verbose then eprintf "+ %s\n%!" cmd;
@@ -189,8 +216,8 @@ let configure_exn config source_path =
   end;
   state, (Option.is_some reconfigure_reason)
 
-let configure config source_path =
-  try Ok (configure_exn config source_path)
+let configure config target =
+  try Ok (configure_exn config target)
   with Mach_error.Mach_user_error msg -> Error (`User_error msg)
 
 (* --- Build --- *)
@@ -208,18 +235,21 @@ let run_build cmd =
   | WEXITED code -> code
   | WSIGNALED _ | WSTOPPED _ -> 1
 
-let build_exn config script_path =
-  let script_path = Unix.realpath script_path in
+let build_exn config target =
+  let source_path = target_path target in
   let build_dir_of = Mach_config.build_dir_of config in
-  let state, reconfigured = configure_exn config script_path in
+  let state, reconfigured = configure_exn config target in
   log_verbose "mach: building...";
   let cmd = if !Mach_log.verbose = Very_very_verbose then "ninja -v" else "ninja --quiet" in
-  let cmd = sprintf "%s -C %s" cmd (Filename.quote (build_dir_of script_path)) in
+  let cmd = sprintf "%s -C %s" cmd (Filename.quote (build_dir_of source_path)) in
   if !Mach_log.verbose = Very_very_verbose then eprintf "+ %s\n%!" cmd;
   if run_build cmd <> 0 then Mach_error.user_errorf "build failed";
-  let exe_path = Filename.(build_dir_of script_path / "a.out") in
-  exe_path, state, reconfigured
+  let output_path = match target with
+    | Target_executable _ -> Filename.(build_dir_of source_path / "a.out")
+    | Target_library lib_path -> Filename.(build_dir_of lib_path / Filename.basename lib_path ^ ".cmxa")
+  in
+  output_path, state, reconfigured
 
-let build config script_path =
-  try Ok (build_exn config script_path)
+let build config target =
+  try Ok (build_exn config target)
   with Mach_error.Mach_user_error msg -> Error (`User_error msg)

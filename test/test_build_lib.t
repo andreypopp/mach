@@ -41,3 +41,14 @@ Run the executable manually:
   $ _mach/build/*__main.ml/a.out
   Hello from Foo, World!
   Hello from Bar!
+
+Test building a library directly (not through a script):
+  $ rm -rf _mach
+  $ mach build ./mylib/
+  $ test -f _mach/build/*__mylib/mylib.cmxa && echo "cmxa exists"
+  cmxa exists
+
+Test that running a library gives an appropriate error:
+  $ mach run ./mylib/ 2>&1
+  mach: cannot run a library, use 'mach build' instead
+  [1]

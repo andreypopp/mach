@@ -14804,12 +14804,21 @@ type verbose = Mach_log.verbose =
   | Verbose 
   | Very_verbose 
   | Very_very_verbose 
+type target =
+  | Target_executable of string
+  [@ocaml.doc " path to module which defines an executable "]
+  | Target_library of string [@ocaml.doc " path to library directory "]
+[@@ocaml.doc " Build target type "]
+val resolve_target : Mach_config.t -> string -> target[@@ocaml.doc
+                                                        " Resolve a path to a target type. Raises [Mach_error.Mach_user_error] if\n    the path is an external library. "]
+val target_path : target -> string[@@ocaml.doc
+                                    " Get the path from a target "]
 val pp : source_path:string -> in_channel -> out_channel -> unit
 val configure :
-  Mach_config.t -> string -> ((Mach_state.t * bool), Mach_error.t) result
+  Mach_config.t -> target -> ((Mach_state.t * bool), Mach_error.t) result
 val build :
   Mach_config.t ->
-    string -> ((string * Mach_state.t * bool), Mach_error.t) result
+    target -> ((string * Mach_state.t * bool), Mach_error.t) result
 end = struct
 [@@@ocaml.ppx.context
   {
@@ -14838,6 +14847,19 @@ type verbose = Mach_log.verbose =
   | Very_very_verbose 
 let log_verbose = Mach_log.log_verbose
 let log_very_verbose = Mach_log.log_very_verbose
+type target =
+  | Target_executable of string
+  [@ocaml.doc " path to module which defines an executable "]
+  | Target_library of string [@ocaml.doc " path to library directory "]
+let resolve_target config path =
+  let path = Unix.realpath path in
+  match Mach_module.resolve_require config ~source_path:path ~line:0 path
+  with
+  | Mach_module.Require r -> Target_executable (r.v)
+  | Mach_module.Require_lib r -> Target_library (r.v)
+  | Mach_module.Require_extlib _ ->
+      failwith "impossible as the input is a path"
+let target_path = function | Target_executable p | Target_library p -> p
 let pp ~source_path ic oc = Mach_module.preprocess_source ~source_path oc ic
 let configure_module ~build_dir ninja config (m : Mach_module.t) =
   let _includes_args =
@@ -14877,7 +14899,7 @@ let configure_library ~build_dir ninja config (lib : Mach_library.t) =
       |> List.split in
   Mach_ocaml_rules.link_ocaml_library ninja config ~build_dir ~cmxs ~deps
     ~lib_name
-let configure_backend config ~state ~prev_state ~changed_paths script_path =
+let configure_backend config ~target ~state ~prev_state ~changed_paths =
   let build_dir_of = Mach_config.build_dir_of config in
   let module_file = "mach.ninja" in
   let root_file = "build.ninja" in
@@ -14933,11 +14955,10 @@ let configure_backend config ~state ~prev_state ~changed_paths script_path =
             configure_library b config lib ~build_dir;
             write_file (let open Filename in build_dir / "mach.ninja")
               (Ninja.contents b))))) libs;
-  (let exe_path = let open Filename in (build_dir_of script_path) / "a.out" in
-   let cmxs = List.map snd modules in
-   let extlibs = Mach_state.extlibs state in
-   write_file (let open Filename in (build_dir_of script_path) / root_file)
-     (log_verbose "mach: configuring %s (root)" script_path;
+  (let target_path = target_path target in
+   let build_dir = build_dir_of target_path in
+   write_file (let open Filename in build_dir / root_file)
+     (log_verbose "mach: configuring %s (root)" target_path;
       (let b = Ninja.create () in
        Ninja.var b "MACH" cmd;
        List.iter
@@ -14950,13 +14971,24 @@ let configure_backend config ~state ~prev_state ~changed_paths script_path =
             Ninja.subninja b
               (let open Filename in
                  (build_dir_of m.Mach_module.path_ml) / module_file)) modules;
-       Ninja.rule_phony b ~target:"all" ~deps:[exe_path];
-       (let cmxas = List.map (Mach_library.cmxa config) libs in
-        Mach_ocaml_rules.link_ocaml_executable b config ~exe_path ~extlibs
-          ~cmxs ~cmxas ~build_dir:(build_dir_of script_path);
-        Ninja.contents b))))
-let configure_exn config source_path =
-  let source_path = Unix.realpath source_path in
+       (match target with
+        | Target_library lib_path ->
+            let cmxa_path =
+              let open Filename in
+                ((build_dir_of lib_path) / (Filename.basename lib_path)) ^
+                  ".cmxa" in
+            Ninja.rule_phony b ~target:"all" ~deps:[cmxa_path]
+        | Target_executable _ ->
+            let exe_path = let open Filename in build_dir / "a.out" in
+            let cmxs = List.map snd modules in
+            let extlibs = Mach_state.extlibs state in
+            let cmxas = List.map (Mach_library.cmxa config) libs in
+            (Ninja.rule_phony b ~target:"all" ~deps:[exe_path];
+             Mach_ocaml_rules.link_ocaml_executable b config ~exe_path
+               ~extlibs ~cmxs ~cmxas ~build_dir));
+       Ninja.contents b)))
+let configure_exn config target =
+  let source_path = target_path target in
   let build_dir_of = Mach_config.build_dir_of config in
   let build_dir = build_dir_of source_path in
   let state_path = let open Filename in build_dir / "Mach.state" in
@@ -14992,8 +15024,7 @@ let configure_exn config source_path =
                     (fun m -> rm_rf (build_dir_of m.Mach_module.path_ml))))
           | Paths_changed _ -> ());
          mkdir_p build_dir;
-         configure_backend config ~state ~prev_state ~changed_paths
-           source_path;
+         configure_backend config ~target ~state ~prev_state ~changed_paths;
          (let cmd =
             sprintf "ninja -C %s -t cleandead > /dev/null"
               (Filename.quote build_dir) in
@@ -15003,8 +15034,8 @@ let configure_exn config source_path =
           then Mach_error.user_errorf "ninja cleandead failed";
           Mach_state.write state_path state))));
   (state, (Option.is_some reconfigure_reason))
-let configure config source_path =
-  try Ok (configure_exn config source_path)
+let configure config target =
+  try Ok (configure_exn config target)
   with | Mach_error.Mach_user_error msg -> Error (`User_error msg)
 let run_build cmd =
   let open Unix in
@@ -15020,23 +15051,30 @@ let run_build cmd =
     (match close_process_in ic with
      | WEXITED code -> code
      | WSIGNALED _ | WSTOPPED _ -> 1)
-let build_exn config script_path =
-  let script_path = Unix.realpath script_path in
+let build_exn config target =
+  let source_path = target_path target in
   let build_dir_of = Mach_config.build_dir_of config in
-  let (state, reconfigured) = configure_exn config script_path in
+  let (state, reconfigured) = configure_exn config target in
   log_verbose "mach: building...";
   (let cmd =
      if (!Mach_log.verbose) = Very_very_verbose
      then "ninja -v"
      else "ninja --quiet" in
    let cmd =
-     sprintf "%s -C %s" cmd (Filename.quote (build_dir_of script_path)) in
+     sprintf "%s -C %s" cmd (Filename.quote (build_dir_of source_path)) in
    if (!Mach_log.verbose) = Very_very_verbose then eprintf "+ %s\n%!" cmd;
    if (run_build cmd) <> 0 then Mach_error.user_errorf "build failed";
-   (let exe_path = let open Filename in (build_dir_of script_path) / "a.out" in
-    (exe_path, state, reconfigured)))
-let build config script_path =
-  try Ok (build_exn config script_path)
+   (let output_path =
+      match target with
+      | Target_executable _ ->
+          let open Filename in (build_dir_of source_path) / "a.out"
+      | Target_library lib_path ->
+          let open Filename in
+            ((build_dir_of lib_path) / (Filename.basename lib_path)) ^
+              ".cmxa" in
+    (output_path, state, reconfigured)))
+let build config target =
+  try Ok (build_exn config target)
   with | Mach_error.Mach_user_error msg -> Error (`User_error msg)
 end
 include Mach_lib
@@ -20727,7 +20765,8 @@ let read_events ic =
   in
   loop ()
 
-let watch config script_path ?run_args () =
+let watch config target ?run_args () =
+  let target_path = Mach_lib.target_path target in
   let build_dir_of = Mach_config.build_dir_of config in
   let exception Restart_watcher in
   let code = Sys.command "command -v watchexec > /dev/null 2>&1" in
@@ -20735,7 +20774,6 @@ let watch config script_path ?run_args () =
     Printf.eprintf "mach: watchexec not found. Install it: https://github.com/watchexec/watchexec\n%!";
     exit 1
   end;
-  let script_path = Unix.realpath script_path in
 
   (* Track current state for signal handling and cleanup *)
   let current_process = ref None in
@@ -20756,9 +20794,12 @@ let watch config script_path ?run_args () =
   in
 
   let start_child state =
-    match run_args with
-    | None -> ()
-    | Some args ->
+    match run_args, target with
+    | None, _ -> ()
+    | Some _, Mach_lib.Target_library _ ->
+      Printf.eprintf "mach: cannot run a library, use 'mach build' instead\n%!";
+      exit 1
+    | Some args, Mach_lib.Target_executable script_path ->
       kill_child ();
       let exe_path = Filename.(Mach_config.build_dir_of config script_path / "a.out") in
       let argv = Array.of_list (exe_path :: args) in
@@ -20784,13 +20825,13 @@ let watch config script_path ?run_args () =
 
   Mach_log.log_verbose "mach: initial build...";
   (* Don't exit on initial build failure - continue watching for changes *)
-  (match build config script_path with
-  | Ok (_exe_path, state, _reconfigured) -> start_child state
+  (match build config target with
+  | Ok (_output_path, state, _reconfigured) -> start_child state
   | Error (`User_error msg) -> Mach_log.log_verbose "mach: %s" msg);
 
   let keep_watching = ref true in
   while !keep_watching do
-    let state = Option.get (Mach_state.read (Filename.concat (build_dir_of script_path) "Mach.state")) in
+    let state = Option.get (Mach_state.read (Filename.concat (build_dir_of target_path) "Mach.state")) in
     let source_dirs = Mach_state.source_dirs state in
     let source_files =
       let files = Hashtbl.create 16 in
@@ -20823,7 +20864,7 @@ let watch config script_path ?run_args () =
       "--debounce"; "200ms";
       "--only-emit-events";
       "--emit-events-to=stdio";
-      "@" ^ watchlist_path 
+      "@" ^ watchlist_path
     |] in
     Mach_log.log_very_verbose "mach:watch: running: %s" (String.concat " " (Array.to_list args));
     let pipe_read, pipe_write = Unix.pipe () in
@@ -20846,9 +20887,9 @@ let watch config script_path ?run_args () =
         in
         if relevant_paths <> [] then begin
           List.iter (fun p -> Mach_log.log_verbose "mach: file changed: %s" (Filename.basename p)) relevant_paths;
-          match build config script_path with
+          match build config target with
           | Error (`User_error msg) -> Mach_log.log_verbose "mach: %s" msg
-          | Ok (_exe_path, state, reconfigured) ->
+          | Ok (_output_path, state, reconfigured) ->
             Printf.eprintf "mach: build succeeded\n%!";
             start_child state;
             if reconfigured then begin
@@ -20878,8 +20919,8 @@ let verbose_arg =
     const f
     $ Arg.(value & flag_all & info ["v"; "verbose"] ~doc:"Log external command invocations to stderr."))
 
-let script_arg =
-  Arg.(required & pos 0 (some non_dir_file) None & info [] ~docv:"SCRIPT" ~doc:"OCaml script to run")
+let target_arg =
+  Arg.(required & pos 0 (some file) None & info [] ~docv:"SCRIPT" ~doc:"OCaml script or library to build")
 
 let args_arg =
   Arg.(value & pos_right 0 string [] & info [] ~docv:"ARGS" ~doc:"Arguments to pass to the script")
@@ -20893,34 +20934,43 @@ let run_cmd =
   let info = Cmd.info "run" ~doc in
   let f () watch_mode script_path args =
     let config = Mach_config.get () |> or_exit in
-    if watch_mode then watch config script_path ~run_args:args ()
+    let target = Mach_lib.resolve_target config script_path in
+    begin match target with
+    | Mach_lib.Target_library _ ->
+      Printf.eprintf "mach: cannot run a library, use 'mach build' instead\n%!";
+      exit 1
+    | Mach_lib.Target_executable _ -> ()
+    end;
+    if watch_mode then watch config target ~run_args:args ()
     else begin
-      let exe_path, _state, _reconfigured = build config script_path |> or_exit in
+      let exe_path, _state, _reconfigured = build config target |> or_exit in
       let argv = Array.of_list (exe_path :: args) in
       Unix.execv exe_path argv
     end
   in
-  Cmd.v info Term.(const f $ verbose_arg $ watch_arg $ script_arg $ args_arg)
+  Cmd.v info Term.(const f $ verbose_arg $ watch_arg $ target_arg $ args_arg)
 
 let build_cmd =
-  let doc = "Build an OCaml script without executing it" in
+  let doc = "Build an OCaml script or library without executing it" in
   let info = Cmd.info "build" ~doc in
   let f () watch_mode script_path =
     let config = Mach_config.get () |> or_exit in
-    if watch_mode then watch config script_path ()
-    else build config script_path |> or_exit |> ignore
+    let target = Mach_lib.resolve_target config script_path in
+    if watch_mode then watch config target ()
+    else build config target |> or_exit |> ignore
   in
-  Cmd.v info Term.(const f $ verbose_arg $ watch_arg $ script_arg)
+  Cmd.v info Term.(const f $ verbose_arg $ watch_arg $ target_arg)
 
 let source_arg =
-  Arg.(required & pos 0 (some non_dir_file) None & info [] ~docv:"SOURCE" ~doc:"OCaml source file to configure")
+  Arg.(required & pos 0 (some file) None & info [] ~docv:"SOURCE" ~doc:"OCaml source file or library to configure")
 
 let configure_cmd =
   let doc = "Generate build files for all modules in dependency graph" in
   let info = Cmd.info "configure" ~doc ~docs:Manpage.s_none in
   let f path =
     let config = Mach_config.get () |> or_exit in
-    configure config path |> or_exit |> ignore
+    let target = Mach_lib.resolve_target config path in
+    configure config target |> or_exit |> ignore
   in
   Cmd.v info Term.(const f $ source_arg)
 

@@ -49,7 +49,8 @@ let read_events ic =
   in
   loop ()
 
-let watch config script_path ?run_args () =
+let watch config target ?run_args () =
+  let target_path = Mach_lib.target_path target in
   let build_dir_of = Mach_config.build_dir_of config in
   let exception Restart_watcher in
   let code = Sys.command "command -v watchexec > /dev/null 2>&1" in
@@ -57,7 +58,6 @@ let watch config script_path ?run_args () =
     Printf.eprintf "mach: watchexec not found. Install it: https://github.com/watchexec/watchexec\n%!";
     exit 1
   end;
-  let script_path = Unix.realpath script_path in
 
   (* Track current state for signal handling and cleanup *)
   let current_process = ref None in
@@ -78,9 +78,12 @@ let watch config script_path ?run_args () =
   in
 
   let start_child state =
-    match run_args with
-    | None -> ()
-    | Some args ->
+    match run_args, target with
+    | None, _ -> ()
+    | Some _, Mach_lib.Target_library _ ->
+      Printf.eprintf "mach: cannot run a library, use 'mach build' instead\n%!";
+      exit 1
+    | Some args, Mach_lib.Target_executable script_path ->
       kill_child ();
       let exe_path = Filename.(Mach_config.build_dir_of config script_path / "a.out") in
       let argv = Array.of_list (exe_path :: args) in
@@ -106,13 +109,13 @@ let watch config script_path ?run_args () =
 
   Mach_log.log_verbose "mach: initial build...";
   (* Don't exit on initial build failure - continue watching for changes *)
-  (match build config script_path with
-  | Ok (_exe_path, state, _reconfigured) -> start_child state
+  (match build config target with
+  | Ok (_output_path, state, _reconfigured) -> start_child state
   | Error (`User_error msg) -> Mach_log.log_verbose "mach: %s" msg);
 
   let keep_watching = ref true in
   while !keep_watching do
-    let state = Option.get (Mach_state.read (Filename.concat (build_dir_of script_path) "Mach.state")) in
+    let state = Option.get (Mach_state.read (Filename.concat (build_dir_of target_path) "Mach.state")) in
     let source_dirs = Mach_state.source_dirs state in
     let source_files =
       let files = Hashtbl.create 16 in
@@ -145,7 +148,7 @@ let watch config script_path ?run_args () =
       "--debounce"; "200ms";
       "--only-emit-events";
       "--emit-events-to=stdio";
-      "@" ^ watchlist_path 
+      "@" ^ watchlist_path
     |] in
     Mach_log.log_very_verbose "mach:watch: running: %s" (String.concat " " (Array.to_list args));
     let pipe_read, pipe_write = Unix.pipe () in
@@ -168,9 +171,9 @@ let watch config script_path ?run_args () =
         in
         if relevant_paths <> [] then begin
           List.iter (fun p -> Mach_log.log_verbose "mach: file changed: %s" (Filename.basename p)) relevant_paths;
-          match build config script_path with
+          match build config target with
           | Error (`User_error msg) -> Mach_log.log_verbose "mach: %s" msg
-          | Ok (_exe_path, state, reconfigured) ->
+          | Ok (_output_path, state, reconfigured) ->
             Printf.eprintf "mach: build succeeded\n%!";
             start_child state;
             if reconfigured then begin
@@ -200,8 +203,8 @@ let verbose_arg =
     const f
     $ Arg.(value & flag_all & info ["v"; "verbose"] ~doc:"Log external command invocations to stderr."))
 
-let script_arg =
-  Arg.(required & pos 0 (some non_dir_file) None & info [] ~docv:"SCRIPT" ~doc:"OCaml script to run")
+let target_arg =
+  Arg.(required & pos 0 (some file) None & info [] ~docv:"SCRIPT" ~doc:"OCaml script or library to build")
 
 let args_arg =
   Arg.(value & pos_right 0 string [] & info [] ~docv:"ARGS" ~doc:"Arguments to pass to the script")
@@ -215,34 +218,43 @@ let run_cmd =
   let info = Cmd.info "run" ~doc in
   let f () watch_mode script_path args =
     let config = Mach_config.get () |> or_exit in
-    if watch_mode then watch config script_path ~run_args:args ()
+    let target = Mach_lib.resolve_target config script_path in
+    begin match target with
+    | Mach_lib.Target_library _ ->
+      Printf.eprintf "mach: cannot run a library, use 'mach build' instead\n%!";
+      exit 1
+    | Mach_lib.Target_executable _ -> ()
+    end;
+    if watch_mode then watch config target ~run_args:args ()
     else begin
-      let exe_path, _state, _reconfigured = build config script_path |> or_exit in
+      let exe_path, _state, _reconfigured = build config target |> or_exit in
       let argv = Array.of_list (exe_path :: args) in
       Unix.execv exe_path argv
     end
   in
-  Cmd.v info Term.(const f $ verbose_arg $ watch_arg $ script_arg $ args_arg)
+  Cmd.v info Term.(const f $ verbose_arg $ watch_arg $ target_arg $ args_arg)
 
 let build_cmd =
-  let doc = "Build an OCaml script without executing it" in
+  let doc = "Build an OCaml script or library without executing it" in
   let info = Cmd.info "build" ~doc in
   let f () watch_mode script_path =
     let config = Mach_config.get () |> or_exit in
-    if watch_mode then watch config script_path ()
-    else build config script_path |> or_exit |> ignore
+    let target = Mach_lib.resolve_target config script_path in
+    if watch_mode then watch config target ()
+    else build config target |> or_exit |> ignore
   in
-  Cmd.v info Term.(const f $ verbose_arg $ watch_arg $ script_arg)
+  Cmd.v info Term.(const f $ verbose_arg $ watch_arg $ target_arg)
 
 let source_arg =
-  Arg.(required & pos 0 (some non_dir_file) None & info [] ~docv:"SOURCE" ~doc:"OCaml source file to configure")
+  Arg.(required & pos 0 (some file) None & info [] ~docv:"SOURCE" ~doc:"OCaml source file or library to configure")
 
 let configure_cmd =
   let doc = "Generate build files for all modules in dependency graph" in
   let info = Cmd.info "configure" ~doc ~docs:Manpage.s_none in
   let f path =
     let config = Mach_config.get () |> or_exit in
-    configure config path |> or_exit |> ignore
+    let target = Mach_lib.resolve_target config path in
+    configure config target |> or_exit |> ignore
   in
   Cmd.v info Term.(const f $ source_arg)
 

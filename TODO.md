@@ -4,6 +4,22 @@
 
 ## Support passing -H hidden includes args when compiling
 
+## [DONE] fix `mach build` to be able to build libs
+
+Now if you do `mach build lib/` it fails because it tries to build an executable out of it. Let's first add a test for that.
+
+What we want is to define a new type
+```ocaml
+type target =
+  | Target_executable of string (** path to module which defines an executable *)
+  | Target_library of string (** path to library dir *)
+```
+we can reuse `Mach_module.resolve_require` to find out target from a given path.
+
+Then we need to update `Mach_lib.*` to accept `target` values.
+
+plan
+
 ## [DONE] Implement support for libraries
 
 We consider a directory with `Machlib` file a library.
