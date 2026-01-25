@@ -16,17 +16,22 @@ let contents = Buffer.contents
 
 let subninja buf path = bprintf buf "subninja %s\n" path
 
-let rule buf ~target ~deps ?dyndep recipe =
+let print_deps buf ~deps ~order_only_deps =
+  List.iter (bprintf buf " %s") deps;
+  (match order_only_deps with | [] -> () | deps -> bprintf buf " ||"; List.iter (bprintf buf " %s") deps)
+
+let rule buf ~target ~deps ?(order_only_deps=[]) ?dyndep recipe =
+  let order_only_deps =
+    match dyndep with
+    | None -> order_only_deps
+    | Some dyndep -> dyndep :: order_only_deps
+  in
   bprintf buf "build %s:" target;
   (match recipe with
   | [] ->
-    bprintf buf " phony";
-    List.iter (bprintf buf " %s") deps;
-    Buffer.add_char buf '\n'
+    bprintf buf " phony"; print_deps buf ~deps ~order_only_deps; Buffer.add_char buf '\n'
   | _ ->
-    bprintf buf " cmd";
-    List.iter (bprintf buf " %s") deps;
-    Buffer.add_char buf '\n';
+    bprintf buf " cmd"; print_deps buf ~deps ~order_only_deps; Buffer.add_char buf '\n';
     bprintf buf "  cmd = %s\n" (String.concat " && " recipe);
     Option.iter (bprintf buf "  dyndep = %s\n") dyndep);
   Buffer.add_char buf '\n'

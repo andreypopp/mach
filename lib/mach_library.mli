@@ -16,9 +16,6 @@ and lib_module = {
 val of_path : Mach_config.t -> string -> t
 (** Load library from a path. *)
 
-val configure_library : Mach_config.t -> t -> unit
-(** Configure build for a library. *)
-
 val cmxa : Mach_config.t -> t -> string
 (** Path to library's .cmxa file *)
 

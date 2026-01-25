@@ -9,10 +9,10 @@
   $ ls _mach/build/*myscript.ml/ | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
   Mach.state
   a.out
-  all_objects.args
   includes.args
   myscript.cmi
   myscript.cmt
   myscript.cmx
   myscript.ml
   myscript.o
+  objs.args

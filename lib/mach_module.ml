@@ -122,3 +122,8 @@ let of_path_exn config path_ml =
 let of_path config path_ml =
   try Ok (of_path_exn config path_ml)
   with Mach_error.Mach_user_error msg -> Error (`User_error msg)
+
+let module_name_of_path path = Filename.(basename path |> remove_extension)
+
+let cmx config m =
+  Filename.(Mach_config.build_dir_of config m.path_ml / (module_name_of_path m.path_ml ^ ".cmx"))

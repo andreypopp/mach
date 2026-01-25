@@ -10,12 +10,12 @@ type require =
 
 and extlib = { name : string; version : string }
 
-(** Compare two requires for equality, ignoring source location *)
 val equal_require : require -> require -> bool
+(** Compare two requires for equality, ignoring source location *)
 
+val resolve_require : Mach_config.t -> source_path:string -> line:int -> string -> require
 (** Resolve a require.
     Handles both module files (.ml/.mlx) and library directories (with Machlib). *)
-val resolve_require : Mach_config.t -> source_path:string -> line:int -> string -> require
 
 type t = {
   path_ml : string;            (** path to .ml/.mlx file *)
@@ -32,8 +32,10 @@ val of_path_exn : Mach_config.t -> string -> t
 
 val kind_of_path_ml : string -> kind
 
-(** Preprocess source file, stripping directives while preserving line numbers *)
 val preprocess_source : source_path:string -> out_channel -> in_channel -> unit
+(** Preprocess source file, stripping directives while preserving line numbers *)
 
 val path_mli : string -> string option
 (** Given a .ml/.mlx path, return the corresponding .mli/.mli path if it exists. *)
+
+val cmx : Mach_config.t -> t -> string

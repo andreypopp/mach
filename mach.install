@@ -1,14 +1,12 @@
-bin: [ "_dist/mach" ]
-share_root: [ 
-  "_dist/bash-completion/completions/mach" { "bash-completion/completions/mach" }
-  "_dist/zsh/site-functions/_mach" { "zsh/site-functions/_mach" }
+lib: [
+  "_build/install/default/lib/mach/META"
+  "_build/install/default/lib/mach/dune-package"
+  "_build/install/default/lib/mach/opam"
 ]
-
-man: [
-  "_dist/man1/mach.1" {"man1/mach.1"}
-  "_dist/man1/mach-build.1" {"man1/mach-build.1"}
-  "_dist/man1/mach-configure.1" {"man1/mach-configure.1"}
-  "_dist/man1/mach-pp.1" {"man1/mach-pp.1"}
-  "_dist/man1/mach-run.1" {"man1/mach-run.1"}
-  "_dist/man1/mach-run-build-command.1" {"man1/mach-run-build-command.1"}
+bin: [
+  "_build/install/default/bin/mach"
+]
+doc: [
+  "_build/install/default/doc/mach/LICENSE"
+  "_build/install/default/doc/mach/README.md"
 ]

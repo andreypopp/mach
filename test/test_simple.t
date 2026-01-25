@@ -24,13 +24,13 @@ Inspect the build dir:
   $ ls _mach/build/*__main.ml | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
   Mach.state
   a.out
-  all_objects.args
   includes.args
   main.cmi
   main.cmt
   main.cmx
   main.ml
   main.o
+  objs.args
 
 Test absolute path resolution (extension is inferred for absolute paths too):
   $ cat << 'EOF' > abs_lib.ml

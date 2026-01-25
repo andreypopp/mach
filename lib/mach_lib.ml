@@ -8,17 +8,6 @@ type verbose = Mach_log.verbose = Quiet | Verbose | Very_verbose | Very_very_ver
 let log_verbose = Mach_log.log_verbose
 let log_very_verbose = Mach_log.log_very_verbose
 
-let module_name_of_path path = Filename.(basename path |> remove_extension)
-
-(* --- Module kind (ML or MLX) --- *)
-
-type module_kind = ML | MLX
-
-let module_kind_of_path path =
-  if Filename.extension path = ".mlx" then MLX else ML
-
-let src_ext_of_kind = function ML -> ".ml" | MLX -> ".mlx"
-
 (* --- PP (for merlin and build) --- *)
 
 let pp ~source_path ic oc =
@@ -26,125 +15,73 @@ let pp ~source_path ic oc =
 
 (* --- Configure --- *)
 
-type ocaml_module = {
-  m : Mach_module.t;
-  cmx: string;
-  cmi: string;
-  cmt: string;
-  module_name: string;
-  build_dir: string;
-}
+let configure_module ~build_dir ninja config (m : Mach_module.t) =
+  let _includes_args = 
+    let ml, _mli =
+      Mach_ocaml_rules.preprocess_ocaml_module ninja config
+        ~build_dir
+        ~path_ml:m.path_ml
+        ~path_mli:m.path_mli
+        ~kind:m.kind
+    in
+    Mach_ocaml_rules.compile_ocaml_args ninja config
+      ~requires:m.requires
+      ~build_dir
+      ~deps:[ml]
+  in
+  Mach_ocaml_rules.compile_ocaml_module ninja config
+    ~path_ml:m.path_ml
+    ~path_mli:m.path_mli
+    ~requires:m.requires
+    ~build_dir
+
+let configure_library ~build_dir ninja config (lib : Mach_library.t) =
+  let lib_name = Filename.basename lib.path in
+  let includes_args =
+    Mach_ocaml_rules.compile_ocaml_args ~include_self:true ninja config
+      ~requires:!!(lib.requires)
+      ~build_dir
+      ~deps:[Filename.(lib.path / "Machlib")]
+  in
+  let deps, cmxs =
+    List.map (fun (m : Mach_library.lib_module) ->
+      let src_ml = Filename.(lib.path / m.file_ml) in
+      let src_mli = Option.map (fun file_mli -> Filename.(lib.path / file_mli)) m.file_mli in
+      let ml, mli =
+        Mach_ocaml_rules.preprocess_ocaml_module ninja config
+          ~build_dir
+          ~path_ml:src_ml
+          ~path_mli:src_mli
+          ~kind:(Mach_module.kind_of_path_ml src_ml);
+      in
+      let path_dep = Mach_ocaml_rules.ocamldep ninja config
+        ~build_dir
+        ~path_ml:ml
+        ~includes_args
+      in
+      let _cmi, cmx =
+        Mach_ocaml_rules.compile_ocaml_module ninja config
+          ~dyndep:path_dep
+          ~build_dir
+          ~path_ml:ml
+          ~path_mli:mli
+          ~requires:!!(lib.requires)
+      in
+      path_dep, cmx
+    ) !!(lib.modules)
+    |> List.split
+  in
+  Mach_ocaml_rules.link_ocaml_library ninja config
+    ~build_dir
+    ~cmxs
+    ~deps
+    ~lib_name
 
 let configure_backend config ~state ~prev_state ~changed_paths script_path =
   let build_dir_of = Mach_config.build_dir_of config in
   let module_file = "mach.ninja" in
   let root_file = "build.ninja" in
   let cmd = config.Mach_config.mach_executable_path in
-  let capture_outf fmt = ksprintf (sprintf "${MACH} run-build-command -- %s") fmt in
-  let capture_stderrf fmt = ksprintf (sprintf "${MACH} run-build-command --stderr-only -- %s") fmt in
-
-  let configure_ocaml_module b (m : ocaml_module) =
-    let src =
-      (* preprocess .ml *)
-      let src = Filename.(m.build_dir / m.module_name ^ ".ml") in
-      let pp_flag = match m.m.kind with ML -> "" | MLX -> " --pp mlx-pp" in
-      Ninja.rulef b ~target:src ~deps:[m.m.path_ml] "%s pp%s -o %s %s" cmd pp_flag src m.m.path_ml;
-      src
-    in
-    let () =
-      (* preprocess .mli *)
-      Option.iter (fun mli_path ->
-        let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
-        Ninja.rulef b ~target:mli ~deps:[mli_path] "%s pp -o %s %s" cmd mli mli_path) m.m.path_mli
-    in
-    let path_requires = List.filter_map (function
-      | Mach_module.Require r | Mach_module.Require_lib r -> Some r
-      | Mach_module.Require_extlib _ -> None
-    ) m.m.requires in
-    let extlib_requires = List.filter_map (function
-      | Mach_module.Require_extlib l -> Some l
-      | Mach_module.Require _ | Mach_module.Require_lib _ -> None
-    ) m.m.requires in
-    let () =
-      (* generate includes.args *)
-      let args = Filename.(m.build_dir / "includes.args") in
-      let recipe =
-        match path_requires with
-        | [] -> [sprintf "touch %s" args]
-        | requires -> List.map (fun (r : _ with_loc) -> sprintf "echo '-I=%s' >> %s" (build_dir_of r.v) args) requires
-      in
-      Ninja.rule b ~target:args ~deps:[src] (sprintf "rm -f %s" args :: recipe)
-    in
-    let () =
-      (* generate lib_includes.args (ocamlfind libraries include paths, only if libs present) *)
-      (match extlib_requires with
-      | [] -> ()
-      | libs ->
-        let lib_args = Filename.(m.build_dir / "lib_includes.args") in
-        let libs = String.concat " " (List.map (fun (l : Mach_module.extlib with_loc) -> l.v.name) libs) in
-        Ninja.rule b ~target:lib_args ~deps:[] [capture_stderrf "ocamlfind query -format '-I=%%d' -recursive %s > %s" libs lib_args])
-    in
-    ()
-  in
-  let compile_ocaml_module b (m : ocaml_module) =
-    let src = Filename.(m.build_dir / m.module_name ^ ".ml") in
-    let mli = Filename.(m.build_dir / m.module_name ^ ".mli") in
-    let args = Filename.(m.build_dir / "includes.args") in
-    (* Dependencies: for modules depend on .cmi, for libraries depend on .cmxa *)
-    let cmi_deps = List.filter_map (function
-      | Mach_module.Require r ->
-        (* Module dependency - depend on .cmi *)
-        Some Filename.(build_dir_of r.v / module_name_of_path r.v ^ ".cmi")
-      | Mach_module.Require_lib r ->
-        (* Library dependency - depend on .cmxa *)
-        Some Filename.(build_dir_of r.v / Filename.basename r.v ^ ".cmxa")
-      | Mach_module.Require_extlib _ -> None
-    ) m.m.requires in
-    let has_extlibs = List.exists (function Mach_module.Require_extlib _ -> true | _ -> false) m.m.requires in
-    let lib_args_dep, lib_args_cmd =
-      if has_extlibs
-      then [Filename.(m.build_dir / "lib_includes.args")], sprintf " -args %s" Filename.(m.build_dir / "lib_includes.args")
-      else [], ""
-    in
-    match m.m.path_mli with
-    | Some _ -> (* With .mli: compile .mli to .cmi/.cmti first (using ocamlc for speed), then .ml to .cmx *)
-      Ninja.rule b ~target:m.cmi ~deps:(mli :: args :: lib_args_dep @ cmi_deps)
-        [capture_outf "ocamlc -bin-annot -c -opaque -args %s%s -o %s %s" args lib_args_cmd m.cmi mli];
-      Ninja.rule b ~target:m.cmx ~deps:([src; m.cmi; args] @ lib_args_dep)
-        [capture_outf "ocamlopt -bin-annot -c -args %s%s -cmi-file %s -o %s -impl %s" args lib_args_cmd m.cmi m.cmx src];
-      Ninja.rule b ~target:m.cmt ~deps:[m.cmx] []
-    | None -> (* Without .mli: ocamlopt produces both .cmi and .cmx *)
-      Ninja.rule b ~target:m.cmx ~deps:(src :: args :: lib_args_dep @ cmi_deps)
-        [capture_outf "ocamlopt -bin-annot -c -args %s%s -o %s -impl %s" args lib_args_cmd m.cmx src];
-      Ninja.rule b ~target:m.cmi ~deps:[m.cmx] [];
-      Ninja.rule b ~target:m.cmt ~deps:[m.cmx] []
-  in
-  let link_ocaml_module b (all_objs : string list) ~(extlibs : string list) ~(libs : Mach_library.t list) ~exe_path =
-    let root_build_dir = Filename.dirname exe_path in
-    let args = Filename.(root_build_dir / "all_objects.args") in
-    (* Include both .cmx files and mach library .cmxa files *)
-    let all_link_objs = (List.map (Mach_library.cmxa config) libs) @ all_objs in
-    let objs_str = String.concat " " all_link_objs in
-    Ninja.rulef b ~target:args ~deps:all_link_objs "printf '%%s\\n' %s > %s" objs_str args;
-    match extlibs with
-    | [] ->
-      Ninja.rule b ~target:exe_path ~deps:(args :: all_link_objs)
-        [capture_outf "ocamlopt -o %s -args %s" exe_path args]
-    | libs ->
-      let lib_args = Filename.(root_build_dir / "lib_objects.args") in
-      let libs = String.concat " " libs in
-      Ninja.rule b ~target:lib_args ~deps:[] [capture_stderrf "ocamlfind query -a-format -recursive -predicates native %s > %s" libs lib_args];
-      Ninja.rule b ~target:exe_path ~deps:(args :: lib_args :: all_link_objs)
-        [capture_outf "ocamlopt -o %s -args %s -args %s" exe_path lib_args args]
-  in
-  let modules = List.map (fun (m : Mach_module.t) ->
-      let module_name = module_name_of_path m.path_ml in
-      let build_dir = build_dir_of m.path_ml in
-      let cmx = Filename.(build_dir / module_name ^ ".cmx") in
-      let cmi = Filename.(build_dir / module_name ^ ".cmi") in
-      let cmt = Filename.(build_dir / module_name ^ ".cmt") in
-      { m; module_name; build_dir; cmx; cmi; cmt }
-  ) (Mach_state.modules state) in
   let old_modules, old_libs = match prev_state with
     | None -> SS.empty, SS.empty
     | Some old ->
@@ -152,24 +89,25 @@ let configure_backend config ~state ~prev_state ~changed_paths script_path =
       let modules = Mach_state.modules old |> List.map (fun lib -> lib.Mach_module.path_ml) in
       SS.of_list modules, SS.of_list libs
   in
-  (* Generate per-module build files - only for changed/new modules *)
-  List.iter (fun (m : ocaml_module) ->
-    let needs_configure = match changed_paths with
-      | None -> true  (* full reconfigure *)
-      | Some changed_paths -> SS.mem m.m.path_ml changed_paths || not (SS.mem m.m.path_ml old_modules)
-    in
-    if needs_configure then begin
-      log_verbose "mach: configuring %s" m.m.path_ml;
-      mkdir_p m.build_dir;
-      let file_path = Filename.(m.build_dir / module_file) in
-      write_file file_path (
+  let modules = Mach_state.modules state in
+  let modules =
+    List.map (fun (m : Mach_module.t) ->
+      let build_dir = build_dir_of m.path_ml in
+      let needs_configure = match changed_paths with
+        | None -> true  (* full reconfigure *)
+        | Some changed_paths -> SS.mem m.path_ml changed_paths || not (SS.mem m.path_ml old_modules)
+      in
+      if needs_configure then begin
+        log_verbose "mach: configuring %s" m.path_ml;
+        mkdir_p build_dir;
         let b = Ninja.create () in
-        configure_ocaml_module b m;
-        compile_ocaml_module b m;
-        Ninja.contents b)
-    end
-  ) modules;
-  (* Configure libraries *)
+        let _cmi, cmx = configure_module ~build_dir b config m in
+        write_file Filename.(build_dir / module_file) (Ninja.contents b);
+        m, cmx
+      end
+      else m, Mach_module.cmx config m
+    ) modules
+  in
   let libs = Mach_state.libs state in
   List.iter (fun (lib : Mach_library.t) ->
     let needs_configure = match changed_paths with
@@ -178,21 +116,33 @@ let configure_backend config ~state ~prev_state ~changed_paths script_path =
     in
     if needs_configure then begin
       log_verbose "mach: configuring library %s" lib.path;
-      Mach_library.configure_library config lib
+      let build_dir = Mach_config.build_dir_of config lib.path in
+      let mach_cmd = config.Mach_config.mach_executable_path in
+      mkdir_p build_dir;
+      let b = Ninja.create () in
+      Ninja.var b "MACH" mach_cmd;
+      configure_library b config lib ~build_dir;
+      write_file Filename.(build_dir / "mach.ninja") (Ninja.contents b)
     end
   ) libs;
   (* Generate root build file *)
   let exe_path = Filename.(build_dir_of script_path / "a.out") in
-  let all_objs = List.map (fun m -> m.cmx) modules in
+  let cmxs = List.map snd modules in
   let extlibs = Mach_state.extlibs state in
   write_file Filename.(build_dir_of script_path / root_file) (
     log_verbose "mach: configuring %s (root)" script_path;
     let b = Ninja.create () in
     Ninja.var b "MACH" cmd;
     List.iter (fun lib -> Ninja.subninja b Filename.(build_dir_of lib.Mach_library.path / module_file)) libs;
-    List.iter (fun m -> Ninja.subninja b Filename.(build_dir_of m.m.path_ml / module_file)) modules;
+    List.iter (fun (m, _cmx) -> Ninja.subninja b Filename.(build_dir_of m.Mach_module.path_ml / module_file)) modules;
     Ninja.rule_phony b ~target:"all" ~deps:[exe_path];
-    link_ocaml_module b all_objs ~extlibs ~libs ~exe_path;
+    let cmxas = List.map (Mach_library.cmxa config) libs in
+    Mach_ocaml_rules.link_ocaml_executable b config
+      ~exe_path
+      ~extlibs
+      ~cmxs
+      ~cmxas
+      ~build_dir:(build_dir_of script_path);
     Ninja.contents b
   )
 

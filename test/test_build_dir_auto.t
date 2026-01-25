@@ -19,13 +19,13 @@ Check that build directory was created (path contains normalized script path wit
   $ ls _mach/build/*main.ml/ | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
   Mach.state
   a.out
-  all_objects.args
   includes.args
   main.cmi
   main.cmt
   main.cmx
   main.ml
   main.o
+  objs.args
 
 Second run - reuses the same build directory:
 
@@ -37,10 +37,10 @@ Verify build artifacts exist in the auto-derived directory:
   $ ls _mach/build/*main.ml/ | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
   Mach.state
   a.out
-  all_objects.args
   includes.args
   main.cmi
   main.cmt
   main.cmx
   main.ml
   main.o
+  objs.args
