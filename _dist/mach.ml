@@ -13613,8 +13613,8 @@ type t =
   requires: Mach_module.require list Lazy.t }
 and lib_module =
   {
-  file_ml: string [@ocaml.doc " relative filename, e.g., \"foo.ml\" "];
-  file_mli: string option [@ocaml.doc " relative filename if exists "]}
+  file_ml: string [@ocaml.doc " relative filename "];
+  file_mli: string option [@ocaml.doc " relative filename, if exists "]}
 val of_path : Mach_config.t -> string -> t[@@ocaml.doc
                                             " Load library from a path. "]
 val configure_library : Mach_config.t -> t -> unit[@@ocaml.doc
@@ -13769,8 +13769,6 @@ let of_path config path =
                 else None)))
          |> (List.sort (fun a b -> String.compare a.file_ml b.file_ml))) in
   { path; modules; requires }
-let module_name_of_file file =
-  String.capitalize_ascii (Filename.remove_extension file)
 let configure_library config lib =
   let lib_path = lib.path in
   let lib_modules = lib.modules in

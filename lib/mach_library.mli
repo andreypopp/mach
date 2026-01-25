@@ -9,8 +9,8 @@ type t = {
 }
 
 and lib_module = {
-  file_ml : string;         (** relative filename, e.g., "foo.ml" *)
-  file_mli : string option; (** relative filename if exists *)
+  file_ml : string;         (** relative filename *)
+  file_mli : string option; (** relative filename, if exists *)
 }
 
 val of_path : Mach_config.t -> string -> t

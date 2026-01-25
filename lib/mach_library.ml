@@ -4,23 +4,19 @@ open! Mach_std
 open Sexplib0.Sexp_conv
 open Printf
 
-(* --- Types --- *)
-
 type lib_module = {
-  file_ml : string;        (* relative filename, e.g., "foo.ml" *)
-  file_mli : string option; (* relative filename if exists *)
+  file_ml : string;
+  file_mli : string option;
 } [@@deriving sexp]
 
 type t = {
-  path : string;  (* absolute path to library directory *)
-  modules : lib_module list Lazy.t;  (* modules in the library *)
-  requires : Mach_module.require list Lazy.t;  (* resolved requires *)
+  path : string;
+  modules : lib_module list Lazy.t;
+  requires : Mach_module.require list Lazy.t;
 }
 
 let equal_lib_module a b =
   a.file_ml = b.file_ml && a.file_mli = b.file_mli
-
-(* --- Machlib parsing --- *)
 
 type machlib = Require of string list [@sexp.list] [@@deriving sexp]
 
@@ -54,21 +50,14 @@ let of_path config path =
     |> List.sort (fun a b -> String.compare a.file_ml b.file_ml)) in
   { path; modules; requires }
 
-(* --- Build configuration for libraries --- *)
-
-let module_name_of_file file =
-  String.capitalize_ascii (Filename.remove_extension file)
-
 let configure_library config lib =
-  let lib_path = lib.path in
-  let lib_modules = lib.modules in
   let requires, libs = List.partition_map (function
     | Mach_module.Require r -> Left r
     | Mach_module.Require_lib r -> Left r
     | Mach_module.Require_extlib l -> Right l
   ) !!(lib.requires) in
-  let build_dir = Mach_config.build_dir_of config lib_path in
-  let lib_name = Filename.basename lib_path in
+  let build_dir = Mach_config.build_dir_of config lib.path in
+  let lib_name = Filename.basename lib.path in
   let mach_cmd = config.Mach_config.mach_executable_path in
   let capture_outf fmt = ksprintf (sprintf "${MACH} run-build-command -- %s") fmt in
   let capture_stderrf fmt = ksprintf (sprintf "${MACH} run-build-command --stderr-only -- %s") fmt in
@@ -112,11 +101,11 @@ let configure_library config lib =
   let all_deps = ref [] in
   List.iter (fun (m : lib_module) ->
     let base_name = Filename.remove_extension m.file_ml in
-    let src_ml = Filename.concat lib_path m.file_ml in
-    let build_ml = Filename.concat build_dir (base_name ^ ".ml") in
-    let cmx = Filename.concat build_dir (base_name ^ ".cmx") in
-    let cmi = Filename.concat build_dir (base_name ^ ".cmi") in
-    let dep_file = Filename.concat build_dir (base_name ^ ".dep") in
+    let src_ml = Filename.(lib.path / m.file_ml) in
+    let build_ml = Filename.(build_dir / m.file_ml) in
+    let cmx = Filename.(build_dir / base_name ^ ".cmx") in
+    let cmi = Filename.(build_dir / base_name ^ ".cmi") in
+    let dep_file = Filename.(build_dir / base_name ^ ".dep") in
 
     all_deps := (dep_file, cmx) :: !all_deps;
 
@@ -127,8 +116,8 @@ let configure_library config lib =
 
     (* Preprocess .mli if exists *)
     Option.iter (fun file_mli ->
-      let src_mli = Filename.concat lib_path file_mli in
-      let build_mli = Filename.concat build_dir (base_name ^ ".mli") in
+      let src_mli = Filename.(lib.path / file_mli) in
+      let build_mli = Filename.(build_dir / file_mli) in
       Ninja.rulef b ~target:build_mli ~deps:[src_mli] "%s pp -o %s %s" mach_cmd build_mli src_mli
     ) m.file_mli;
 
@@ -138,8 +127,8 @@ let configure_library config lib =
 
     (* Compile module with dyndep *)
     match m.file_mli with
-    | Some _ ->
-      let build_mli = Filename.concat build_dir (base_name ^ ".mli") in
+    | Some file_mli ->
+      let build_mli = Filename.(build_dir / file_mli) in
       (* Compile .mli first *)
       Ninja.rule b ~target:cmi ~deps:([build_mli; args_file] @ lib_args_dep)
         [capture_outf "ocamlc -bin-annot -c -opaque -I %s -args %s%s -o %s %s"
@@ -156,24 +145,22 @@ let configure_library config lib =
         [capture_outf "ocamlopt -bin-annot -c -I %s -args %s%s -o %s -impl %s"
           build_dir args_file lib_args_cmd cmx build_ml];
       Ninja.rule b ~target:cmi ~deps:[cmx] []
-  ) !!(lib_modules);
+  ) !!(lib.modules);
 
   (* Create archive - use mach link-deps to get correct order from .dep files *)
   let all_deps = List.rev !all_deps in
   let all_cmx = List.map snd all_deps in
   let dep_files = List.map fst all_deps in
-  let link_deps_file = Filename.concat build_dir (lib_name ^ ".link-deps") in
-  let cmxa = Filename.concat build_dir (lib_name ^ ".cmxa") in
-  let cmxa_a = Filename.concat build_dir (lib_name ^ ".a") in
+  let link_deps_file = Filename.(build_dir / lib_name ^ ".link-deps") in
+  let cmxa = Filename.(build_dir / lib_name ^ ".cmxa") in
+  let cmxa_a = Filename.(build_dir / lib_name ^ ".a") in
   Ninja.rulef b ~target:link_deps_file ~deps:dep_files
     "%s link-deps %s > %s" mach_cmd (String.concat " " dep_files) link_deps_file;
   Ninja.rule b ~target:cmxa ~deps:(link_deps_file :: all_cmx)
     [capture_outf "ocamlopt -a -o %s -args %s" cmxa link_deps_file];
   Ninja.rule b ~target:cmxa_a ~deps:[cmxa] [];
 
-  (* Write ninja file *)
-  let ninja_file = Filename.concat build_dir "mach.ninja" in
-  write_file ninja_file (Ninja.contents b)
+  write_file Filename.(build_dir / "mach.ninja") (Ninja.contents b)
 
 let cmxa config lib =
   let build_dir = Mach_config.build_dir_of config lib.path in
