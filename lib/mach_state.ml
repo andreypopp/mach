@@ -218,8 +218,8 @@ let crawl config ~target_path =
   in
   let ocaml_version = toolchain.ocaml_version in
   let mach_executable_path = config.Mach_config.mach_executable_path in
-  List.partition_map (fun (unit, need_configure) ->
+  List.rev_map (fun (unit, need_configure) ->
     let state = { mach_executable_path; ocaml_version; ocamlfind_version; units=[unit] } in
     match unit with
-    | Unit_module unit -> Left { unit; state; need_configure }
-    | Unit_lib unit -> Right { unit; state; need_configure }) (List.rev !units)
+    | Unit_module unit -> Either.Left { unit; state; need_configure }
+    | Unit_lib unit -> Right { unit; state; need_configure }) !units

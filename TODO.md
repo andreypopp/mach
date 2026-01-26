@@ -1,5 +1,13 @@
 # TODO
 
+## Implement I/O abstraction
+
+Let's implement an I/O abstraction:
+- we add a module `Mach_io` with functions for reading/writing files, creating/deleting dirs, listing dir contents, checking file mtimes, etc.
+- each such function will perform an effect
+- we replace all `Sys`,`In_channel`,`Out_channel` and `Unix` calls in the codebase with calls to `Mach_io` functions
+- we add `Mach_ctx` which will host a handler for I/O effects and translate them to actual I/O operations
+
 ## Implement ppx support
 
 ## Support passing -H hidden includes args when compiling

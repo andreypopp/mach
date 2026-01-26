@@ -54,8 +54,8 @@ Remove a module from the library:
 
   $ cat watch.log
   mach: initial build...
-  mach: configuring $TESTCASE_ROOT/main.ml
   mach: configuring library $TESTCASE_ROOT/mylib
+  mach: configuring $TESTCASE_ROOT/main.ml
   mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   mach: watching 2 directories (Ctrl+C to stop):

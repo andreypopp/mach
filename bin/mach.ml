@@ -427,8 +427,11 @@ let link_deps_cmd =
     let rec visit node =
       if not (Hashtbl.mem visited node) then begin
         Hashtbl.add visited node ();
-        List.iter visit (Hashtbl.find_opt graph node |> Option.value ~default:[]);
-        result := node :: !result
+        match Hashtbl.find_opt graph node with
+        | Some deps ->
+          List.iter visit deps;
+          result := node :: !result
+        | None -> () (* External dependency, don't include in output *)
       end
     in
     Hashtbl.iter (fun node _ -> visit node) graph;

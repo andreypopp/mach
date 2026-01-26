@@ -10,7 +10,9 @@ type 'a with_state = {
   need_configure: bool;
 }
 
-val crawl : Mach_config.t -> target_path:string -> Mach_module.t with_state list * Mach_library.t with_state list
+val crawl : Mach_config.t -> target_path:string -> (Mach_module.t with_state, Mach_library.t with_state) Either.t list
+(** Crawl the dependency graph starting from the given target path.
+    Returns a list modules/libs build, in a link order. *)
 
 val write : Mach_config.t -> t -> unit
 (** Write state to a file. *)

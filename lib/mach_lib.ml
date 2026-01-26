@@ -96,27 +96,33 @@ let configure_library ~build_dir ninja config (lib : Mach_library.t) =
 let configure_exn config target =
   let target_path = target_path target in
   let build_dir_of = Mach_config.build_dir_of config in
-  let modules, libs = Mach_state.crawl config ~target_path in
+  let units = Mach_state.crawl config ~target_path in
   let any_need_reconfigure = ref false in
-  let modules =
-    List.map (fun {Mach_state.unit=m;state;need_configure} ->
+  (* Process units in dependency order, collecting modules, libs, and link objects *)
+  let modules = ref [] in
+  let libs = ref [] in
+  let objs = ref [] in  (* Combined list of .cmx and .cmxa in dependency order *)
+  let extlibs = ref SS.empty in
+  List.iter (function
+    | Either.Left {Mach_state.unit=m;state;need_configure} ->
       let build_dir = build_dir_of m.Mach_module.path_ml in
-      if need_configure then begin
-        any_need_reconfigure := true;
-        log_verbose "mach: configuring %s" m.path_ml;
-        mkdir_p build_dir;
-        let b = Ninja.create () in
-        let _cmi, cmx = configure_module ~build_dir b config m in
-        write_file Filename.(build_dir / "mach.ninja") (Ninja.contents b);
-        Mach_state.write config state;
-        m, cmx
-      end
-      else m, Mach_module.cmx config m
-    ) modules
-  in
-  let modules, cmxs = List.split modules in
-  let libs =
-    List.map (fun {Mach_state.unit=lib;state;need_configure} ->
+      let cmx =
+        if need_configure then begin
+          any_need_reconfigure := true;
+          log_verbose "mach: configuring %s" m.path_ml;
+          mkdir_p build_dir;
+          let b = Ninja.create () in
+          let _cmi, cmx = configure_module ~build_dir b config m in
+          write_file Filename.(build_dir / "mach.ninja") (Ninja.contents b);
+          Mach_state.write config state;
+          cmx
+        end
+        else Mach_module.cmx config m
+      in
+      modules := m :: !modules;
+      objs := cmx :: !objs;
+      extlibs := SS.add_seq (Mach_module.extlibs m |> List.to_seq) !extlibs
+    | Right {Mach_state.unit=lib;state;need_configure} ->
       if need_configure then begin
         any_need_reconfigure := true;
         log_verbose "mach: configuring library %s" lib.Mach_library.path;
@@ -129,9 +135,14 @@ let configure_exn config target =
         write_file Filename.(build_dir / "mach.ninja") (Ninja.contents b);
         Mach_state.write config state;
       end;
-      lib
-    ) libs
-  in
+      libs := lib :: !libs;
+      objs := Mach_library.cmxa config lib :: !objs;
+      extlibs := SS.add_seq (Mach_library.extlibs lib |> List.to_seq) !extlibs
+  ) units;
+  let modules = List.rev !modules in
+  let libs = List.rev !libs in
+  let objs = List.rev !objs in
+  let extlibs = SS.elements !extlibs in
   let any_need_reconfigure = !any_need_reconfigure in
   if any_need_reconfigure then begin
     let build_dir = build_dir_of target_path in
@@ -143,38 +154,22 @@ let configure_exn config target =
       Ninja.var b "MACH" config.Mach_config.mach_executable_path;
       List.iter (fun lib -> Ninja.subninja b Filename.(build_dir_of lib.Mach_library.path / "mach.ninja")) libs;
       List.iter (fun m -> Ninja.subninja b Filename.(build_dir_of m.Mach_module.path_ml / "mach.ninja")) modules;
-        begin match target with
-        | Target_library lib_path ->
-          (* For library targets, just build the library's .cmxa *)
-          let cmxa_path = Filename.(build_dir_of lib_path / Filename.basename lib_path ^ ".cmxa") in
-          Ninja.rule_phony b ~target:"all" ~deps:[cmxa_path]
-        | Target_executable _ ->
-          (* For executable targets, link to a.out *)
-          let exe_path = Filename.(build_dir / "a.out") in
-          let extlibs =
-            let extlibs = SS.empty in
-            let extlibs =
-              List.fold_left
-                (fun acc lib -> SS.add_seq (Mach_library.extlibs lib |> List.to_seq) acc)
-                extlibs libs
-            in
-            let extlibs =
-              List.fold_left
-                (fun acc m -> SS.add_seq (Mach_module.extlibs m |> List.to_seq) acc)
-                extlibs modules
-            in
-            SS.elements extlibs
-          in
-          let cmxas = List.map (Mach_library.cmxa config) libs in
-          Ninja.rule_phony b ~target:"all" ~deps:[exe_path];
-          Mach_ocaml_rules.link_ocaml_executable b config
-            ~exe_path
-            ~extlibs
-            ~cmxs
-            ~cmxas
-            ~build_dir
-        end;
-        Ninja.contents b
+      begin match target with
+      | Target_library lib_path ->
+        (* For library targets, just build the library's .cmxa *)
+        let cmxa_path = Filename.(build_dir_of lib_path / Filename.basename lib_path ^ ".cmxa") in
+        Ninja.rule_phony b ~target:"all" ~deps:[cmxa_path]
+      | Target_executable _ ->
+        (* For executable targets, link to a.out *)
+        let exe_path = Filename.(build_dir / "a.out") in
+        Ninja.rule_phony b ~target:"all" ~deps:[exe_path];
+        Mach_ocaml_rules.link_ocaml_executable b config
+          ~exe_path
+          ~extlibs
+          ~objs
+          ~build_dir
+      end;
+      Ninja.contents b
     );
     (* Clean dead files *)
     let cmd = sprintf "ninja -C %s -t cleandead > /dev/null" (Filename.quote build_dir) in

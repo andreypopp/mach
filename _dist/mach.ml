@@ -13818,9 +13818,8 @@ let compile_ocaml_module ?dyndep ninja cfg ~build_dir ~path_ml ~path_mli
         Ninja.rule ninja ~target:cmi ~deps:[cmx] [];
         Ninja.rule ninja ~target:cmt ~deps:[cmx] []));
   (cmi, cmx)
-let link_ocaml_executable ninja _cfg ~build_dir ~cmxs:(cmxs : string list)
-  ~cmxas:(cmxas : string list) ~extlibs:(extlibs : string list) ~exe_path =
-  let objs = cmxas @ cmxs in
+let link_ocaml_executable ninja _cfg ~build_dir ~objs:(objs : string list)
+  ~extlibs:(extlibs : string list) ~exe_path =
   let objs_args = let open Filename in build_dir / "objs.args" in
   Ninja.rulef ninja ~target:objs_args ~deps:objs "printf '%%s\\n' %s > %s"
     (String.concat " " objs) objs_args;
@@ -14078,7 +14077,7 @@ type 'a with_state = {
 val crawl :
   Mach_config.t ->
     target_path:string ->
-      (Mach_module.t with_state list * Mach_library.t with_state list)
+      (Mach_module.t with_state, Mach_library.t with_state) Either.t list
 val write : Mach_config.t -> t -> unit[@@ocaml.doc
                                         " Write state to a file. "]
 end = struct
@@ -15011,7 +15010,7 @@ let crawl config ~target_path =
        else None in
      let ocaml_version = toolchain.ocaml_version in
      let mach_executable_path = config.Mach_config.mach_executable_path in
-     List.partition_map
+     List.rev_map
        (fun (unit, need_configure) ->
           let state =
             {
@@ -15021,9 +15020,9 @@ let crawl config ~target_path =
               units = [unit]
             } in
           match unit with
-          | Unit_module unit -> Left { unit; state; need_configure }
-          | Unit_lib unit -> Right { unit; state; need_configure })
-       (List.rev (!units)))
+          | Unit_module unit -> Either.Left { unit; state; need_configure }
+          | Unit_lib unit -> Right { unit; state; need_configure }) (
+       !units))
 end
 module Mach_lib : sig
 [@@@ocaml.ppx.context
@@ -15151,96 +15150,97 @@ let configure_library ~build_dir ninja config (lib : Mach_library.t) =
 let configure_exn config target =
   let target_path = target_path target in
   let build_dir_of = Mach_config.build_dir_of config in
-  let (modules, libs) = Mach_state.crawl config ~target_path in
+  let units = Mach_state.crawl config ~target_path in
   let any_need_reconfigure = ref false in
-  let modules =
-    List.map
-      (fun { Mach_state.unit = m; state; need_configure } ->
+  let modules = ref [] in
+  let libs = ref [] in
+  let objs = ref [] in
+  let extlibs = ref SS.empty in
+  List.iter
+    (function
+     | Either.Left { Mach_state.unit = m; state; need_configure } ->
          let build_dir = build_dir_of m.Mach_module.path_ml in
-         if need_configure
-         then
-           (any_need_reconfigure := true;
-            log_verbose "mach: configuring %s" m.path_ml;
-            mkdir_p build_dir;
-            (let b = Ninja.create () in
-             let (_cmi, cmx) = configure_module ~build_dir b config m in
-             write_file (let open Filename in build_dir / "mach.ninja")
-               (Ninja.contents b);
-             Mach_state.write config state;
-             (m, cmx)))
-         else (m, (Mach_module.cmx config m))) modules in
-  let (modules, cmxs) = List.split modules in
-  let libs =
-    List.map
-      (fun { Mach_state.unit = lib; state; need_configure } ->
-         if need_configure
-         then
-           (any_need_reconfigure := true;
-            log_verbose "mach: configuring library %s" lib.Mach_library.path;
-            (let build_dir = Mach_config.build_dir_of config lib.path in
-             let mach_cmd = config.Mach_config.mach_executable_path in
-             mkdir_p build_dir;
-             (let b = Ninja.create () in
-              Ninja.var b "MACH" mach_cmd;
-              configure_library b config lib ~build_dir;
-              write_file (let open Filename in build_dir / "mach.ninja")
-                (Ninja.contents b);
-              Mach_state.write config state)));
-         lib) libs in
-  let any_need_reconfigure = !any_need_reconfigure in
-  if any_need_reconfigure
-  then
-    (let build_dir = build_dir_of target_path in
-     mkdir_p build_dir;
-     write_file (let open Filename in build_dir / "build.ninja")
-       (log_verbose "mach: configuring %s (root)" target_path;
-        (let b = Ninja.create () in
-         Ninja.var b "MACH" config.Mach_config.mach_executable_path;
-         List.iter
-           (fun lib ->
-              Ninja.subninja b
-                (let open Filename in
-                   (build_dir_of lib.Mach_library.path) / "mach.ninja")) libs;
-         List.iter
-           (fun m ->
-              Ninja.subninja b
-                (let open Filename in
-                   (build_dir_of m.Mach_module.path_ml) / "mach.ninja"))
-           modules;
-         (match target with
-          | Target_library lib_path ->
-              let cmxa_path =
-                let open Filename in
-                  ((build_dir_of lib_path) / (Filename.basename lib_path)) ^
-                    ".cmxa" in
-              Ninja.rule_phony b ~target:"all" ~deps:[cmxa_path]
-          | Target_executable _ ->
-              let exe_path = let open Filename in build_dir / "a.out" in
-              let extlibs =
-                let extlibs = SS.empty in
-                let extlibs =
-                  List.fold_left
-                    (fun acc lib ->
-                       SS.add_seq ((Mach_library.extlibs lib) |> List.to_seq)
-                         acc) extlibs libs in
-                let extlibs =
-                  List.fold_left
-                    (fun acc m ->
-                       SS.add_seq ((Mach_module.extlibs m) |> List.to_seq)
-                         acc) extlibs modules in
-                SS.elements extlibs in
-              let cmxas = List.map (Mach_library.cmxa config) libs in
-              (Ninja.rule_phony b ~target:"all" ~deps:[exe_path];
-               Mach_ocaml_rules.link_ocaml_executable b config ~exe_path
-                 ~extlibs ~cmxs ~cmxas ~build_dir));
-         Ninja.contents b));
-     (let cmd =
-        sprintf "ninja -C %s -t cleandead > /dev/null"
-          (Filename.quote build_dir) in
-      if (!Mach_log.verbose) = Very_very_verbose then eprintf "+ %s\n%!" cmd;
-      if (Sys.command cmd) <> 0
-      then Mach_error.user_errorf "ninja cleandead failed"));
-  (any_need_reconfigure, modules, libs)
+         let cmx =
+           if need_configure
+           then
+             (any_need_reconfigure := true;
+              log_verbose "mach: configuring %s" m.path_ml;
+              mkdir_p build_dir;
+              (let b = Ninja.create () in
+               let (_cmi, cmx) = configure_module ~build_dir b config m in
+               write_file (let open Filename in build_dir / "mach.ninja")
+                 (Ninja.contents b);
+               Mach_state.write config state;
+               cmx))
+           else Mach_module.cmx config m in
+         (modules := (m :: (!modules));
+          objs := (cmx :: (!objs));
+          extlibs :=
+            (SS.add_seq ((Mach_module.extlibs m) |> List.to_seq) (!extlibs)))
+     | Right { Mach_state.unit = lib; state; need_configure } ->
+         (if need_configure
+          then
+            (any_need_reconfigure := true;
+             log_verbose "mach: configuring library %s" lib.Mach_library.path;
+             (let build_dir = Mach_config.build_dir_of config lib.path in
+              let mach_cmd = config.Mach_config.mach_executable_path in
+              mkdir_p build_dir;
+              (let b = Ninja.create () in
+               Ninja.var b "MACH" mach_cmd;
+               configure_library b config lib ~build_dir;
+               write_file (let open Filename in build_dir / "mach.ninja")
+                 (Ninja.contents b);
+               Mach_state.write config state)));
+          libs := (lib :: (!libs));
+          objs := ((Mach_library.cmxa config lib) :: (!objs));
+          extlibs :=
+            (SS.add_seq ((Mach_library.extlibs lib) |> List.to_seq)
+               (!extlibs)))) units;
+  (let modules = List.rev (!modules) in
+   let libs = List.rev (!libs) in
+   let objs = List.rev (!objs) in
+   let extlibs = SS.elements (!extlibs) in
+   let any_need_reconfigure = !any_need_reconfigure in
+   if any_need_reconfigure
+   then
+     (let build_dir = build_dir_of target_path in
+      mkdir_p build_dir;
+      write_file (let open Filename in build_dir / "build.ninja")
+        (log_verbose "mach: configuring %s (root)" target_path;
+         (let b = Ninja.create () in
+          Ninja.var b "MACH" config.Mach_config.mach_executable_path;
+          List.iter
+            (fun lib ->
+               Ninja.subninja b
+                 (let open Filename in
+                    (build_dir_of lib.Mach_library.path) / "mach.ninja"))
+            libs;
+          List.iter
+            (fun m ->
+               Ninja.subninja b
+                 (let open Filename in
+                    (build_dir_of m.Mach_module.path_ml) / "mach.ninja"))
+            modules;
+          (match target with
+           | Target_library lib_path ->
+               let cmxa_path =
+                 let open Filename in
+                   ((build_dir_of lib_path) / (Filename.basename lib_path)) ^
+                     ".cmxa" in
+               Ninja.rule_phony b ~target:"all" ~deps:[cmxa_path]
+           | Target_executable _ ->
+               let exe_path = let open Filename in build_dir / "a.out" in
+               (Ninja.rule_phony b ~target:"all" ~deps:[exe_path];
+                Mach_ocaml_rules.link_ocaml_executable b config ~exe_path
+                  ~extlibs ~objs ~build_dir));
+          Ninja.contents b));
+      (let cmd =
+         sprintf "ninja -C %s -t cleandead > /dev/null"
+           (Filename.quote build_dir) in
+       if (!Mach_log.verbose) = Very_very_verbose then eprintf "+ %s\n%!" cmd;
+       if (Sys.command cmd) <> 0
+       then Mach_error.user_errorf "ninja cleandead failed"));
+   (any_need_reconfigure, modules, libs))
 let configure config target =
   try Ok (configure_exn config target)
   with | Mach_error.Mach_user_error msg -> Error (`User_error msg)
@@ -21350,8 +21350,11 @@ let link_deps_cmd =
     let rec visit node =
       if not (Hashtbl.mem visited node) then begin
         Hashtbl.add visited node ();
-        List.iter visit (Hashtbl.find_opt graph node |> Option.value ~default:[]);
-        result := node :: !result
+        match Hashtbl.find_opt graph node with
+        | Some deps ->
+          List.iter visit deps;
+          result := node :: !result
+        | None -> () (* External dependency, don't include in output *)
       end
     in
     Hashtbl.iter (fun node _ -> visit node) graph;

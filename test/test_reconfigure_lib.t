@@ -18,8 +18,8 @@ Create a library with one module:
 First build - should reconfigure (no previous state):
 
   $ mach run -vv ./main.ml 2>&1
-  mach: configuring $TESTCASE_ROOT/main.ml
   mach: configuring library $TESTCASE_ROOT/mylib
+  mach: configuring $TESTCASE_ROOT/main.ml
   mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   v1

@@ -31,9 +31,9 @@ Create a script that uses the top library:
 
 Run the script:
   $ mach run -v ./main.ml
-  mach: configuring $TESTCASE_ROOT/main.ml
   mach: configuring library $TESTCASE_ROOT/baselib
   mach: configuring library $TESTCASE_ROOT/toplib
+  mach: configuring $TESTCASE_ROOT/main.ml
   mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   Hello, World!

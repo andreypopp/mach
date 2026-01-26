@@ -113,8 +113,7 @@ let compile_ocaml_module ?dyndep ninja cfg ~build_dir ~path_ml ~path_mli ~requir
   end;
   cmi, cmx
 
-let link_ocaml_executable ninja _cfg ~build_dir ~(cmxs : string list) ~(cmxas : string list) ~(extlibs : string list) ~exe_path =
-  let objs = cmxas @ cmxs in
+let link_ocaml_executable ninja _cfg ~build_dir ~(objs : string list) ~(extlibs : string list) ~exe_path =
   let objs_args = Filename.(build_dir / "objs.args") in
   Ninja.rulef ninja ~target:objs_args ~deps:objs
     "printf '%%s\\n' %s > %s" (String.concat " " objs) objs_args;
