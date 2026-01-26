@@ -36,9 +36,6 @@ Change only lib_a's requires (add new require):
 Verify reconfiguration happens and build succeeds:
 
   $ mach run -vv ./main.ml 2>&1 | grep -E "(mach:state:|mach:configure|mach: configuring)"
-  mach:state:$TESTCASE_ROOT/lib_a.ml:module requires changed
-  mach:configure: need reconfigure
-  mach: configuring...
   mach: configuring $TESTCASE_ROOT/lib_c.ml
   mach: configuring $TESTCASE_ROOT/lib_a.ml
   mach: configuring $TESTCASE_ROOT/main.ml (root)
@@ -67,9 +64,6 @@ Add .mli file to lib_b - should trigger partial reconfiguration for lib_b only:
   > EOF
 
   $ mach run -vv ./main.ml 2>&1 | grep -E "(mach:state:|mach:configure|mach: configuring)"
-  mach:state:$TESTCASE_ROOT/lib_b.ml:mli presence changed
-  mach:configure: need reconfigure
-  mach: configuring...
   mach: configuring $TESTCASE_ROOT/lib_b.ml
   mach: configuring $TESTCASE_ROOT/main.ml (root)
 
@@ -82,9 +76,6 @@ Remove .mli file from lib_b - should trigger partial reconfiguration for lib_b o
   $ rm lib_b.mli
 
   $ mach run -vv ./main.ml 2>&1 | grep -E "(mach:state:|mach:configure|mach: configuring)"
-  mach:state:$TESTCASE_ROOT/lib_b.ml:mli presence changed
-  mach:configure: need reconfigure
-  mach: configuring...
   mach: configuring $TESTCASE_ROOT/lib_b.ml
   mach: configuring $TESTCASE_ROOT/main.ml (root)
 

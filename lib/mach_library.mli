@@ -4,6 +4,8 @@ open! Mach_std
 
 type t = {
   path : string;                               (* absolute path to library directory *)
+  path_stat : file_stat;
+  machlib_stat : file_stat;
   modules : lib_module list Lazy.t;            (* modules in the library *)
   requires : Mach_module.require list Lazy.t;  (* resolved requires *)
 }
@@ -20,3 +22,6 @@ val cmxa : Mach_config.t -> t -> string
 (** Path to library's .cmxa file *)
 
 val equal_lib_module : lib_module -> lib_module -> bool
+
+val extlibs : t -> string list
+(** List of external libraries required by this mach library. *)

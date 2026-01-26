@@ -88,7 +88,7 @@ module Merlin_server = struct
         | Ok {requires; _} -> 
           let source_dir = Filename.dirname path in
           let build_dir = Mach_config.build_dir_of config path in
-          configure ~is_mlx ~source_dir ~build_dir ~requires
+          configure ~is_mlx ~source_dir ~build_dir ~requires:!!requires
       end
     with
     | Failure msg -> [`ERROR_MSG msg]

@@ -54,7 +54,6 @@ Remove a module from the library:
 
   $ cat watch.log
   mach: initial build...
-  mach: configuring...
   mach: configuring $TESTCASE_ROOT/main.ml
   mach: configuring library $TESTCASE_ROOT/mylib
   mach: configuring $TESTCASE_ROOT/main.ml (root)
@@ -66,7 +65,6 @@ Remove a module from the library:
   mach: building...
   mach: build succeeded
   mach: file changed: bar.ml
-  mach: configuring...
   mach: configuring library $TESTCASE_ROOT/mylib
   mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
@@ -76,7 +74,6 @@ Remove a module from the library:
     $TESTCASE_ROOT
     $TESTCASE_ROOT/mylib
   mach: file changed: Machlib
-  mach: configuring...
   mach: configuring library $TESTCASE_ROOT/mylib
   mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
@@ -86,7 +83,6 @@ Remove a module from the library:
     $TESTCASE_ROOT
     $TESTCASE_ROOT/mylib
   mach: file changed: bar.ml
-  mach: configuring...
   mach: configuring library $TESTCASE_ROOT/mylib
   mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...

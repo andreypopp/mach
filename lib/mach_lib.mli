@@ -14,6 +14,6 @@ val target_path : target -> string
 
 val pp : source_path:string -> in_channel -> out_channel -> unit
 
-val configure : Mach_config.t -> target -> ((Mach_state.t * bool), Mach_error.t) result
+val configure : Mach_config.t -> target -> (bool * Mach_module.t list * Mach_library.t list, Mach_error.t) result
 
-val build : Mach_config.t -> target -> (string * Mach_state.t * bool, Mach_error.t) result
+val build : Mach_config.t -> target -> (string * bool * Mach_module.t list * Mach_library.t list, Mach_error.t) result

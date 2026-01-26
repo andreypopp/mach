@@ -9,8 +9,6 @@ Create a simple script:
 First build - should reconfigure (no previous state):
 
   $ mach run -vv ./main.ml 2>&1
-  mach:configure: no previous state found, creating one...
-  mach: configuring...
   mach: configuring $TESTCASE_ROOT/main.ml
   mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
@@ -46,9 +44,6 @@ Add a dependency - SHOULD reconfigure (structural change):
   > EOF
 
   $ mach run -vv ./main.ml 2>&1
-  mach:state:$TESTCASE_ROOT/main.ml:module requires changed
-  mach:configure: need reconfigure
-  mach: configuring...
   mach: configuring $TESTCASE_ROOT/lib.ml
   mach: configuring $TESTCASE_ROOT/main.ml
   mach: configuring $TESTCASE_ROOT/main.ml (root)
@@ -79,9 +74,6 @@ Add .mli file to dependency - SHOULD reconfigure:
   > EOF
 
   $ mach run -vv ./main.ml 2>&1
-  mach:state:$TESTCASE_ROOT/lib.ml:mli presence changed
-  mach:configure: need reconfigure
-  mach: configuring...
   mach: configuring $TESTCASE_ROOT/lib.ml
   mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
@@ -104,9 +96,6 @@ Remove .mli file - SHOULD reconfigure:
   $ rm lib.mli
 
   $ mach run -vv ./main.ml 2>&1
-  mach:state:$TESTCASE_ROOT/lib.ml:mli presence changed
-  mach:configure: need reconfigure
-  mach: configuring...
   mach: configuring $TESTCASE_ROOT/lib.ml
   mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...

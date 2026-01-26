@@ -14,6 +14,7 @@ Test:
 
 Inspect the build dir:
   $ ls _mach/build/*__lib.ml | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
+  Mach.state
   includes.args
   lib.cmi
   lib.cmt

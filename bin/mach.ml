@@ -50,8 +50,6 @@ let read_events ic =
   loop ()
 
 let watch config target ?run_args () =
-  let target_path = Mach_lib.target_path target in
-  let build_dir_of = Mach_config.build_dir_of config in
   let exception Restart_watcher in
   let code = Sys.command "command -v watchexec > /dev/null 2>&1" in
   if code <> 0 then begin
@@ -77,7 +75,7 @@ let watch config target ?run_args () =
       child_pid := None
   in
 
-  let start_child state =
+  let start_child () =
     match run_args, target with
     | None, _ -> ()
     | Some _, Mach_lib.Target_library _ ->
@@ -110,24 +108,31 @@ let watch config target ?run_args () =
   Mach_log.log_verbose "mach: initial build...";
   (* Don't exit on initial build failure - continue watching for changes *)
   (match build config target with
-  | Ok (_output_path, state, _reconfigured) -> start_child state
+  | Ok _target -> start_child ()
   | Error (`User_error msg) -> Mach_log.log_verbose "mach: %s" msg);
 
   let keep_watching = ref true in
   while !keep_watching do
-    let state = Option.get (Mach_state.read (Filename.concat (build_dir_of target_path) "Mach.state")) in
-    let source_dirs = Mach_state.source_dirs state in
+    let _reconfigured, mods, libs = configure config target |> or_exit in
+    let source_dirs = SS.empty in
+    let source_dirs = List.fold_left (fun acc (m : Mach_module.t) ->
+      SS.add (Filename.dirname m.path_ml) acc
+    ) source_dirs mods in
+    let source_dirs = List.fold_left (fun acc (lib : Mach_library.t) ->
+      SS.add lib.path acc
+    ) source_dirs libs in
+    let source_dirs = SS.elements source_dirs in
     let source_files =
       let files = Hashtbl.create 16 in
       let add file = Hashtbl.replace files file () in
-      Mach_state.modules state |> List.iter (fun (m : Mach_module.t) ->
+      mods |> List.iter (fun (m : Mach_module.t) ->
         add m.path_ml; Option.iter (fun mli -> add mli) m.path_mli);
       files
     in
     let lib_dirs =
       let dirs = Hashtbl.create 16 in
       let add file = Hashtbl.replace dirs file () in
-      Mach_state.libs state |> List.iter (fun (lib : Mach_library.t) -> add lib.path);
+      libs |> List.iter (fun (lib : Mach_library.t) -> add lib.path);
       dirs
     in
     Mach_log.log_verbose "mach: watching %d directories (Ctrl+C to stop):" (List.length source_dirs);
@@ -173,12 +178,12 @@ let watch config target ?run_args () =
           List.iter (fun p -> Mach_log.log_verbose "mach: file changed: %s" (Filename.basename p)) relevant_paths;
           match build config target with
           | Error (`User_error msg) -> Mach_log.log_verbose "mach: %s" msg
-          | Ok (_output_path, state, reconfigured) ->
+          | Ok (_target, reconfigured, _, _) ->
             Printf.eprintf "mach: build succeeded\n%!";
-            start_child state;
+            start_child ();
             if reconfigured then begin
               Mach_log.log_verbose "mach:watch: reconfigured, restarting watcher...";
-              raise Restart_watcher
+              raise_notrace Restart_watcher
             end
         end
       done
@@ -227,7 +232,7 @@ let run_cmd =
     end;
     if watch_mode then watch config target ~run_args:args ()
     else begin
-      let exe_path, _state, _reconfigured = build config target |> or_exit in
+      let exe_path, _reconfigured, _, _ = build config target |> or_exit in
       let argv = Array.of_list (exe_path :: args) in
       Unix.execv exe_path argv
     end
@@ -364,9 +369,13 @@ let dep_cmd =
       List.filter_map parse_dep_line lines
     in
     let tmp = temp_file "mach-dep" ".dep" in
+    let build_dir = Filename.dirname (Unix.realpath input) in
     Out_channel.with_open_text tmp (fun oc ->
       Printf.fprintf oc "ninja_dyndep_version = 1\n";
+      let norm_path path = if Filename.is_relative path then Filename.(build_dir / path) else path in
       List.iter (fun (target, deps) ->
+        let target = norm_path target in
+        let deps = List.map norm_path deps in
         if deps = []
         then Printf.fprintf oc "build %s: dyndep\n" target
         else Printf.fprintf oc "build %s: dyndep | %s\n" target (String.concat " " deps)

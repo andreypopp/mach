@@ -18,8 +18,6 @@ Create a library with one module:
 First build - should reconfigure (no previous state):
 
   $ mach run -vv ./main.ml 2>&1
-  mach:configure: no previous state found, creating one...
-  mach: configuring...
   mach: configuring $TESTCASE_ROOT/main.ml
   mach: configuring library $TESTCASE_ROOT/mylib
   mach: configuring $TESTCASE_ROOT/main.ml (root)
@@ -49,9 +47,6 @@ Modify Machlib file - SHOULD reconfigure:
   $ printf '\n' >> mylib/Machlib
 
   $ mach run -vv ./main.ml 2>&1
-  mach:state:$TESTCASE_ROOT/mylib:Machlib file changed
-  mach:configure: need reconfigure
-  mach: configuring...
   mach: configuring library $TESTCASE_ROOT/mylib
   mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
@@ -65,9 +60,6 @@ Add a new module to the library - SHOULD reconfigure:
   > EOF
 
   $ mach run -vv ./main.ml 2>&1
-  mach:state:$TESTCASE_ROOT/mylib:library directory changed
-  mach:configure: need reconfigure
-  mach: configuring...
   mach: configuring library $TESTCASE_ROOT/mylib
   mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
@@ -95,9 +87,6 @@ Remove a module from the library - SHOULD reconfigure:
   > EOF
 
   $ mach run -vv ./main.ml 2>&1
-  mach:state:$TESTCASE_ROOT/mylib:library directory changed
-  mach:configure: need reconfigure
-  mach: configuring...
   mach: configuring library $TESTCASE_ROOT/mylib
   mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...

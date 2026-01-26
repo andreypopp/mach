@@ -18,10 +18,12 @@ val resolve_require : Mach_config.t -> source_path:string -> line:int -> string 
     Handles both module files (.ml/.mlx) and library directories (with Machlib). *)
 
 type t = {
-  path_ml : string;            (** path to .ml/.mlx file *)
-  path_mli : string option;    (** path to .mli/.mli file, if any *)
-  requires : require list;     (** resolved requires *)
-  kind : kind;                 (** kind of source file *)
+  path_ml : string;                   (** path to .ml/.mlx file *)
+  path_ml_stat : file_stat;
+  path_mli : string option;           (** path to .mli/.mli file, if any *)
+  path_mli_stat : file_stat option;
+  requires : require list lazy_t;     (** resolved requires *)
+  kind : kind;                        (** kind of source file *)
 }
 
 and kind = ML | MLX
@@ -39,3 +41,6 @@ val path_mli : string -> string option
 (** Given a .ml/.mlx path, return the corresponding .mli/.mli path if it exists. *)
 
 val cmx : Mach_config.t -> t -> string
+
+val extlibs : t -> string list
+(** List of external libraries required by this module. *)

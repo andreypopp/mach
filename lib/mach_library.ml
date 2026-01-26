@@ -1,8 +1,8 @@
 (* mach_library - Library support for mach *)
 
 open! Mach_std
+open! Printf
 open Sexplib0.Sexp_conv
-open Printf
 
 type lib_module = {
   file_ml : string;
@@ -11,8 +11,10 @@ type lib_module = {
 
 type t = {
   path : string;
-  modules : lib_module list Lazy.t;
-  requires : Mach_module.require list Lazy.t;
+  path_stat : file_stat;
+  machlib_stat : file_stat;
+  modules : lib_module list lazy_t;
+  requires : Mach_module.require list lazy_t;
 }
 
 let equal_lib_module a b =
@@ -48,8 +50,15 @@ let of_path config path =
           Some { file_ml; file_mli }
         else None)
     |> List.sort (fun a b -> String.compare a.file_ml b.file_ml)) in
-  { path; modules; requires }
+  let path_stat = file_stat_exn path in
+  let machlib_stat = file_stat_exn machlib_path in
+  { path; path_stat; machlib_stat; modules; requires }
 
 let cmxa config lib =
   let build_dir = Mach_config.build_dir_of config lib.path in
   Filename.(build_dir / Filename.basename lib.path ^ ".cmxa")
+
+let extlibs lib =
+  List.filter_map (function
+    | Mach_module.Require_extlib r -> Some r.v.name
+    | _ -> None) !!(lib.requires)
