@@ -26,6 +26,7 @@ Check that build directory was created (path contains normalized script path wit
   main.ml
   main.o
   objs.args
+  ocamldep.args
 
 Second run - reuses the same build directory:
 
@@ -44,3 +45,4 @@ Verify build artifacts exist in the auto-derived directory:
   main.ml
   main.o
   objs.args
+  ocamldep.args

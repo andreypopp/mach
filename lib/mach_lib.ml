@@ -32,7 +32,7 @@ let pp ~source_path ic oc =
 (* --- Configure --- *)
 
 let configure_module ~build_dir ninja config (m : Mach_module.t) =
-  let _includes_args = 
+  let _ocamldep_args, _compile_args =
     let ml, _mli =
       Mach_ocaml_rules.preprocess_ocaml_module ninja config
         ~build_dir
@@ -53,7 +53,7 @@ let configure_module ~build_dir ninja config (m : Mach_module.t) =
 
 let configure_library ~build_dir ninja config (lib : Mach_library.t) =
   let lib_name = Filename.basename lib.path in
-  let includes_args =
+  let ocamldep_args, _compile_args =
     Mach_ocaml_rules.compile_ocaml_args ~include_self:true ninja config
       ~requires:!!(lib.requires)
       ~build_dir
@@ -73,7 +73,7 @@ let configure_library ~build_dir ninja config (lib : Mach_library.t) =
       let path_dep = Mach_ocaml_rules.ocamldep ninja config
         ~build_dir
         ~path_ml:ml
-        ~includes_args
+        ~includes_args:ocamldep_args
       in
       let _cmi, cmx =
         Mach_ocaml_rules.compile_ocaml_module ninja config

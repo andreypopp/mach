@@ -28,25 +28,48 @@ let ocamldep ninja cfg ~build_dir ~path_ml ~includes_args =
     "%s dep %s -o %s --args %s" mach path_ml path_dep includes_args;
   path_dep
 
+(** Generate include args files for compilation.
+    Returns (ocamldep_args, compile_args) where:
+    - ocamldep_args: only mach-managed paths (for dependency scanning)
+    - compile_args: all paths including extlibs (for compilation) *)
 let compile_ocaml_args ?(include_self=false) ninja cfg ~requires ~build_dir ~deps =
   let build_dir_of = Mach_config.build_dir_of cfg in
-  let args = Filename.(build_dir / "includes.args") in
+  let ocamldep_args = Filename.(build_dir / "ocamldep.args") in
+  let compile_args = Filename.(build_dir / "includes.args") in
   let path_requires, extlib_requires =
     List.partition_map (function
     | Mach_module.Require r | Mach_module.Require_lib r -> Either.Left r
     | Mach_module.Require_extlib lib -> Right lib
   ) requires in
-  let recipe =
-    match include_self, path_requires, extlib_requires with
-    | false, [], [] -> [sprintf "touch %s" args]
+  (* ocamldep.args: only mach-managed paths *)
+  let ocamldep_recipe =
+    match include_self, path_requires with
+    | false, [] -> [sprintf "touch %s" ocamldep_args]
     | _ ->
       let of_self =
-        if include_self then [sprintf "echo '-I=%s' >> %s" build_dir args]
+        if include_self then [sprintf "echo '-I=%s' >> %s" build_dir ocamldep_args]
         else []
       in
       let of_path =
         List.map
-          (fun (r : _ with_loc) -> sprintf "echo '-I=%s' >> %s" (build_dir_of r.v) args)
+          (fun (r : _ with_loc) -> sprintf "echo '-I=%s' >> %s" (build_dir_of r.v) ocamldep_args)
+          path_requires
+      in
+      of_self @ of_path
+  in
+  Ninja.rule ninja ~target:ocamldep_args ~deps (sprintf "rm -f %s" ocamldep_args :: ocamldep_recipe);
+  (* includes.args: all paths including extlibs *)
+  let compile_recipe =
+    match include_self, path_requires, extlib_requires with
+    | false, [], [] -> [sprintf "touch %s" compile_args]
+    | _ ->
+      let of_self =
+        if include_self then [sprintf "echo '-I=%s' >> %s" build_dir compile_args]
+        else []
+      in
+      let of_path =
+        List.map
+          (fun (r : _ with_loc) -> sprintf "echo '-I=%s' >> %s" (build_dir_of r.v) compile_args)
           path_requires
       in
       let of_libs =
@@ -54,12 +77,12 @@ let compile_ocaml_args ?(include_self=false) ninja cfg ~requires ~build_dir ~dep
         | [] -> []
         | libs ->
           let libs = String.concat " " (List.map (fun (l : Mach_module.extlib with_loc) -> l.v.name) libs) in
-          [capture_stderrf "ocamlfind query -format '-I=%%d' -recursive %s >> %s" libs args]
+          [capture_stderrf "ocamlfind query -format '-I=%%d' -recursive %s >> %s" libs compile_args]
       in
       of_libs @ of_self @ of_path
   in
-  Ninja.rule ninja ~target:args ~deps (sprintf "rm -f %s" args :: recipe);
-  args
+  Ninja.rule ninja ~target:compile_args ~deps (sprintf "rm -f %s" compile_args :: compile_recipe);
+  ocamldep_args, compile_args
 
 let compile_ocaml_module ?dyndep ninja cfg ~build_dir ~path_ml ~path_mli ~requires =
   let build_dir_of = Mach_config.build_dir_of cfg in

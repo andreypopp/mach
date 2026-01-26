@@ -16,3 +16,4 @@
   myscript.ml
   myscript.o
   objs.args
+  ocamldep.args
