@@ -48,7 +48,7 @@ type t = {
   mach_executable_path : string;
   ocaml_version : string;
   ocamlfind_version : string option;
-  units : mach_unit list;
+  unit : mach_unit;
 } [@@deriving sexp]
 
 let mli_path_of_ml_if_exists path =
@@ -59,10 +59,9 @@ let mli_path_of_ml_if_exists path =
 (* --- State functions --- *)
 
 let write config state =
-  let unit_path = match state.units with
-    | [Unit_module m] -> m.path_ml
-    | [Unit_lib l] -> l.path
-    | _ -> failwith "mach_state: write: can only write state for a single unit"
+  let unit_path = match state.unit with
+    | Unit_module m -> m.path_ml
+    | Unit_lib l -> l.path
   in
   let path = Filename.(Mach_config.build_dir_of config unit_path / "Mach.state") in
   let tmp = path ^ ".tmp" in
@@ -143,9 +142,7 @@ let read_mach_state config validate path =
   | None -> Error No_state
   | Some state -> 
     if env_changed config state then Error Env_changed
-    else 
-      (* TODO: List.hd is temporary, need to change type def to allow a single unit per state. *)
-      validate config (List.hd state.units)
+    else validate config state.unit
 
 type 'a with_state = { 
   unit: 'a;
@@ -219,7 +216,7 @@ let crawl config ~target_path =
   let ocaml_version = toolchain.ocaml_version in
   let mach_executable_path = config.Mach_config.mach_executable_path in
   List.rev_map (fun (unit, need_configure) ->
-    let state = { mach_executable_path; ocaml_version; ocamlfind_version; units=[unit] } in
+    let state = { mach_executable_path; ocaml_version; ocamlfind_version; unit } in
     match unit with
     | Unit_module unit -> Either.Left { unit; state; need_configure }
     | Unit_lib unit -> Right { unit; state; need_configure }) !units

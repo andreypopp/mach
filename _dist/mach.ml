@@ -14746,7 +14746,7 @@ type t =
   mach_executable_path: string ;
   ocaml_version: string ;
   ocamlfind_version: string option ;
-  units: mach_unit list }[@@deriving sexp]
+  unit: mach_unit }[@@deriving sexp]
 include
   struct
     let _ = fun (_ : t) -> ()
@@ -14774,11 +14774,9 @@ include
                                       rest =
                                         (Field
                                            {
-                                             name = "units";
+                                             name = "unit";
                                              kind = Required;
-                                             conv =
-                                               (list_of_sexp
-                                                  mach_unit_of_sexp);
+                                             conv = mach_unit_of_sexp;
                                              rest = Empty
                                            })
                                     })
@@ -14788,29 +14786,29 @@ include
                             | "mach_executable_path" -> 0
                             | "ocaml_version" -> 1
                             | "ocamlfind_version" -> 2
-                            | "units" -> 3
+                            | "unit" -> 3
                             | _ -> (-1)) ~allow_extra_fields:false
            ~create:(fun
                       (mach_executable_path,
-                       (ocaml_version, (ocamlfind_version, (units, ()))))
+                       (ocaml_version, (ocamlfind_version, (unit, ()))))
                       ->
                       ({
                          mach_executable_path;
                          ocaml_version;
                          ocamlfind_version;
-                         units
+                         unit
                        } : t)) x__119_ : Sexplib0.Sexp.t -> t)
     let _ = t_of_sexp
     let sexp_of_t =
       (fun
          { mach_executable_path = mach_executable_path__121_;
            ocaml_version = ocaml_version__123_;
-           ocamlfind_version = ocamlfind_version__125_; units = units__127_ }
+           ocamlfind_version = ocamlfind_version__125_; unit = unit__127_ }
          ->
          let bnds__120_ = ([] : _ Stdlib.List.t) in
          let bnds__120_ =
-           let arg__128_ = sexp_of_list sexp_of_mach_unit units__127_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "units"; arg__128_]) ::
+           let arg__128_ = sexp_of_mach_unit unit__127_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "unit"; arg__128_]) ::
              bnds__120_ : _ Stdlib.List.t) in
          let bnds__120_ =
            let arg__126_ =
@@ -14836,11 +14834,7 @@ let mli_path_of_ml_if_exists path =
   let mli = base ^ ".mli" in if Sys.file_exists mli then Some mli else None
 let write config state =
   let unit_path =
-    match state.units with
-    | (Unit_module m)::[] -> m.path_ml
-    | (Unit_lib l)::[] -> l.path
-    | _ ->
-        failwith "mach_state: write: can only write state for a single unit" in
+    match state.unit with | Unit_module m -> m.path_ml | Unit_lib l -> l.path in
   let path =
     let open Filename in
       (Mach_config.build_dir_of config unit_path) / "Mach.state" in
@@ -14939,7 +14933,7 @@ let read_mach_state config validate path =
   | Some state ->
       if env_changed config state
       then Error Env_changed
-      else validate config (List.hd state.units)
+      else validate config state.unit
 type 'a with_state = {
   unit: 'a ;
   state: t ;
@@ -15015,12 +15009,7 @@ let crawl config ~target_path =
      List.rev_map
        (fun (unit, need_configure) ->
           let state =
-            {
-              mach_executable_path;
-              ocaml_version;
-              ocamlfind_version;
-              units = [unit]
-            } in
+            { mach_executable_path; ocaml_version; ocamlfind_version; unit } in
           match unit with
           | Unit_module unit -> Either.Left { unit; state; need_configure }
           | Unit_lib unit -> Right { unit; state; need_configure }) (
