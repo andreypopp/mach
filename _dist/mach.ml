@@ -14078,6 +14078,8 @@ val crawl :
   Mach_config.t ->
     target_path:string ->
       (Mach_module.t with_state, Mach_library.t with_state) Either.t list
+[@@ocaml.doc
+  " Crawl the dependency graph starting from the given target path.\n    Returns a list modules/libs build, in a link order. "]
 val write : Mach_config.t -> t -> unit[@@ocaml.doc
                                         " Write state to a file. "]
 end = struct
