@@ -4,15 +4,19 @@ open! Mach_std
 
 type t
 
-type 'a with_state = { 
-  unit: 'a;
-  state: t;
-  need_configure: bool;
+type mach_unit =
+  | Unit_module of Mach_module.t
+  | Unit_lib of Mach_library.t
+
+type unit_with_status = {
+  unit: mach_unit;
+  unit_state: t;
+  unit_status : [`Fresh | `Fresh_but_update_state | `Need_configure ];
 }
 
-val crawl : Mach_config.t -> target_path:string -> (Mach_module.t with_state, Mach_library.t with_state) Either.t list
+val crawl : Mach_config.t -> target_path:string -> unit_with_status list
 (** Crawl the dependency graph starting from the given target path.
-    Returns a list modules/libs build, in a link order. *)
+    Returns a list modules/libs to build, in a link order. *)
 
 val write : Mach_config.t -> t -> unit
 (** Write state to a file. *)

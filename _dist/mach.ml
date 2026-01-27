@@ -13496,8 +13496,8 @@ val preprocess_source :
 val path_mli : string -> string option[@@ocaml.doc
                                         " Given a .ml/.mlx path, return the corresponding .mli/.mli path if it exists. "]
 val cmx : Mach_config.t -> t -> string
-val extlibs : t -> string list[@@ocaml.doc
-                                " List of external libraries required by this module. "]
+val extlibs : t -> SS.t[@@ocaml.doc
+                         " List of external libraries required by this module. "]
 end = struct
 [@@@ocaml.ppx.context
   {
@@ -13668,9 +13668,10 @@ let cmx config m =
     (Mach_config.build_dir_of config m.path_ml) /
       ((module_name_of_path m.path_ml) ^ ".cmx")
 let extlibs lib =
-  List.filter_map
-    (function | Require_extlib r -> Some ((r.v).name) | _ -> None)
-    (!! (lib.requires))
+  (List.filter_map
+     (function | Require_extlib r -> Some ((r.v).name) | _ -> None)
+     (!! (lib.requires)))
+    |> SS.of_list
 end
 module Mach_ocaml_rules = struct
 [@@@ocaml.ppx.context
@@ -13887,8 +13888,8 @@ val of_path : Mach_config.t -> string -> t[@@ocaml.doc
 val cmxa : Mach_config.t -> t -> string[@@ocaml.doc
                                          " Path to library's .cmxa file "]
 val equal_lib_module : lib_module -> lib_module -> bool
-val extlibs : t -> string list[@@ocaml.doc
-                                " List of external libraries required by this mach library. "]
+val extlibs : t -> SS.t[@@ocaml.doc
+                         " List of external libraries required by this mach library. "]
 end = struct
 [@@@ocaml.ppx.context
   {
@@ -14044,9 +14045,11 @@ let cmxa config lib =
   let build_dir = Mach_config.build_dir_of config lib.path in
   let open Filename in (build_dir / (Filename.basename lib.path)) ^ ".cmxa"
 let extlibs lib =
-  List.filter_map
-    (function | Mach_module.Require_extlib r -> Some ((r.v).name) | _ -> None)
-    (!! (lib.requires))
+  (List.filter_map
+     (function
+      | Mach_module.Require_extlib r -> Some ((r.v).name)
+      | _ -> None) (!! (lib.requires)))
+    |> SS.of_list
 end
 module Mach_state : sig
 [@@@ocaml.ppx.context
@@ -14070,16 +14073,17 @@ module Mach_state : sig
 [@@@ocaml.text " Mach state keep stats of a dependency graph of modules. "]
 open! Mach_std
 type t
-type 'a with_state = {
-  unit: 'a ;
-  state: t ;
-  need_configure: bool }
-val crawl :
-  Mach_config.t ->
-    target_path:string ->
-      (Mach_module.t with_state, Mach_library.t with_state) Either.t list
+type mach_unit =
+  | Unit_module of Mach_module.t 
+  | Unit_lib of Mach_library.t 
+type unit_with_status =
+  {
+  unit: mach_unit ;
+  unit_state: t ;
+  unit_status: [ `Fresh  | `Fresh_but_update_state  | `Need_configure ] }
+val crawl : Mach_config.t -> target_path:string -> unit_with_status list
 [@@ocaml.doc
-  " Crawl the dependency graph starting from the given target path.\n    Returns a list modules/libs build, in a link order. "]
+  " Crawl the dependency graph starting from the given target path.\n    Returns a list modules/libs to build, in a link order. "]
 val write : Mach_config.t -> t -> unit[@@ocaml.doc
                                         " Write state to a file. "]
 end = struct
@@ -14741,17 +14745,16 @@ include
       mach_unit -> Sexplib0.Sexp.t)
     let _ = sexp_of_mach_unit
   end[@@ocaml.doc "@inline"][@@merlin.hide ]
-type t =
+type toolchain =
   {
   mach_executable_path: string ;
   ocaml_version: string ;
-  ocamlfind_version: string option ;
-  unit: mach_unit }[@@deriving sexp]
+  ocamlfind_version: string option }[@@deriving sexp]
 include
   struct
-    let _ = fun (_ : t) -> ()
-    let t_of_sexp =
-      (let error_source__118_ = "lib/mach_state.ml.t" in
+    let _ = fun (_ : toolchain) -> ()
+    let toolchain_of_sexp =
+      (let error_source__118_ = "lib/mach_state.ml.toolchain" in
        fun x__119_ ->
          Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__118_
            ~fields:(Field
@@ -14771,14 +14774,7 @@ include
                                       name = "ocamlfind_version";
                                       kind = Required;
                                       conv = (option_of_sexp string_of_sexp);
-                                      rest =
-                                        (Field
-                                           {
-                                             name = "unit";
-                                             kind = Required;
-                                             conv = mach_unit_of_sexp;
-                                             rest = Empty
-                                           })
+                                      rest = Empty
                                     })
                              })
                       })
@@ -14786,30 +14782,24 @@ include
                             | "mach_executable_path" -> 0
                             | "ocaml_version" -> 1
                             | "ocamlfind_version" -> 2
-                            | "unit" -> 3
                             | _ -> (-1)) ~allow_extra_fields:false
            ~create:(fun
                       (mach_executable_path,
-                       (ocaml_version, (ocamlfind_version, (unit, ()))))
+                       (ocaml_version, (ocamlfind_version, ())))
                       ->
                       ({
                          mach_executable_path;
                          ocaml_version;
-                         ocamlfind_version;
-                         unit
-                       } : t)) x__119_ : Sexplib0.Sexp.t -> t)
-    let _ = t_of_sexp
-    let sexp_of_t =
+                         ocamlfind_version
+                       } : toolchain)) x__119_ : Sexplib0.Sexp.t -> toolchain)
+    let _ = toolchain_of_sexp
+    let sexp_of_toolchain =
       (fun
          { mach_executable_path = mach_executable_path__121_;
            ocaml_version = ocaml_version__123_;
-           ocamlfind_version = ocamlfind_version__125_; unit = unit__127_ }
+           ocamlfind_version = ocamlfind_version__125_ }
          ->
          let bnds__120_ = ([] : _ Stdlib.List.t) in
-         let bnds__120_ =
-           let arg__128_ = sexp_of_mach_unit unit__127_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "unit"; arg__128_]) ::
-             bnds__120_ : _ Stdlib.List.t) in
          let bnds__120_ =
            let arg__126_ =
              sexp_of_option sexp_of_string ocamlfind_version__125_ in
@@ -14826,7 +14816,52 @@ include
            ((Sexplib0.Sexp.List
                [Sexplib0.Sexp.Atom "mach_executable_path"; arg__122_])
              :: bnds__120_ : _ Stdlib.List.t) in
-         Sexplib0.Sexp.List bnds__120_ : t -> Sexplib0.Sexp.t)
+         Sexplib0.Sexp.List bnds__120_ : toolchain -> Sexplib0.Sexp.t)
+    let _ = sexp_of_toolchain
+  end[@@ocaml.doc "@inline"][@@merlin.hide ]
+type t = {
+  toolchain: toolchain ;
+  unit: mach_unit }[@@deriving sexp]
+include
+  struct
+    let _ = fun (_ : t) -> ()
+    let t_of_sexp =
+      (let error_source__128_ = "lib/mach_state.ml.t" in
+       fun x__129_ ->
+         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__128_
+           ~fields:(Field
+                      {
+                        name = "toolchain";
+                        kind = Required;
+                        conv = toolchain_of_sexp;
+                        rest =
+                          (Field
+                             {
+                               name = "unit";
+                               kind = Required;
+                               conv = mach_unit_of_sexp;
+                               rest = Empty
+                             })
+                      })
+           ~index_of_field:(function
+                            | "toolchain" -> 0
+                            | "unit" -> 1
+                            | _ -> (-1)) ~allow_extra_fields:false
+           ~create:(fun (toolchain, (unit, ())) -> ({ toolchain; unit } : t))
+           x__129_ : Sexplib0.Sexp.t -> t)
+    let _ = t_of_sexp
+    let sexp_of_t =
+      (fun { toolchain = toolchain__131_; unit = unit__133_ } ->
+         let bnds__130_ = ([] : _ Stdlib.List.t) in
+         let bnds__130_ =
+           let arg__134_ = sexp_of_mach_unit unit__133_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "unit"; arg__134_]) ::
+             bnds__130_ : _ Stdlib.List.t) in
+         let bnds__130_ =
+           let arg__132_ = sexp_of_toolchain toolchain__131_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "toolchain"; arg__132_])
+             :: bnds__130_ : _ Stdlib.List.t) in
+         Sexplib0.Sexp.List bnds__130_ : t -> Sexplib0.Sexp.t)
     let _ = sexp_of_t
   end[@@ocaml.doc "@inline"][@@merlin.hide ]
 let mli_path_of_ml_if_exists path =
@@ -14845,56 +14880,57 @@ let write config state =
        output_string oc (Sexplib0.Sexp.to_string_hum (sexp_of_t state));
        output_char oc '\n');
   Sys.rename tmp path
-type 'a unit_validation_error =
+type 'a unit_validation =
+  | Fresh of 'a [@ocaml.doc " unit is fresh, no reconfiguration needed "]
+  | Fresh_but_update_state of 'a
+  [@ocaml.doc
+    " unit is fresh, no reconfiguration needed, but need to write state "]
   | Invalid
   [@ocaml.doc
     " unit is invalid (missing files or etc), dependent units need to be reconfigured "]
   | Changed of 'a
   [@ocaml.doc " unit has changed, it needs to be reconfigured "]
-  | Env_changed
-  [@ocaml.doc
-    " environment of the unit has changed, it needs to be reconfigured "]
+  | Toolchain_changed
+  [@ocaml.doc " toolchain has changed, unit needs to be reconfigured "]
   | No_state
   [@ocaml.doc
     " no state exists for the unit, it needs to be configured from scratch "]
-type 'a unit_validation_result = ('a, 'a unit_validation_error) result
-let validate_module config unit : Mach_module.t unit_validation_result=
+let validate_module config unit : Mach_module.t unit_validation=
   match unit with
   | Unit_module m ->
       (match file_stat m.path_ml with
-       | None -> Error Invalid
+       | None -> Invalid
        | Some path_ml_stat ->
            if (mli_path_of_ml_if_exists m.path_ml) <> m.path_mli
-           then Error (Changed (Mach_module.of_path_exn config m.path_ml))
+           then Changed (Mach_module.of_path_exn config m.path_ml)
            else
              if not (equal_file_stat path_ml_stat m.path_ml_stat)
              then
                (let m' = Mach_module.of_path_exn config m.path_ml in
                 if not (equal_requires (!! (m'.requires)) (!! (m.requires)))
-                then Error (Changed m')
-                else Ok m)
-             else Ok m)
-  | _ -> Error Invalid
-let validate_lib config unit : Mach_library.t unit_validation_result=
+                then Changed m'
+                else Fresh_but_update_state m')
+             else Fresh m)
+  | _ -> Invalid
+let validate_lib config unit : Mach_library.t unit_validation=
   match unit with
   | Unit_lib lib ->
       let machlib_path = let open Filename in lib.path / "Machlib" in
       (match file_stat lib.path with
-       | None -> Error Invalid
+       | None -> Invalid
        | Some path_stat ->
            (match file_stat machlib_path with
-            | None -> Error Invalid
+            | None -> Invalid
             | Some machlib_stat ->
                 let machlib_changed =
                   not (equal_file_stat machlib_stat lib.machlib_stat) in
                 if not (Sys.file_exists machlib_path)
-                then Error Invalid
+                then Invalid
                 else
                   (let dir_changed =
                      not (equal_file_stat path_stat lib.path_stat) in
                    if machlib_changed
-                   then
-                     Error (Changed (Mach_library.of_path config lib.path))
+                   then Changed (Mach_library.of_path config lib.path)
                    else
                      if dir_changed
                      then
@@ -14903,17 +14939,17 @@ let validate_lib config unit : Mach_library.t unit_validation_result=
                           not
                             (List.equal Mach_library.equal_lib_module
                                (!! (lib'.modules)) (!! (lib.modules)))
-                        then Error (Changed lib')
-                        else Ok lib)
-                     else Ok lib)))
-  | _ -> Error Invalid
-let env_changed config state =
+                        then Changed lib'
+                        else Fresh_but_update_state lib')
+                     else Fresh lib)))
+  | _ -> Invalid
+let toolchain_changed config state =
   let mach_path = config.Mach_config.mach_executable_path in
   let toolchain = config.Mach_config.toolchain in
-  (state.mach_executable_path <> mach_path) ||
-    ((state.ocaml_version <> toolchain.ocaml_version) ||
-       ((state.ocamlfind_version <> None) &&
-          (state.ocamlfind_version <>
+  ((state.toolchain).mach_executable_path <> mach_path) ||
+    (((state.toolchain).ocaml_version <> toolchain.ocaml_version) ||
+       (((state.toolchain).ocamlfind_version <> None) &&
+          ((state.toolchain).ocamlfind_version <>
              (Lazy.force toolchain.ocamlfind).ocamlfind_version)))
 let read path =
   if not (Sys.file_exists path)
@@ -14929,15 +14965,16 @@ let read_mach_state config validate path =
     let open Filename in
       (Mach_config.build_dir_of config path) / "Mach.state" in
   match read filename with
-  | None -> Error No_state
+  | None -> No_state
   | Some state ->
-      if env_changed config state
-      then Error Env_changed
+      if toolchain_changed config state
+      then Toolchain_changed
       else validate config state.unit
-type 'a with_state = {
-  unit: 'a ;
-  state: t ;
-  need_configure: bool }
+type unit_with_status =
+  {
+  unit: mach_unit ;
+  unit_state: t ;
+  unit_status: [ `Fresh  | `Fresh_but_update_state  | `Need_configure ] }
 let crawl config ~target_path =
   let exception Invalid_require  in
     let if_not_visited =
@@ -14952,68 +14989,76 @@ let crawl config ~target_path =
             | Invalid_require ->
                 (Hashtbl.remove visited path; raise_notrace Invalid_require))) in
     let units = ref [] in
-    let add_unit ~need_configure unit =
-      units := ((unit, need_configure) :: (!units)) in
+    let add_unit ~status unit = units := ((unit, status) :: (!units)) in
     let rec visit_module path =
       (if_not_visited path) @@
         (fun () ->
            match read_mach_state config validate_module path with
-           | Ok m ->
-               (match List.iter visit_require (!! (m.requires)) with
-                | () -> add_unit ~need_configure:false (Unit_module m)
+           | Fresh m ->
+               (match visit_requires m.requires with
+                | () -> add_unit ~status:`Fresh (Unit_module m)
                 | exception Invalid_require -> parse_and_add_module path)
-           | Error (Changed m) ->
-               (List.iter visit_require (!! (m.requires));
-                add_unit ~need_configure:true (Unit_module m))
-           | Error (Invalid) -> raise_notrace Invalid_require
-           | Error (Env_changed) | Error (No_state) ->
-               parse_and_add_module path)
+           | Fresh_but_update_state m ->
+               (match visit_requires m.requires with
+                | () ->
+                    add_unit ~status:`Fresh_but_update_state (Unit_module m)
+                | exception Invalid_require -> parse_and_add_module path)
+           | Changed m ->
+               (visit_requires m.requires;
+                add_unit ~status:`Need_configure (Unit_module m))
+           | Invalid -> raise_notrace Invalid_require
+           | Toolchain_changed | No_state -> parse_and_add_module path)
     and parse_and_add_module path =
       let m = Mach_module.of_path_exn config path in
-      List.iter visit_require (!! (m.requires));
-      add_unit ~need_configure:true (Unit_module m)
+      visit_requires m.requires;
+      add_unit ~status:`Need_configure (Unit_module m)
     and visit_library path =
       (if_not_visited path) @@
         (fun () ->
            match read_mach_state config validate_lib path with
-           | Ok lib ->
-               (match List.iter visit_require (!! (lib.requires)) with
-                | () -> add_unit ~need_configure:false (Unit_lib lib)
+           | Fresh lib ->
+               (match visit_requires lib.requires with
+                | () -> add_unit ~status:`Fresh (Unit_lib lib)
                 | exception Invalid_require -> parse_and_add_library path)
-           | Error (Changed lib) ->
-               (List.iter visit_require (!! (lib.requires));
-                add_unit ~need_configure:true (Unit_lib lib))
-           | Error (Invalid) -> raise_notrace Invalid_require
-           | Error (Env_changed) | Error (No_state) ->
-               parse_and_add_library path)
+           | Fresh_but_update_state lib ->
+               (match visit_requires lib.requires with
+                | () ->
+                    add_unit ~status:`Fresh_but_update_state (Unit_lib lib)
+                | exception Invalid_require -> parse_and_add_library path)
+           | Changed lib ->
+               (visit_requires lib.requires;
+                add_unit ~status:`Need_configure (Unit_lib lib))
+           | Invalid -> raise_notrace Invalid_require
+           | Toolchain_changed | No_state -> parse_and_add_library path)
     and parse_and_add_library path =
       let lib = Mach_library.of_path config path in
-      List.iter visit_require (!! (lib.requires));
-      add_unit ~need_configure:true (Unit_lib lib)
+      visit_requires lib.requires;
+      add_unit ~status:`Need_configure (Unit_lib lib)
     and visit_require =
       function
       | Mach_module.Require r -> visit_module r.v
       | Mach_module.Require_lib r -> visit_library r.v
-      | Mach_module.Require_extlib _ -> () in
+      | Mach_module.Require_extlib _ -> ()
+    and visit_requires requires = List.iter visit_require (!! requires) in
     visit_require
       (let targe_path = Unix.realpath target_path in
        Mach_module.resolve_require config ~source_path:targe_path ~line:0
          targe_path);
-    (let toolchain = config.Mach_config.toolchain in
+    (let config_toolchain = config.Mach_config.toolchain in
      let ocamlfind_version =
-       if Lazy.is_val toolchain.ocamlfind
-       then (Lazy.force toolchain.ocamlfind).ocamlfind_version
+       if Lazy.is_val config_toolchain.ocamlfind
+       then (Lazy.force config_toolchain.ocamlfind).ocamlfind_version
        else None in
-     let ocaml_version = toolchain.ocaml_version in
-     let mach_executable_path = config.Mach_config.mach_executable_path in
+     let toolchain =
+       {
+         mach_executable_path = (config.Mach_config.mach_executable_path);
+         ocaml_version = (config_toolchain.ocaml_version);
+         ocamlfind_version
+       } in
      List.rev_map
-       (fun (unit, need_configure) ->
-          let state =
-            { mach_executable_path; ocaml_version; ocamlfind_version; unit } in
-          match unit with
-          | Unit_module unit -> Either.Left { unit; state; need_configure }
-          | Unit_lib unit -> Right { unit; state; need_configure }) (
-       !units))
+       (fun (unit, unit_status) ->
+          let unit_state = { toolchain; unit } in
+          { unit; unit_state; unit_status }) (!units))
 end
 module Mach_lib : sig
 [@@@ocaml.ppx.context
@@ -15148,45 +15193,51 @@ let configure_exn config target =
   let objs = ref [] in
   let extlibs = ref SS.empty in
   List.iter
-    (function
-     | Either.Left { Mach_state.unit = m; state; need_configure } ->
-         let build_dir = build_dir_of m.Mach_module.path_ml in
-         let cmx =
-           if need_configure
-           then
-             (any_need_reconfigure := true;
-              log_verbose "mach: configuring %s" m.path_ml;
-              mkdir_p build_dir;
-              (let b = Ninja.create () in
-               let (_cmi, cmx) = configure_module ~build_dir b config m in
-               write_file (let open Filename in build_dir / "mach.ninja")
-                 (Ninja.contents b);
-               Mach_state.write config state;
-               cmx))
-           else Mach_module.cmx config m in
-         (modules := (m :: (!modules));
-          objs := (cmx :: (!objs));
-          extlibs :=
-            (SS.add_seq ((Mach_module.extlibs m) |> List.to_seq) (!extlibs)))
-     | Right { Mach_state.unit = lib; state; need_configure } ->
-         (if need_configure
-          then
-            (any_need_reconfigure := true;
-             log_verbose "mach: configuring library %s" lib.Mach_library.path;
-             (let build_dir = Mach_config.build_dir_of config lib.path in
-              let mach_cmd = config.Mach_config.mach_executable_path in
-              mkdir_p build_dir;
-              (let b = Ninja.create () in
-               Ninja.var b "MACH" mach_cmd;
-               configure_library b config lib ~build_dir;
-               write_file (let open Filename in build_dir / "mach.ninja")
-                 (Ninja.contents b);
-               Mach_state.write config state)));
-          libs := (lib :: (!libs));
-          objs := ((Mach_library.cmxa config lib) :: (!objs));
-          extlibs :=
-            (SS.add_seq ((Mach_library.extlibs lib) |> List.to_seq)
-               (!extlibs)))) units;
+    (fun { Mach_state.unit = unit; unit_state; unit_status } ->
+       match unit with
+       | Mach_state.Unit_module m ->
+           let build_dir = build_dir_of m.Mach_module.path_ml in
+           let cmx =
+             match unit_status with
+             | `Need_configure ->
+                 (any_need_reconfigure := true;
+                  log_verbose "mach: configuring %s" m.path_ml;
+                  mkdir_p build_dir;
+                  (let b = Ninja.create () in
+                   let (_cmi, cmx) = configure_module ~build_dir b config m in
+                   write_file (let open Filename in build_dir / "mach.ninja")
+                     (Ninja.contents b);
+                   Mach_state.write config unit_state;
+                   cmx))
+             | `Fresh_but_update_state ->
+                 (Mach_state.write config unit_state;
+                  Mach_module.cmx config m)
+             | `Fresh -> Mach_module.cmx config m in
+           (modules := (m :: (!modules));
+            objs := (cmx :: (!objs));
+            extlibs := (SS.union (Mach_module.extlibs m) (!extlibs)))
+       | Mach_state.Unit_lib lib ->
+           ((match unit_status with
+             | `Need_configure ->
+                 (any_need_reconfigure := true;
+                  log_verbose "mach: configuring library %s"
+                    lib.Mach_library.path;
+                  (let build_dir = Mach_config.build_dir_of config lib.path in
+                   let mach_cmd = config.Mach_config.mach_executable_path in
+                   mkdir_p build_dir;
+                   (let b = Ninja.create () in
+                    Ninja.var b "MACH" mach_cmd;
+                    configure_library b config lib ~build_dir;
+                    write_file
+                      (let open Filename in build_dir / "mach.ninja")
+                      (Ninja.contents b);
+                    Mach_state.write config unit_state)))
+             | `Fresh_but_update_state -> Mach_state.write config unit_state
+             | `Fresh -> ());
+            libs := (lib :: (!libs));
+            objs := ((Mach_library.cmxa config lib) :: (!objs));
+            extlibs := (SS.union (Mach_library.extlibs lib) (!extlibs))))
+    units;
   (let modules = List.rev (!modules) in
    let libs = List.rev (!libs) in
    let objs = List.rev (!objs) in

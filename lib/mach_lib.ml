@@ -103,27 +103,33 @@ let configure_exn config target =
   let libs = ref [] in
   let objs = ref [] in  (* Combined list of .cmx and .cmxa in dependency order *)
   let extlibs = ref SS.empty in
-  List.iter (function
-    | Either.Left {Mach_state.unit=m;state;need_configure} ->
+  List.iter (fun {Mach_state.unit; unit_state; unit_status} ->
+    match unit with
+    | Mach_state.Unit_module m ->
       let build_dir = build_dir_of m.Mach_module.path_ml in
       let cmx =
-        if need_configure then begin
+        match unit_status with
+        | `Need_configure ->
           any_need_reconfigure := true;
           log_verbose "mach: configuring %s" m.path_ml;
           mkdir_p build_dir;
           let b = Ninja.create () in
           let _cmi, cmx = configure_module ~build_dir b config m in
           write_file Filename.(build_dir / "mach.ninja") (Ninja.contents b);
-          Mach_state.write config state;
+          Mach_state.write config unit_state;
           cmx
-        end
-        else Mach_module.cmx config m
+        | `Fresh_but_update_state ->
+          Mach_state.write config unit_state;
+          Mach_module.cmx config m
+        | `Fresh ->
+          Mach_module.cmx config m
       in
       modules := m :: !modules;
       objs := cmx :: !objs;
-      extlibs := SS.add_seq (Mach_module.extlibs m |> List.to_seq) !extlibs
-    | Right {Mach_state.unit=lib;state;need_configure} ->
-      if need_configure then begin
+      extlibs := SS.union (Mach_module.extlibs m) !extlibs
+    | Mach_state.Unit_lib lib ->
+      begin match unit_status with
+      | `Need_configure ->
         any_need_reconfigure := true;
         log_verbose "mach: configuring library %s" lib.Mach_library.path;
         let build_dir = Mach_config.build_dir_of config lib.path in
@@ -133,11 +139,14 @@ let configure_exn config target =
         Ninja.var b "MACH" mach_cmd;
         configure_library b config lib ~build_dir;
         write_file Filename.(build_dir / "mach.ninja") (Ninja.contents b);
-        Mach_state.write config state;
+        Mach_state.write config unit_state
+      | `Fresh_but_update_state ->
+        Mach_state.write config unit_state
+      | `Fresh -> ()
       end;
       libs := lib :: !libs;
       objs := Mach_library.cmxa config lib :: !objs;
-      extlibs := SS.add_seq (Mach_library.extlibs lib |> List.to_seq) !extlibs
+      extlibs := SS.union (Mach_library.extlibs lib) !extlibs
   ) units;
   let modules = List.rev !modules in
   let libs = List.rev !libs in

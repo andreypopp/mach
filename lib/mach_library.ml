@@ -61,4 +61,4 @@ let cmxa config lib =
 let extlibs lib =
   List.filter_map (function
     | Mach_module.Require_extlib r -> Some r.v.name
-    | _ -> None) !!(lib.requires)
+    | _ -> None) !!(lib.requires) |> SS.of_list

@@ -44,10 +44,14 @@ type mach_unit =
   | Unit_lib of mach_library
 [@@deriving sexp]
 
-type t = {
+type toolchain = {
   mach_executable_path : string;
   ocaml_version : string;
   ocamlfind_version : string option;
+} [@@deriving sexp]
+
+type t = {
+  toolchain : toolchain;
   unit : mach_unit;
 } [@@deriving sexp]
 
@@ -71,62 +75,62 @@ let write config state =
     output_char oc '\n');
   Sys.rename tmp path
 
-type 'a unit_validation_error =
+type 'a unit_validation =
+  | Fresh of 'a (** unit is fresh, no reconfiguration needed *)
+  | Fresh_but_update_state of 'a (** unit is fresh, no reconfiguration needed, but need to write state *)
   | Invalid (** unit is invalid (missing files or etc), dependent units need to be reconfigured *)
   | Changed of 'a (** unit has changed, it needs to be reconfigured *)
-  | Env_changed (** environment of the unit has changed, it needs to be reconfigured *)
+  | Toolchain_changed (** toolchain has changed, unit needs to be reconfigured *)
   | No_state (** no state exists for the unit, it needs to be configured from scratch *)
 
-type 'a unit_validation_result = ('a, 'a unit_validation_error) result
-
-let validate_module config unit : Mach_module.t unit_validation_result =
+let validate_module config unit : Mach_module.t unit_validation =
   match unit with
   | Unit_module m ->
     begin match file_stat m.path_ml with
-    | None -> Error Invalid
+    | None -> Invalid
     | Some path_ml_stat ->
     if mli_path_of_ml_if_exists m.path_ml <> m.path_mli
-    then Error (Changed (Mach_module.of_path_exn config m.path_ml))
+    then Changed (Mach_module.of_path_exn config m.path_ml)
     else if not (equal_file_stat path_ml_stat m.path_ml_stat)
     then
       let m' = Mach_module.of_path_exn config m.path_ml in
       if not (equal_requires !!(m'.requires) !!(m.requires))
-      then Error (Changed m')
-      else Ok m
-    else Ok m
+      then Changed m'
+      else Fresh_but_update_state m'
+    else Fresh m
     end
-  | _ -> Error Invalid
+  | _ -> Invalid
 
-let validate_lib config unit : Mach_library.t unit_validation_result =
+let validate_lib config unit : Mach_library.t unit_validation =
   match unit with
   | Unit_lib lib ->
     let machlib_path = Filename.(lib.path / "Machlib") in
     begin match file_stat lib.path with
-    | None -> Error Invalid
+    | None -> Invalid
     | Some path_stat ->
     match file_stat machlib_path with
-    | None -> Error Invalid
+    | None -> Invalid
     | Some machlib_stat ->
     let machlib_changed = not (equal_file_stat machlib_stat lib.machlib_stat) in
-    if not (Sys.file_exists machlib_path) then Error Invalid else
+    if not (Sys.file_exists machlib_path) then Invalid else
     let dir_changed = not (equal_file_stat path_stat lib.path_stat) in
-    if machlib_changed then Error (Changed (Mach_library.of_path config lib.path))
-    else if dir_changed then 
+    if machlib_changed then Changed (Mach_library.of_path config lib.path)
+    else if dir_changed then
       let lib' = Mach_library.of_path config lib.path in
       if not (List.equal Mach_library.equal_lib_module !!(lib'.modules) !!(lib.modules))
-      then Error (Changed lib')
-      else Ok lib
-    else Ok lib
+      then Changed lib'
+      else Fresh_but_update_state lib'
+    else Fresh lib
     end
-  | _ -> Error Invalid
+  | _ -> Invalid
 
-let env_changed config state =
+let toolchain_changed config state =
   let mach_path = config.Mach_config.mach_executable_path in
   let toolchain = config.Mach_config.toolchain in
-  state.mach_executable_path <> mach_path ||
-  state.ocaml_version <> toolchain.ocaml_version ||
-  (state.ocamlfind_version <> None &&
-    state.ocamlfind_version <> (Lazy.force toolchain.ocamlfind).ocamlfind_version)
+  state.toolchain.mach_executable_path <> mach_path ||
+  state.toolchain.ocaml_version <> toolchain.ocaml_version ||
+  (state.toolchain.ocamlfind_version <> None &&
+    state.toolchain.ocamlfind_version <> (Lazy.force toolchain.ocamlfind).ocamlfind_version)
 
 let read path =
   if not (Sys.file_exists path) then None
@@ -139,15 +143,15 @@ let read path =
 let read_mach_state config validate path =
   let filename = Filename.(Mach_config.build_dir_of config path / "Mach.state") in
   match read filename with
-  | None -> Error No_state
-  | Some state -> 
-    if env_changed config state then Error Env_changed
+  | None -> No_state
+  | Some state ->
+    if toolchain_changed config state then Toolchain_changed
     else validate config state.unit
 
-type 'a with_state = { 
-  unit: 'a;
-  state: t;
-  need_configure: bool;
+type unit_with_status = { 
+  unit: mach_unit;
+  unit_state: t;
+  unit_status : [`Fresh | `Fresh_but_update_state | `Need_configure ];
 }
 
 let crawl config ~target_path =
@@ -164,59 +168,71 @@ let crawl config ~target_path =
       end
   in
   let units = ref [] in
-  let add_unit ~need_configure unit = units := (unit, need_configure) :: !units in
+  let add_unit ~status unit = units := (unit, status) :: !units in
   let rec visit_module path =
     if_not_visited path @@ fun () ->
     match read_mach_state config validate_module path with
-    | Ok m ->
-      begin match List.iter visit_require !!(m.requires) with
-      | () -> add_unit ~need_configure:false (Unit_module m)
+    | Fresh m ->
+      begin match visit_requires m.requires with
+      | () -> add_unit ~status:`Fresh (Unit_module m)
       | exception Invalid_require -> parse_and_add_module path
       end
-    | Error Changed m ->
-      List.iter visit_require !!(m.requires);
-      add_unit ~need_configure:true (Unit_module m)
-    | Error Invalid -> raise_notrace Invalid_require
-    | Error Env_changed | Error No_state -> parse_and_add_module path
+    | Fresh_but_update_state m ->
+      begin match visit_requires m.requires with
+      | () -> add_unit ~status:`Fresh_but_update_state (Unit_module m)
+      | exception Invalid_require -> parse_and_add_module path
+      end
+    | Changed m ->
+      visit_requires m.requires;
+      add_unit ~status:`Need_configure (Unit_module m)
+    | Invalid -> raise_notrace Invalid_require
+    | Toolchain_changed | No_state -> parse_and_add_module path
   and parse_and_add_module path =
     let m = Mach_module.of_path_exn config path in
-    List.iter visit_require !!(m.requires);
-    add_unit ~need_configure:true (Unit_module m)
+    visit_requires m.requires;
+    add_unit ~status:`Need_configure (Unit_module m)
   and visit_library path =
     if_not_visited path @@ fun () ->
     match read_mach_state config validate_lib path with
-    | Ok lib ->
-      begin match List.iter visit_require !!(lib.requires) with
-      | () -> add_unit ~need_configure:false (Unit_lib lib)
+    | Fresh lib ->
+      begin match visit_requires lib.requires with
+      | () -> add_unit ~status:`Fresh (Unit_lib lib)
       | exception Invalid_require -> parse_and_add_library path
       end
-    | Error Changed lib ->
-      List.iter visit_require !!(lib.requires);
-      add_unit ~need_configure:true (Unit_lib lib)
-    | Error Invalid -> raise_notrace Invalid_require
-    | Error Env_changed | Error No_state -> parse_and_add_library path
+    | Fresh_but_update_state lib ->
+      begin match visit_requires lib.requires with
+      | () -> add_unit ~status:`Fresh_but_update_state (Unit_lib lib)
+      | exception Invalid_require -> parse_and_add_library path
+      end
+    | Changed lib ->
+      visit_requires lib.requires;
+      add_unit ~status:`Need_configure (Unit_lib lib)
+    | Invalid -> raise_notrace Invalid_require
+    | Toolchain_changed | No_state -> parse_and_add_library path
   and parse_and_add_library path =
     let lib = Mach_library.of_path config path in
-    List.iter visit_require !!(lib.requires);
-    add_unit ~need_configure:true (Unit_lib lib)
+    visit_requires lib.requires;
+    add_unit ~status:`Need_configure (Unit_lib lib)
   and visit_require = function
     | Mach_module.Require r -> visit_module r.v
     | Mach_module.Require_lib r -> visit_library r.v
     | Mach_module.Require_extlib _ -> ()
+  and visit_requires requires = List.iter visit_require !!(requires)
   in
   visit_require
     (let targe_path = Unix.realpath target_path in
      Mach_module.resolve_require config ~source_path:targe_path ~line:0 targe_path);
-  let toolchain = config.Mach_config.toolchain in
+  let config_toolchain = config.Mach_config.toolchain in
   let ocamlfind_version =
-    if Lazy.is_val toolchain.ocamlfind
-    then (Lazy.force toolchain.ocamlfind).ocamlfind_version
+    if Lazy.is_val config_toolchain.ocamlfind
+    then (Lazy.force config_toolchain.ocamlfind).ocamlfind_version
     else None
   in
-  let ocaml_version = toolchain.ocaml_version in
-  let mach_executable_path = config.Mach_config.mach_executable_path in
-  List.rev_map (fun (unit, need_configure) ->
-    let state = { mach_executable_path; ocaml_version; ocamlfind_version; unit } in
-    match unit with
-    | Unit_module unit -> Either.Left { unit; state; need_configure }
-    | Unit_lib unit -> Right { unit; state; need_configure }) !units
+  let toolchain = {
+    mach_executable_path = config.Mach_config.mach_executable_path;
+    ocaml_version = config_toolchain.ocaml_version;
+    ocamlfind_version;
+  } in
+  List.rev_map (fun (unit, unit_status) ->
+    let unit_state = { toolchain; unit } in
+    { unit; unit_state; unit_status }) !units

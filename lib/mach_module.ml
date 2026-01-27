@@ -138,4 +138,4 @@ let cmx config m =
 let extlibs lib =
   List.filter_map (function
     | Require_extlib r -> Some r.v.name
-    | _ -> None) !!(lib.requires)
+    | _ -> None) !!(lib.requires) |> SS.of_list

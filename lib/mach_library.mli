@@ -23,5 +23,5 @@ val cmxa : Mach_config.t -> t -> string
 
 val equal_lib_module : lib_module -> lib_module -> bool
 
-val extlibs : t -> string list
+val extlibs : t -> SS.t
 (** List of external libraries required by this mach library. *)

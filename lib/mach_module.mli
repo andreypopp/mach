@@ -42,5 +42,5 @@ val path_mli : string -> string option
 
 val cmx : Mach_config.t -> t -> string
 
-val extlibs : t -> string list
+val extlibs : t -> SS.t
 (** List of external libraries required by this module. *)
