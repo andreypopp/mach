@@ -69,3 +69,14 @@ let file_stat_exn path =
   match file_stat path with
   | Some stat -> stat
   | None -> Mach_error.user_errorf "no such file or directory: %s" path
+
+let temp_path_for_atomic_write path =
+  let pid = Unix.getpid () in
+  let time = Unix.gettimeofday () in
+  sprintf "%s.%d.%.6f.tmp" path pid time
+
+let atomic_write_file path f =
+  let tmp = temp_path_for_atomic_write path in
+  Fun.protect (fun () ->
+    Out_channel.with_open_text tmp f;
+    Sys.rename tmp path) ~finally:(fun () -> try Sys.remove tmp with _ -> ())

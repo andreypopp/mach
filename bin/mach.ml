@@ -268,10 +268,7 @@ let pp_cmd =
   let f source output pp_cmd =
     let with_output f =
       match output with
-      | Some o ->
-        let temp = temp_file "mach-pp" ".ml" in
-        Out_channel.with_open_text temp f;
-        Sys.rename temp o
+      | Some o -> atomic_write_file o f
       | None -> f stdout
     in
     let mach_pp oc =
@@ -282,7 +279,7 @@ let pp_cmd =
       let full_cmd = match output with
         | None -> cmd
         | Some out ->
-          let temp = temp_file "mach-pp" ".ml" in
+          let temp = temp_path_for_atomic_write out in
           Printf.sprintf "%s > %s && mv %s %s" cmd (Filename.quote temp) (Filename.quote temp) (Filename.quote out)
       in
       let code = Sys.command full_cmd in
@@ -368,9 +365,8 @@ let dep_cmd =
         Printf.eprintf "mach dep: ocamldep failed\n%!"; exit 1);
       List.filter_map parse_dep_line lines
     in
-    let tmp = temp_file "mach-dep" ".dep" in
     let build_dir = Filename.dirname (Unix.realpath input) in
-    Out_channel.with_open_text tmp (fun oc ->
+    atomic_write_file output (fun oc ->
       Printf.fprintf oc "ninja_dyndep_version = 1\n";
       let norm_path path = if Filename.is_relative path then Filename.(build_dir / path) else path in
       List.iter (fun (target, deps) ->
@@ -379,8 +375,7 @@ let dep_cmd =
         if deps = []
         then Printf.fprintf oc "build %s: dyndep\n" target
         else Printf.fprintf oc "build %s: dyndep | %s\n" target (String.concat " " deps)
-      ) deps);
-    Sys.rename tmp output
+      ) deps)
   in
   Cmd.v (Cmd.info "dep" ~doc ~docs:Manpage.s_none)
     Term.(const f

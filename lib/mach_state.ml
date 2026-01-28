@@ -68,12 +68,9 @@ let write config state =
     | Unit_lib l -> l.path
   in
   let path = Filename.(Mach_config.build_dir_of config unit_path / "Mach.state") in
-  let tmp = path ^ ".tmp" in
-  if Sys.file_exists tmp then Sys.remove tmp;
-  Out_channel.with_open_text tmp (fun oc ->
+  atomic_write_file path (fun oc ->
     output_string oc (Sexplib0.Sexp.to_string_hum (sexp_of_t state));
-    output_char oc '\n');
-  Sys.rename tmp path
+    output_char oc '\n')
 
 type 'a unit_validation =
   | Fresh of 'a (** unit is fresh, no reconfiguration needed *)
