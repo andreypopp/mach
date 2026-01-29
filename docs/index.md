@@ -24,8 +24,8 @@ Below is the documentation for installation and usage:
 
 ## INSTALLATION
 
-Mach is distributed as a single `mach.ml` source file. It requires OCaml
-toolchain and Ninja build system to be installed.
+Mach is distributed as a single `mach.ml` source file. It requires only OCaml
+toolchain to be installed.
 
 ### Installation through homebrew
 
