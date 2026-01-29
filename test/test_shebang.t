@@ -10,10 +10,10 @@
   Mach.state
   a.out
   includes.args
+  mach.build
   myscript.cmi
   myscript.cmt
   myscript.cmx
   myscript.ml
   myscript.o
   objs.args
-  ocamldep.args

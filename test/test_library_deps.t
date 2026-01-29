@@ -34,7 +34,6 @@ Run the script:
   mach: configuring library $TESTCASE_ROOT/baselib
   mach: configuring library $TESTCASE_ROOT/toplib
   mach: configuring $TESTCASE_ROOT/main.ml
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   Hello, World!
   Version: 1.0

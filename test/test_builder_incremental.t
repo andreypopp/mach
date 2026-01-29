@@ -17,7 +17,7 @@ Create source file:
 
 First build should run:
 
-  $ mach builder -v --build-file="$B/build.sexp" "$B/output.txt"
+  $ mach builder -vvv --build-file="$B/build.sexp" "$B/output.txt"
   mach: building $TESTCASE_ROOT/_build/output.txt
 
   $ cat "$B/output.txt"
@@ -26,7 +26,7 @@ First build should run:
 
 Second build without changes should skip:
 
-  $ mach builder -v --build-file="$B/build.sexp" "$B/output.txt"
+  $ mach builder -vvv --build-file="$B/build.sexp" "$B/output.txt"
 
 (no output - target was up-to-date)
 
@@ -37,7 +37,7 @@ Touch the source file to trigger rebuild:
 
 Now build should run again:
 
-  $ mach builder -v --build-file="$B/build.sexp" "$B/output.txt"
+  $ mach builder -vvv --build-file="$B/build.sexp" "$B/output.txt"
   mach: building $TESTCASE_ROOT/_build/output.txt
 
 Test with dependency chain (A depends on B depends on C):
@@ -59,7 +59,7 @@ Test with dependency chain (A depends on B depends on C):
 
 First build - all targets built:
 
-  $ mach builder -v --build-file="$B/build2.sexp" "$B/a.txt"
+  $ mach builder -vvv --build-file="$B/build2.sexp" "$B/a.txt"
   mach: building $TESTCASE_ROOT/_build/c.txt
   mach: building $TESTCASE_ROOT/_build/b.txt
   mach: building $TESTCASE_ROOT/_build/a.txt
@@ -71,20 +71,20 @@ First build - all targets built:
 
 Second build - nothing rebuilt:
 
-  $ mach builder -v --build-file="$B/build2.sexp" "$B/a.txt"
+  $ mach builder -vvv --build-file="$B/build2.sexp" "$B/a.txt"
 
 Touch intermediate target b.txt - should rebuild only a:
 
   $ sleep 1
   $ touch $B/b.txt
-  $ mach builder -v --build-file="$B/build2.sexp" "$B/a.txt"
+  $ mach builder -vvv --build-file="$B/build2.sexp" "$B/a.txt"
   mach: building $TESTCASE_ROOT/_build/a.txt
 
 Touch source c.txt - should rebuild b and a:
 
   $ sleep 1
   $ touch $B/c.txt
-  $ mach builder -v --build-file="$B/build2.sexp" "$B/a.txt"
+  $ mach builder -vvv --build-file="$B/build2.sexp" "$B/a.txt"
   mach: building $TESTCASE_ROOT/_build/b.txt
   mach: building $TESTCASE_ROOT/_build/a.txt
 
@@ -107,7 +107,7 @@ Test with dyndeps:
 
 First build:
 
-  $ mach builder -v --build-file="$B/build3.sexp" "$B/main.txt"
+  $ mach builder -vvv --build-file="$B/build3.sexp" "$B/main.txt"
   mach: building $TESTCASE_ROOT/_build/dyndep.txt
   mach: building $TESTCASE_ROOT/_build/extra.txt
   mach: building $TESTCASE_ROOT/_build/main.txt
@@ -118,13 +118,13 @@ First build:
 
 Second build - nothing rebuilt:
 
-  $ mach builder -v --build-file="$B/build3.sexp" "$B/main.txt"
+  $ mach builder -vvv --build-file="$B/build3.sexp" "$B/main.txt"
 
 Touch the dyndep-discovered dep - should rebuild main:
 
   $ sleep 1
   $ touch $B/extra.txt
-  $ mach builder -v --build-file="$B/build3.sexp" "$B/main.txt"
+  $ mach builder -vvv --build-file="$B/build3.sexp" "$B/main.txt"
   mach: building $TESTCASE_ROOT/_build/main.txt
 
 Test dyndep re-evaluation (dyndep changes to point to different deps):
@@ -163,7 +163,7 @@ Build spec where dyndep reads config to decide which dep to declare:
 
 First build - config says dep1, so dyndep should declare dep1:
 
-  $ mach builder -v --build-file="$B/build4.sexp" "$B/result.txt"
+  $ mach builder -vvv --build-file="$B/build4.sexp" "$B/result.txt"
   mach: building $TESTCASE_ROOT/_build/dyndep4.txt
   mach: building $TESTCASE_ROOT/_build/result.txt
 
@@ -172,7 +172,7 @@ First build - config says dep1, so dyndep should declare dep1:
 
 Second build - nothing changed, should skip:
 
-  $ mach builder -v --build-file="$B/build4.sexp" "$B/result.txt"
+  $ mach builder -vvv --build-file="$B/build4.sexp" "$B/result.txt"
 
 Now change config to point to dep2:
 
@@ -181,7 +181,7 @@ Now change config to point to dep2:
 
 Rebuild - dyndep should be rebuilt (config changed), then result rebuilt with new dep:
 
-  $ mach builder -v --build-file="$B/build4.sexp" "$B/result.txt"
+  $ mach builder -vvv --build-file="$B/build4.sexp" "$B/result.txt"
   mach: building $TESTCASE_ROOT/_build/dyndep4.txt
   mach: building $TESTCASE_ROOT/_build/result.txt
 
@@ -194,11 +194,11 @@ Touch dep2 (the new dynamic dep) - should trigger rebuild:
 
   $ sleep 1
   $ touch $B/dep2.txt
-  $ mach builder -v --build-file="$B/build4.sexp" "$B/result.txt"
+  $ mach builder -vvv --build-file="$B/build4.sexp" "$B/result.txt"
   mach: building $TESTCASE_ROOT/_build/result.txt
 
 Touch dep1 (the old dynamic dep, no longer referenced) - should NOT trigger rebuild:
 
   $ sleep 1
   $ touch $B/dep1.txt
-  $ mach builder -v --build-file="$B/build4.sexp" "$B/result.txt"
+  $ mach builder -vvv --build-file="$B/build4.sexp" "$B/result.txt"

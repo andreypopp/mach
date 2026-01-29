@@ -21,19 +21,19 @@ Inspect the build dir:
   lib.cmx
   lib.ml
   lib.o
-  ocamldep.args
+  mach.build
 
   $ ls _mach/build/*__main.ml | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
   Mach.state
   a.out
   includes.args
+  mach.build
   main.cmi
   main.cmt
   main.cmx
   main.ml
   main.o
   objs.args
-  ocamldep.args
 
 Test absolute path resolution (extension is inferred for absolute paths too):
   $ cat << 'EOF' > abs_lib.ml

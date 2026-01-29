@@ -56,7 +56,6 @@ Remove a module from the library:
   mach: initial build...
   mach: configuring library $TESTCASE_ROOT/mylib
   mach: configuring $TESTCASE_ROOT/main.ml
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   mach: watching 2 directories (Ctrl+C to stop):
     $TESTCASE_ROOT
@@ -66,7 +65,6 @@ Remove a module from the library:
   mach: build succeeded
   mach: file changed: bar.ml
   mach: configuring library $TESTCASE_ROOT/mylib
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   mach: build succeeded
   mach:watch: reconfigured, restarting watcher...
@@ -75,7 +73,6 @@ Remove a module from the library:
     $TESTCASE_ROOT/mylib
   mach: file changed: Machlib
   mach: configuring library $TESTCASE_ROOT/mylib
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   mach: build succeeded
   mach:watch: reconfigured, restarting watcher...
@@ -84,7 +81,6 @@ Remove a module from the library:
     $TESTCASE_ROOT/mylib
   mach: file changed: bar.ml
   mach: configuring library $TESTCASE_ROOT/mylib
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   mach: build succeeded
   mach:watch: reconfigured, restarting watcher...

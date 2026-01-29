@@ -7,3 +7,4 @@ let log_at level fmt =
 
 let log_verbose fmt = log_at Verbose fmt
 let log_very_verbose fmt = log_at Very_verbose fmt
+let log_very_very_verbose fmt = log_at Very_very_verbose fmt

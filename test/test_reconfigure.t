@@ -10,7 +10,6 @@ First build - should reconfigure (no previous state):
 
   $ mach run -vv ./main.ml 2>&1
   mach: configuring $TESTCASE_ROOT/main.ml
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   v1
 
@@ -46,7 +45,6 @@ Add a dependency - SHOULD reconfigure (structural change):
   $ mach run -vv ./main.ml 2>&1
   mach: configuring $TESTCASE_ROOT/lib.ml
   mach: configuring $TESTCASE_ROOT/main.ml
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   from lib
 
@@ -75,7 +73,6 @@ Add .mli file to dependency - SHOULD reconfigure:
 
   $ mach run -vv ./main.ml 2>&1
   mach: configuring $TESTCASE_ROOT/lib.ml
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   updated lib
 
@@ -97,6 +94,5 @@ Remove .mli file - SHOULD reconfigure:
 
   $ mach run -vv ./main.ml 2>&1
   mach: configuring $TESTCASE_ROOT/lib.ml
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   updated lib

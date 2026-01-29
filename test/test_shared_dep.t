@@ -26,12 +26,10 @@ Build a.ml in verbose mode and check utils.ml is configured:
   $ mach build -v a.ml 2>&1 | grep "configuring"
   mach: configuring $TESTCASE_ROOT/utils.ml
   mach: configuring $TESTCASE_ROOT/a.ml
-  mach: configuring $TESTCASE_ROOT/a.ml (root)
 
 Build b.ml in verbose mode - utils.ml should NOT be configured again:
   $ mach build -v b.ml 2>&1 | grep "configuring"
   mach: configuring $TESTCASE_ROOT/b.ml
-  mach: configuring $TESTCASE_ROOT/b.ml (root)
 
 Verify both executables work:
   $ mach run a.ml

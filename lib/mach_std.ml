@@ -70,14 +70,14 @@ let rm_rf path =
 let write_file path content =
   Out_channel.with_open_text path (fun oc -> output_string oc content)
 
-type file_stat = { mtime : int; size : int } [@@deriving sexp]
+type file_stat = { mtime : float; size : int } [@@deriving sexp]
 
-let equal_file_stat x y = Int.equal x.mtime y.mtime && Int.equal x.size y.size
+let equal_file_stat x y = Float.equal x.mtime y.mtime && Int.equal x.size y.size
 
 let file_stat path =
   try
     let st = Unix.stat path in
-    Some { mtime = Int.of_float st.Unix.st_mtime; size = st.Unix.st_size }
+    Some { mtime = st.Unix.st_mtime; size = st.Unix.st_size }
   with Unix.Unix_error (_, _, _) -> None
 
 let file_stat_exn path =

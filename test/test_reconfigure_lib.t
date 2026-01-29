@@ -20,7 +20,6 @@ First build - should reconfigure (no previous state):
   $ mach run -vv ./main.ml 2>&1
   mach: configuring library $TESTCASE_ROOT/mylib
   mach: configuring $TESTCASE_ROOT/main.ml
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   v1
 
@@ -48,7 +47,6 @@ Modify Machlib file - SHOULD reconfigure:
 
   $ mach run -vv ./main.ml 2>&1
   mach: configuring library $TESTCASE_ROOT/mylib
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   v2
 
@@ -61,7 +59,6 @@ Add a new module to the library - SHOULD reconfigure:
 
   $ mach run -vv ./main.ml 2>&1
   mach: configuring library $TESTCASE_ROOT/mylib
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   v2
 
@@ -88,6 +85,5 @@ Remove a module from the library - SHOULD reconfigure:
 
   $ mach run -vv ./main.ml 2>&1
   mach: configuring library $TESTCASE_ROOT/mylib
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   v2

@@ -11,9 +11,9 @@ Test that a failing command produces a proper error message:
   >   (commands ("exit 1")))
   > EOF
 
-  $ mach builder -v --build-file="$B/build.sexp" "$B/fail.txt"
+  $ mach builder -vvv --build-file="$B/build.sexp" "$B/fail.txt"
   mach: building $TESTCASE_ROOT/_build/fail.txt
-  mach: error: command failed with exit code 1: exit 1
+  mach: error: build error
   [1]
 
 Test that a command with non-zero exit code shows the exit code:
@@ -25,9 +25,9 @@ Test that a command with non-zero exit code shows the exit code:
   >   (commands ("exit 42")))
   > EOF
 
-  $ mach builder -v --build-file="$B/build2.sexp" "$B/fail2.txt"
+  $ mach builder -vvv --build-file="$B/build2.sexp" "$B/fail2.txt"
   mach: building $TESTCASE_ROOT/_build/fail2.txt
-  mach: error: command failed with exit code 42: exit 42
+  mach: error: build error
   [1]
 
 Test that the error shows the actual failing command:
@@ -39,10 +39,10 @@ Test that the error shows the actual failing command:
   >   (commands ("echo start" "false" "echo end")))
   > EOF
 
-  $ mach builder -v --build-file="$B/build3.sexp" "$B/fail3.txt"
+  $ mach builder -vvv --build-file="$B/build3.sexp" "$B/fail3.txt"
   mach: building $TESTCASE_ROOT/_build/fail3.txt
   start
-  mach: error: command failed with exit code 1: false
+  mach: error: build error
   [1]
 
 Test dependency cycle detection (A depends on B, B depends on A):
@@ -96,7 +96,7 @@ Test dyndep referencing unknown target:
   >   (commands ("echo '((target \"$B/nonexistent.txt\") (deps (\"$B/foo.txt\")))' > $B/dyndep.txt")))
   > EOF
 
-  $ mach builder -v --build-file="$B/build_dyndep_unknown.sexp" "$B/main.txt"
+  $ mach builder -vvv --build-file="$B/build_dyndep_unknown.sexp" "$B/main.txt"
   mach: building $TESTCASE_ROOT/_build/dyndep.txt
   mach: error: dyndep references unknown target: $TESTCASE_ROOT/_build/nonexistent.txt
   [1]
@@ -123,7 +123,7 @@ Test dyndep referencing target that is already scheduled/built:
   >   (commands ("echo extra > $B/extra.txt")))
   > EOF
 
-  $ mach builder -v --build-file="$B/build_dyndep_scheduled.sexp" "$B/main2.txt"
+  $ mach builder -vvv --build-file="$B/build_dyndep_scheduled.sexp" "$B/main2.txt"
   mach: building $TESTCASE_ROOT/_build/dyndep2.txt
   mach: error: dyndep references target that is already scheduled/built: $TESTCASE_ROOT/_build/other.txt
   [1]

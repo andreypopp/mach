@@ -113,7 +113,7 @@ let watch config target ?run_args () =
 
   let keep_watching = ref true in
   while !keep_watching do
-    let _reconfigured, mods, libs = configure config target |> or_exit in
+    let _reconfigured, _build_system, mods, libs = configure config target |> or_exit in
     let source_dirs = SS.empty in
     let source_dirs = List.fold_left (fun acc (m : Mach_module.t) ->
       SS.add (Filename.dirname m.path_ml) acc
@@ -341,7 +341,7 @@ let run_build_command_cmd =
   Cmd.v info Term.(const f $ stderr_only_arg $ cmd_arg)
 
 let dep_cmd =
-  let doc = "Run ocamldep and output ninja dyndep format" in
+  let doc = "Run ocamldep and output dyndep format" in
   let f input output args =
     let parse_dep_line line =
       match String.index_opt line ':' with
@@ -366,16 +366,16 @@ let dep_cmd =
       List.filter_map parse_dep_line lines
     in
     let build_dir = Filename.dirname (Unix.realpath input) in
-    atomic_write_file output (fun oc ->
-      Printf.fprintf oc "ninja_dyndep_version = 1\n";
+    let dyndeps : Mach_lib.Build.Dyndep_file_format.dyndep list =
       let norm_path path = if Filename.is_relative path then Filename.(build_dir / path) else path in
-      List.iter (fun (target, deps) ->
-        let target = norm_path target in
+      List.map (fun (target, deps) ->
+        let target = norm_path Filename.(build_dir / basename target) in
         let deps = List.map norm_path deps in
-        if deps = []
-        then Printf.fprintf oc "build %s: dyndep\n" target
-        else Printf.fprintf oc "build %s: dyndep | %s\n" target (String.concat " " deps)
-      ) deps)
+        { Mach_lib.Build.Dyndep_file_format.target;
+          deps = Array.of_list deps }
+      ) deps
+    in
+    Mach_lib.Build.Dyndep_file_format.to_file output dyndeps
   in
   Cmd.v (Cmd.info "dep" ~doc ~docs:Manpage.s_none)
     Term.(const f
@@ -412,35 +412,13 @@ let builder_cmd =
 let link_deps_cmd =
   let doc = "Read .dep files and output sorted .cmx files for linking" in
   let f dep_files =
-    (* Parse a .dep file to get (target, deps) *)
-    let parse_dep_file path =
-      let lines = In_channel.with_open_text path In_channel.input_lines in
-      List.filter_map (fun line ->
-        (* Format: "build foo.cmx: dyndep | bar.cmx baz.cmx" or "build foo.cmx: dyndep" *)
-        if String.length line > 6 && String.sub line 0 6 = "build " then
-          match String.index_opt line ':' with
-          | None -> None
-          | Some colon ->
-            let target = String.trim (String.sub line 6 (colon - 6)) in
-            let rest = String.sub line (colon + 1) (String.length line - colon - 1) in
-            let deps = match String.index_opt rest '|' with
-              | None -> []
-              | Some pipe ->
-                String.sub rest (pipe + 1) (String.length rest - pipe - 1)
-                |> String.split_on_char ' '
-                |> List.filter (fun s -> String.length (String.trim s) > 0)
-                |> List.map String.trim
-            in
-            Some (target, deps)
-        else None
-      ) lines
-    in
     (* Build dependency graph from all .dep files *)
     let graph = Hashtbl.create 16 in
     List.iter (fun dep_file ->
-      List.iter (fun (target, deps) ->
-        Hashtbl.replace graph target deps
-      ) (parse_dep_file dep_file)
+      let dyndeps = Mach_lib.Build.Dyndep_file_format.of_file dep_file in
+      List.iter (fun (dyndep : Mach_lib.Build.Dyndep_file_format.dyndep) ->
+        Hashtbl.replace graph dyndep.target (Array.to_list dyndep.deps)
+      ) dyndeps
     ) dep_files;
     (* Topological sort *)
     let visited = Hashtbl.create 16 in

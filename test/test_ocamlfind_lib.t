@@ -26,7 +26,6 @@ Start with a script without libs:
 
   $ mach run -vv ./simple.ml 2>&1
   mach: configuring $TESTCASE_ROOT/simple.ml
-  mach: configuring $TESTCASE_ROOT/simple.ml (root)
   mach: building...
   no libs
 
@@ -39,7 +38,6 @@ Add a lib - SHOULD reconfigure:
 
   $ mach run -vv ./simple.ml 2>&1
   mach: configuring $TESTCASE_ROOT/simple.ml
-  mach: configuring $TESTCASE_ROOT/simple.ml (root)
   mach: building...
   with cmdliner
 
@@ -51,6 +49,5 @@ Remove the lib - SHOULD reconfigure:
 
   $ mach run -vv ./simple.ml 2>&1
   mach: configuring $TESTCASE_ROOT/simple.ml
-  mach: configuring $TESTCASE_ROOT/simple.ml (root)
   mach: building...
   libs removed

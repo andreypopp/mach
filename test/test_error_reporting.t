@@ -36,4 +36,4 @@ Test error when build fails:
 
   $ mach run ./bad_script.ml 2>&1 | grep -E "(Unbound|mach:)"
   Error: Unbound value this_is_not_valid
-  mach: build failed
+  mach: build error

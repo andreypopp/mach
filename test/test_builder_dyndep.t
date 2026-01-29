@@ -24,7 +24,7 @@ Create a build spec with a dyndep rule:
 
 Run the builder:
 
-  $ mach builder -v --build-file="$B/build.sexp" "$B/a.txt"
+  $ mach builder -vvv --build-file="$B/build.sexp" "$B/a.txt"
   mach: building $TESTCASE_ROOT/_build/dyndep.txt
   mach: building $TESTCASE_ROOT/_build/e.txt
   mach: building $TESTCASE_ROOT/_build/a.txt
@@ -56,7 +56,7 @@ Test dyndeps with multiple dynamic dependencies:
   >   (commands ("echo 'dep2' > $B/dep2.txt")))
   > EOF
 
-  $ mach builder -v --build-file="$B/build2.sexp" "$B/main.txt"
+  $ mach builder -vvv --build-file="$B/build2.sexp" "$B/main.txt"
   mach: building $TESTCASE_ROOT/_build/dyndep2.txt
   mach: building $TESTCASE_ROOT/_build/dep1.txt
   mach: building $TESTCASE_ROOT/_build/dep2.txt

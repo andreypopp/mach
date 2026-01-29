@@ -13,7 +13,7 @@ Create a build spec for a single target with no deps:
 
 Run the builder:
 
-  $ mach builder -v --build-file="$B/build.sexp" "$B/hello.txt"
+  $ mach builder -vvv --build-file="$B/build.sexp" "$B/hello.txt"
   mach: building $TESTCASE_ROOT/_build/hello.txt
 
 Check the target was created:
@@ -34,7 +34,7 @@ Test build with dependencies (A depends on B):
   >   (commands ("echo 'from b' > $B/b.txt")))
   > EOF
 
-  $ mach builder -v --build-file="$B/build2.sexp" "$B/a.txt"
+  $ mach builder -vvv --build-file="$B/build2.sexp" "$B/a.txt"
   mach: building $TESTCASE_ROOT/_build/b.txt
   mach: building $TESTCASE_ROOT/_build/a.txt
 
@@ -63,7 +63,7 @@ Test build with diamond dependencies (A depends on B and C, both depend on D):
   >   (commands ("echo 'shared' > $B/d2.txt")))
   > EOF
 
-  $ mach builder -v --build-file="$B/build3.sexp" "$B/a2.txt"
+  $ mach builder -vvv --build-file="$B/build3.sexp" "$B/a2.txt"
   mach: building $TESTCASE_ROOT/_build/d2.txt
   mach: building $TESTCASE_ROOT/_build/c2.txt
   mach: building $TESTCASE_ROOT/_build/b2.txt
@@ -88,7 +88,7 @@ Test build with source file dependencies (no build rule for source files):
   >   (commands ("cat $B/source.txt > $B/output.txt" "echo 'processed' >> $B/output.txt")))
   > EOF
 
-  $ mach builder -v --build-file="$B/build4.sexp" "$B/output.txt"
+  $ mach builder -vvv --build-file="$B/build4.sexp" "$B/output.txt"
   mach: building $TESTCASE_ROOT/_build/output.txt
 
   $ cat "$B/output.txt"
@@ -112,7 +112,7 @@ Test with multiple targets depending on same source file:
   >   (commands ("echo 'y:' > $B/y.txt" "cat $B/source.txt >> $B/y.txt")))
   > EOF
 
-  $ mach builder -v --build-file="$B/build5.sexp" "$B/final.txt"
+  $ mach builder -vvv --build-file="$B/build5.sexp" "$B/final.txt"
   mach: building $TESTCASE_ROOT/_build/x.txt
   mach: building $TESTCASE_ROOT/_build/y.txt
   mach: building $TESTCASE_ROOT/_build/final.txt

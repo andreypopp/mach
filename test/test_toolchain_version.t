@@ -30,7 +30,6 @@ Test that modifying ocaml_version in state triggers reconfigure:
 
   $ mach run -vv ./main.ml 2>&1
   mach: configuring $TESTCASE_ROOT/main.ml
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   hello
 
@@ -40,7 +39,6 @@ Test that modifying ocamlfind_version in state triggers reconfigure:
 
   $ mach run -vv ./main.ml 2>&1
   mach: configuring $TESTCASE_ROOT/main.ml
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
   mach: building...
   hello
 

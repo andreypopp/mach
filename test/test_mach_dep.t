@@ -7,8 +7,9 @@ Create a simple module with no dependencies:
 
   $ mach dep foo.ml -o foo.dep
   $ cat foo.dep
-  ninja_dyndep_version = 1
-  build $TESTCASE_ROOT/foo.cmx: dyndep
+  ((target
+    $TESTCASE_ROOT/foo.cmx)
+   (deps ()))
 
 Create a module that depends on another:
   $ cat << 'EOF' > bar.ml
@@ -21,5 +22,7 @@ Create a module that depends on another:
 
   $ mach dep bar.ml -o bar.dep --args includes.args
   $ cat bar.dep
-  ninja_dyndep_version = 1
-  build $TESTCASE_ROOT/bar.cmx: dyndep | $TESTCASE_ROOT/foo.cmx
+  ((target
+    $TESTCASE_ROOT/bar.cmx)
+   (deps
+    ($TESTCASE_ROOT/foo.cmx)))

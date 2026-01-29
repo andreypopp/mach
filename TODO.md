@@ -12,6 +12,19 @@ Let's implement an I/O abstraction:
 
 ## Support passing -H hidden includes args when compiling
 
+## [DONE] Port from ninja to Mach_build
+
+We have new module lib/mach_build.ml which implements a build system. We want
+to port from using ninja to using Mach_build.
+
+First we add convenience functions to produce build rules so it's easy to
+migrate from `Ninja` module to `Mach_build` module.
+
+Instead of generating `mach.ninja` we generate `mach.build` files with rules
+which do the same command invocations.
+
+Let's plan.
+
 ## [DONE] mach_build.ml: change tracking
 
 Right now we rebuild everything, we need to track changes and only rebuild what

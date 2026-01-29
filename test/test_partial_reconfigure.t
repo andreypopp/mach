@@ -38,7 +38,6 @@ Verify reconfiguration happens and build succeeds:
   $ mach run -vv ./main.ml 2>&1 | grep -E "(mach:state:|mach:configure|mach: configuring)"
   mach: configuring $TESTCASE_ROOT/lib_c.ml
   mach: configuring $TESTCASE_ROOT/lib_a.ml
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
 
   $ mach run ./main.ml
   lib_a! lib_b
@@ -65,7 +64,6 @@ Add .mli file to lib_b - should trigger partial reconfiguration for lib_b only:
 
   $ mach run -vv ./main.ml 2>&1 | grep -E "(mach:state:|mach:configure|mach: configuring)"
   mach: configuring $TESTCASE_ROOT/lib_b.ml
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
 
   $ mach run ./main.ml
   lib_a! lib_b_updated
@@ -77,7 +75,6 @@ Remove .mli file from lib_b - should trigger partial reconfiguration for lib_b o
 
   $ mach run -vv ./main.ml 2>&1 | grep -E "(mach:state:|mach:configure|mach: configuring)"
   mach: configuring $TESTCASE_ROOT/lib_b.ml
-  mach: configuring $TESTCASE_ROOT/main.ml (root)
 
   $ mach run ./main.ml
   lib_a! lib_b_updated

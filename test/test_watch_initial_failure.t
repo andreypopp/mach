@@ -29,11 +29,10 @@ Check the log shows initial failure then successful rebuild:
   $ cat watch.log
   mach: initial build...
   mach: configuring $TESTCASE_ROOT/hello.ml
-  mach: configuring $TESTCASE_ROOT/hello.ml (root)
   mach: building...
   File "$TESTCASE_ROOT/hello.ml", line 1, characters 14-15:
   Error: String literal not terminated
-  mach: build failed
+  mach: build error
   mach: watching 1 directories (Ctrl+C to stop):
     $TESTCASE_ROOT
   mach: file changed: hello.ml

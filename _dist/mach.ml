@@ -13077,7 +13077,7 @@ let rm_rf path =
 let write_file path content =
   Out_channel.with_open_text path (fun oc -> output_string oc content)
 type file_stat = {
-  mtime: int ;
+  mtime: float ;
   size: int }[@@deriving sexp]
 include
   struct
@@ -13090,7 +13090,7 @@ include
                       {
                         name = "mtime";
                         kind = Required;
-                        conv = int_of_sexp;
+                        conv = float_of_sexp;
                         rest =
                           (Field
                              {
@@ -13113,19 +13113,18 @@ include
            ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "size"; arg__020_]) ::
              bnds__016_ : _ Stdlib.List.t) in
          let bnds__016_ =
-           let arg__018_ = sexp_of_int mtime__017_ in
+           let arg__018_ = sexp_of_float mtime__017_ in
            ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "mtime"; arg__018_]) ::
              bnds__016_ : _ Stdlib.List.t) in
          Sexplib0.Sexp.List bnds__016_ : file_stat -> Sexplib0.Sexp.t)
     let _ = sexp_of_file_stat
   end[@@ocaml.doc "@inline"][@@merlin.hide ]
 let equal_file_stat x y =
-  (Int.equal x.mtime y.mtime) && (Int.equal x.size y.size)
+  (Float.equal x.mtime y.mtime) && (Int.equal x.size y.size)
 let file_stat path =
   try
     let st = Unix.stat path in
-    Some
-      { mtime = (Int.of_float st.Unix.st_mtime); size = (st.Unix.st_size) }
+    Some { mtime = (st.Unix.st_mtime); size = (st.Unix.st_size) }
   with | Unix.Unix_error (_, _, _) -> None
 let file_stat_exn path =
   match file_stat path with
@@ -13139,98 +13138,6 @@ let atomic_write_file path f =
   Fun.protect
     (fun () -> Out_channel.with_open_text tmp f; Sys.rename tmp path)
     ~finally:(fun () -> try Sys.remove tmp with | _ -> ())
-end
-module Ninja : sig
-[@@@ocaml.ppx.context
-  {
-    tool_name = "ppx_driver";
-    include_dirs = [];
-    hidden_include_dirs = [];
-    load_path = ([], []);
-    open_modules = [];
-    for_package = None;
-    debug = false;
-    use_threads = false;
-    use_vmthreads = false;
-    recursive_types = false;
-    principal = false;
-    no_alias_deps = false;
-    unboxed_types = false;
-    unsafe_string = false;
-    cookies = [("library-name", "mach_lib")]
-  }]
-type t
-val create : unit -> t
-val contents : t -> string
-val var : t -> string -> string -> unit
-val subninja : t -> string -> unit
-val rule :
-  t ->
-    target:string ->
-      deps:string list ->
-        ?order_only_deps:string list -> ?dyndep:string -> string list -> unit
-val rulef :
-  t ->
-    target:string ->
-      deps:string list -> ('a, unit, string, unit) format4 -> 'a
-val rule_phony : t -> target:string -> deps:string list -> unit
-end = struct
-[@@@ocaml.ppx.context
-  {
-    tool_name = "ppx_driver";
-    include_dirs = [];
-    hidden_include_dirs = [];
-    load_path = ([], []);
-    open_modules = [];
-    for_package = None;
-    debug = false;
-    use_threads = false;
-    use_vmthreads = false;
-    recursive_types = false;
-    principal = false;
-    no_alias_deps = false;
-    unboxed_types = false;
-    unsafe_string = false;
-    cookies = [("library-name", "mach_lib")]
-  }]
-open Printf
-type t = Buffer.t
-let create () =
-  let buf = Buffer.create 1024 in
-  bprintf buf "rule cmd\n  command = $cmd\n\n"; buf
-let var buf name value = bprintf buf "%s = %s\n\n" name value
-let contents = Buffer.contents
-let subninja buf path = bprintf buf "subninja %s\n" path
-let print_deps buf ~deps ~order_only_deps =
-  List.iter (bprintf buf " %s") deps;
-  (match order_only_deps with
-   | [] -> ()
-   | deps -> (bprintf buf " ||"; List.iter (bprintf buf " %s") deps))
-let rule buf ~target ~deps ?(order_only_deps= []) ?dyndep recipe =
-  let order_only_deps =
-    match dyndep with
-    | None -> order_only_deps
-    | Some dyndep -> dyndep :: order_only_deps in
-  bprintf buf "build %s:" target;
-  (match recipe with
-   | [] ->
-       (bprintf buf " phony";
-        print_deps buf ~deps ~order_only_deps;
-        Buffer.add_char buf '\n')
-   | _ ->
-       (bprintf buf " cmd";
-        print_deps buf ~deps ~order_only_deps;
-        Buffer.add_char buf '\n';
-        bprintf buf "  cmd = %s\n" (String.concat " && " recipe);
-        Option.iter (bprintf buf "  dyndep = %s\n") dyndep));
-  Buffer.add_char buf '\n'
-let rulef buf ~target ~deps fmt =
-  ksprintf (fun recipe -> rule buf ~target ~deps [recipe]) fmt
-let rule_phony buf ~target ~deps =
-  bprintf buf "build %s: phony" target;
-  List.iter (bprintf buf " %s") deps;
-  Buffer.add_char buf '\n';
-  Buffer.add_char buf '\n'
 end
 module Mach_log : sig
 [@@@ocaml.ppx.context
@@ -13259,6 +13166,7 @@ type verbose =
 val verbose : verbose ref
 val log_verbose : ('a, unit, string, unit) format4 -> 'a
 val log_very_verbose : ('a, unit, string, unit) format4 -> 'a
+val log_very_very_verbose : ('a, unit, string, unit) format4 -> 'a
 end = struct
 [@@@ocaml.ppx.context
   {
@@ -13289,6 +13197,7 @@ let log_at level fmt =
     (fun msg -> if (!verbose) >= level then Printf.eprintf "%s\n%!" msg) fmt
 let log_verbose fmt = log_at Verbose fmt
 let log_very_verbose fmt = log_at Very_verbose fmt
+let log_very_very_verbose fmt = log_at Very_very_verbose fmt
 end
 module Mach_config : sig
 [@@@ocaml.ppx.context
@@ -13654,8 +13563,7 @@ module Build_file_format =
         |> (String.concat ~sep:"\n")
     let to_file file_path t =
       let s = to_string t in
-      let open Out_channel in
-        with_open_text file_path (fun oc -> output_string oc s)
+      atomic_write_file file_path (fun oc -> output_string oc s)
   end
 module Dyndep_file_format =
   struct
@@ -13724,8 +13632,7 @@ module Dyndep_file_format =
         |> (String.concat ~sep:"\n")
     let to_file file_path t : unit=
       let s = to_string t in
-      let open Out_channel in
-        with_open_text file_path (fun oc -> output_string oc s)
+      atomic_write_file file_path (fun oc -> output_string oc s)
   end
 module T = (Hashtbl.Make)(String)
 type t = {
@@ -13748,12 +13655,12 @@ let rule_targets (rule : rule) =
 let needs_rebuild (rule : rule) =
   let targets = rule_targets rule in
   let target_mtime =
-    Array.fold_left ~init:(Some max_int)
+    Array.fold_left ~init:(Some Float.max_float)
       ~f:(fun acc target_path ->
             match (acc, (file_stat target_path)) with
             | (None, _) -> None
             | (_, None) -> None
-            | (Some oldest, Some stat) -> Some (min oldest stat.mtime))
+            | (Some oldest, Some stat) -> Some (Float.min oldest stat.mtime))
       targets in
   match target_mtime with
   | None -> true
@@ -13792,7 +13699,8 @@ let build_rule (rule : rule) =
     failwithf "target already built: %s"
       (String.concat ~sep:", " (Array.to_list targets));
   assert (rule.deps_pending = 0);
-  Array.iter targets ~f:(fun t -> Mach_log.log_verbose "mach: building %s" t);
+  Array.iter targets
+    ~f:(fun t -> Mach_log.log_very_very_verbose "mach: building %s" t);
   (let dev_null = Unix.openfile "/dev/null" [Unix.O_RDONLY] 0 in
    (Fun.protect ~finally:(fun () -> Unix.close dev_null)) @@
      (fun () ->
@@ -13810,21 +13718,14 @@ let build_rule (rule : rule) =
                         let n = Unix.read pipe_read buf 0 4096 in
                         if n > 0
                         then
-                          (ignore (Unix.write Unix.stdout buf 0 n);
+                          (ignore (Unix.write Unix.stderr buf 0 n);
                            read_loop ()) in
                       read_loop ();
                       (let (_, status) = Unix.waitpid [] pid in
                        match status with
                        | Unix.WEXITED 0 -> ()
-                       | Unix.WEXITED n ->
-                           Mach_error.user_errorf
-                             "command failed with exit code %d: %s" n cmd
-                       | Unix.WSIGNALED n ->
-                           Mach_error.user_errorf
-                             "command killed by signal %d: %s" n cmd
-                       | Unix.WSTOPPED n ->
-                           Mach_error.user_errorf
-                             "command stopped by signal %d: %s" n cmd))));
+                       | Unix.WEXITED _ | Unix.WSIGNALED _ | Unix.WSTOPPED _
+                           -> Mach_error.user_errorf "build error"))));
         rule.built <- true))
 type rev_deps = target list ref T.t
 let add_rev_dep rev_deps target_path target =
@@ -13842,6 +13743,31 @@ let iter_rev_deps rev_deps rule ~f =
           | Some targets -> List.iter (!targets) ~f
           | None -> ())
 type build_queue = rule Queue.t
+module Rules =
+  struct
+    type t = Build_file_format.stanza list ref
+    let create () : t= ref []
+    let add (t : t) stanza = t := (stanza :: (!t))
+    let to_list (t : t) = List.rev (!t)
+    let rule t ~target ~deps commands =
+      add t
+        (Build_file_format.Rule
+           {
+             targets = [|target|];
+             deps = (Array.of_list deps);
+             commands = (Array.of_list commands)
+           })
+    let rulef t ~target ~deps fmt =
+      Printf.ksprintf (fun cmd -> rule t ~target ~deps [cmd]) fmt
+    let rule_dyndep t ~target ~deps commands =
+      add t
+        (Build_file_format.Rule_dyndep
+           {
+             target;
+             deps = (Array.of_list deps);
+             commands = (Array.of_list commands)
+           })
+  end
 let build t ~target_path =
   let queue : build_queue = Queue.create () in
   let rev_deps : rule list ref T.t = T.create 256 in
@@ -13857,13 +13783,21 @@ let build t ~target_path =
               rule.deps_pending <- (rule.deps_pending - 1);
               if rule.deps_pending = 0 then Queue.add rule queue) rev_dep
      | Some rule ->
-         if T.mem rev_deps target_path
-         then Option.iter (add_rev_dep rev_deps target_path) rev_dep
+         if rule.built
+         then
+           Option.iter
+             (fun rev_dep_rule ->
+                rev_dep_rule.deps_pending <- (rev_dep_rule.deps_pending - 1);
+                if rev_dep_rule.deps_pending = 0
+                then Queue.add rev_dep_rule queue) rev_dep
          else
-           (Option.iter (add_rev_dep rev_deps target_path) rev_dep;
-            if rule.deps_pending = 0
-            then Queue.add rule queue
-            else Array.iter rule.deps ~f:(schedule ~rev_dep:rule)));
+           if T.mem rev_deps target_path
+           then Option.iter (add_rev_dep rev_deps target_path) rev_dep
+           else
+             (Option.iter (add_rev_dep rev_deps target_path) rev_dep;
+              if rule.deps_pending = 0
+              then Queue.add rule queue
+              else Array.iter rule.deps ~f:(schedule ~rev_dep:rule)));
     T.remove visiting target_path in
   let rec build () =
     match Queue.take queue with
@@ -14158,34 +14092,32 @@ open! Printf
 open! Mach_std
 let modname_of path =
   let open Filename in (basename path) |> remove_extension
-let capture_outf fmt =
-  ksprintf (sprintf "${MACH} run-build-command -- %s") fmt
-let capture_stderrf fmt =
-  ksprintf (sprintf "${MACH} run-build-command --stderr-only -- %s") fmt
-let preprocess_ocaml_module ninja cfg ~build_dir ~path_ml ~path_mli ~kind =
+let cmdf fmt = ksprintf Fun.id fmt
+let preprocess_ocaml_module rules cfg ~build_dir ~path_ml ~path_mli ~kind =
   let mach = cfg.Mach_config.mach_executable_path in
   let modname = modname_of path_ml in
   let ml = let open Filename in (build_dir / modname) ^ ".ml" in
   let pp_flag =
     match kind with | Mach_module.ML -> "" | MLX -> " --pp mlx-pp" in
-  Ninja.rulef ninja ~target:ml ~deps:[path_ml] "%s pp%s -o %s %s" mach
-    pp_flag ml path_ml;
+  Mach_build.Rules.rulef rules ~target:ml ~deps:[path_ml] "%s pp%s -o %s %s"
+    mach pp_flag ml path_ml;
   (let mli =
      Option.map
        (fun mli_path ->
           let mli = let open Filename in (build_dir / modname) ^ ".mli" in
-          Ninja.rulef ninja ~target:mli ~deps:[mli_path] "%s pp -o %s %s"
-            mach mli mli_path;
+          Mach_build.Rules.rulef rules ~target:mli ~deps:[mli_path]
+            "%s pp -o %s %s" mach mli mli_path;
           mli) path_mli in
    (ml, mli))
-let ocamldep ninja cfg ~build_dir ~path_ml ~includes_args =
+let ocamldep rules cfg ~build_dir ~path_ml ~includes_args =
   let mach = cfg.Mach_config.mach_executable_path in
   let modname = modname_of path_ml in
   let path_dep = let open Filename in (build_dir / modname) ^ ".dep" in
-  Ninja.rulef ninja ~target:path_dep ~deps:[path_ml; includes_args]
-    "%s dep %s -o %s --args %s" mach path_ml path_dep includes_args;
+  Mach_build.Rules.rule_dyndep rules ~target:path_dep
+    ~deps:[path_ml; includes_args]
+    [sprintf "%s dep %s -o %s --args %s" mach path_ml path_dep includes_args];
   path_dep
-let compile_ocaml_args ?(include_self= false) ninja cfg ~requires ~build_dir
+let compile_ocaml_args ?(include_self= false) rules cfg ~requires ~build_dir
   ~deps =
   let build_dir_of = Mach_config.build_dir_of cfg in
   let ocamldep_args = let open Filename in build_dir / "ocamldep.args" in
@@ -14209,7 +14141,7 @@ let compile_ocaml_args ?(include_self= false) ninja cfg ~requires ~build_dir
                sprintf "echo '-I=%s' >> %s" (build_dir_of r.v) ocamldep_args)
             path_requires in
         of_self @ of_path in
-  Ninja.rule ninja ~target:ocamldep_args ~deps
+  Mach_build.Rules.rule rules ~target:ocamldep_args ~deps
     ((sprintf "rm -f %s" ocamldep_args) :: ocamldep_recipe);
   (let compile_recipe =
      match (include_self, path_requires, extlib_requires) with
@@ -14233,15 +14165,14 @@ let compile_ocaml_args ?(include_self= false) ninja cfg ~requires ~build_dir
                    (List.map
                       (fun (l : Mach_module.extlib with_loc) -> (l.v).name)
                       libs) in
-               [capture_stderrf
-                  "ocamlfind query -format '-I=%%d' -recursive %s >> %s" libs
-                  compile_args] in
+               [cmdf "ocamlfind query -format '-I=%%d' -recursive %s >> %s"
+                  libs compile_args] in
          of_libs @ (of_self @ of_path) in
-   Ninja.rule ninja ~target:compile_args ~deps
+   Mach_build.Rules.rule rules ~target:compile_args ~deps
      ((sprintf "rm -f %s" compile_args) :: compile_recipe);
    (ocamldep_args, compile_args))[@@ocaml.doc
                                    " Generate include args files for compilation.\n    Returns (ocamldep_args, compile_args) where:\n    - ocamldep_args: only mach-managed paths (for dependency scanning)\n    - compile_args: all paths including extlibs (for compilation) "]
-let compile_ocaml_module ?dyndep ninja cfg ~build_dir ~path_ml ~path_mli
+let compile_ocaml_module ?dyndep rules cfg ~build_dir ~path_ml ~path_mli
   ~requires =
   let build_dir_of = Mach_config.build_dir_of cfg in
   let modname = modname_of path_ml in
@@ -14263,55 +14194,59 @@ let compile_ocaml_module ?dyndep ninja cfg ~build_dir ~path_ml ~path_mli
              (let open Filename in
                 ((build_dir_of r.v) / (Filename.basename r.v)) ^ ".cmxa")
        | Mach_module.Require_extlib _ -> None) requires in
+  let add_dyndep deps =
+    match dyndep with | None -> deps | Some d -> d :: deps in
   (match path_mli with
    | Some _ ->
-       (Ninja.rule ninja ~target:cmi ~deps:(mli :: includes_args :: deps)
-          [capture_outf "ocamlc -bin-annot -c -opaque -args %s -o %s %s"
+       (Mach_build.Rules.rule rules ~target:cmi ~deps:(mli :: includes_args
+          :: deps)
+          [cmdf "ocamlc -bin-annot -c -opaque -args %s -o %s %s"
              includes_args cmi mli];
-        Ninja.rule ninja ~target:cmx ~deps:[ml; cmi; includes_args] ?dyndep
-          [capture_outf
-             "ocamlopt -bin-annot -c -args %s -cmi-file %s -o %s -impl %s"
+        Mach_build.Rules.rule rules ~target:cmx
+          ~deps:(add_dyndep [ml; cmi; includes_args])
+          [cmdf "ocamlopt -bin-annot -c -args %s -cmi-file %s -o %s -impl %s"
              includes_args cmi cmx ml];
-        Ninja.rule ninja ~target:cmt ~deps:[cmx] [])
+        Mach_build.Rules.rule rules ~target:cmt ~deps:[cmx] [])
    | None ->
-       (Ninja.rule ninja ~target:cmx ~deps:(ml :: includes_args :: deps)
-          ?dyndep
-          [capture_outf "ocamlopt -bin-annot -c -args %s -o %s -impl %s"
+       (Mach_build.Rules.rule rules ~target:cmx
+          ~deps:(add_dyndep (ml :: includes_args :: deps))
+          [cmdf "ocamlopt -bin-annot -c -args %s -o %s -impl %s"
              includes_args cmx ml];
-        Ninja.rule ninja ~target:cmi ~deps:[cmx] [];
-        Ninja.rule ninja ~target:cmt ~deps:[cmx] []));
+        Mach_build.Rules.rule rules ~target:cmi ~deps:[cmx] [];
+        Mach_build.Rules.rule rules ~target:cmt ~deps:[cmx] []));
   (cmi, cmx)
-let link_ocaml_executable ninja _cfg ~build_dir ~objs:(objs : string list)
+let link_ocaml_executable rules _cfg ~build_dir ~objs:(objs : string list)
   ~extlibs:(extlibs : string list) ~exe_path =
   let objs_args = let open Filename in build_dir / "objs.args" in
-  Ninja.rulef ninja ~target:objs_args ~deps:objs "printf '%%s\\n' %s > %s"
-    (String.concat " " objs) objs_args;
+  Mach_build.Rules.rulef rules ~target:objs_args ~deps:objs
+    "printf '%%s\\n' %s > %s" (String.concat " " objs) objs_args;
   (match extlibs with
    | [] ->
-       Ninja.rule ninja ~target:exe_path ~deps:[objs_args]
-         [capture_outf "ocamlopt -o %s -args %s" exe_path objs_args]
+       Mach_build.Rules.rule rules ~target:exe_path ~deps:[objs_args]
+         [cmdf "ocamlopt -o %s -args %s" exe_path objs_args]
    | libs ->
        let lib_objs_args = let open Filename in build_dir / "lib_objs.args" in
        let libs = String.concat " " libs in
-       (Ninja.rule ninja ~target:lib_objs_args ~deps:[]
-          [capture_stderrf
+       (Mach_build.Rules.rule rules ~target:lib_objs_args ~deps:[]
+          [cmdf
              "ocamlfind query -a-format -recursive -predicates native %s > %s"
              libs lib_objs_args];
-        Ninja.rule ninja ~target:exe_path ~deps:[objs_args; lib_objs_args]
-          [capture_outf "ocamlopt -o %s -args %s -args %s" exe_path
-             lib_objs_args objs_args]))
-let link_ocaml_library ninja cfg ~build_dir ~cmxs:(cmxs : string list) ~deps
+        Mach_build.Rules.rule rules ~target:exe_path
+          ~deps:[objs_args; lib_objs_args]
+          [cmdf "ocamlopt -o %s -args %s -args %s" exe_path lib_objs_args
+             objs_args]))
+let link_ocaml_library rules cfg ~build_dir ~cmxs:(cmxs : string list) ~deps
   ~lib_name =
   let mach = cfg.Mach_config.mach_executable_path in
   let all_deps_sorted =
     let open Filename in (build_dir / lib_name) ^ ".link-deps" in
-  Ninja.rulef ninja ~target:all_deps_sorted ~deps "%s link-deps %s > %s" mach
-    (String.concat " " deps) all_deps_sorted;
+  Mach_build.Rules.rulef rules ~target:all_deps_sorted ~deps
+    "%s link-deps %s > %s" mach (String.concat " " deps) all_deps_sorted;
   (let cmxa = let open Filename in (build_dir / lib_name) ^ ".cmxa" in
    let cmxa_a = let open Filename in (build_dir / lib_name) ^ ".a" in
-   Ninja.rule ninja ~target:cmxa ~deps:(all_deps_sorted :: cmxs)
-     [capture_outf "ocamlopt -a -o %s -args %s" cmxa all_deps_sorted];
-   Ninja.rule ninja ~target:cmxa_a ~deps:[cmxa] [])
+   Mach_build.Rules.rule rules ~target:cmxa ~deps:(all_deps_sorted :: cmxs)
+     [cmdf "ocamlopt -a -o %s -args %s" cmxa all_deps_sorted];
+   Mach_build.Rules.rule rules ~target:cmxa_a ~deps:[cmxa] [])
 end
 module Mach_library : sig
 [@@@ocaml.ppx.context
@@ -15556,8 +15491,8 @@ val pp : source_path:string -> in_channel -> out_channel -> unit
 val configure :
   Mach_config.t ->
     target ->
-      ((bool * Mach_module.t list * Mach_library.t list), Mach_error.t)
-        result
+      ((bool * Mach_build.t * Mach_module.t list * Mach_library.t list),
+        Mach_error.t) result
 val build :
   Mach_config.t ->
     target ->
@@ -15634,7 +15569,6 @@ end = struct
     cookies = [("library-name", "mach_lib")]
   }]
 open! Mach_std
-open Printf
 type verbose = Mach_log.verbose =
   | Quiet 
   | Verbose 
@@ -15655,19 +15589,19 @@ let resolve_target config path =
       failwith "impossible as the input is a path"
 let target_path = function | Target_executable p | Target_library p -> p
 let pp ~source_path ic oc = Mach_module.preprocess_source ~source_path oc ic
-let configure_module ~build_dir ninja config (m : Mach_module.t) =
+let configure_module ~build_dir rules config (m : Mach_module.t) =
   let (_ocamldep_args, _compile_args) =
     let (ml, _mli) =
-      Mach_ocaml_rules.preprocess_ocaml_module ninja config ~build_dir
+      Mach_ocaml_rules.preprocess_ocaml_module rules config ~build_dir
         ~path_ml:(m.path_ml) ~path_mli:(m.path_mli) ~kind:(m.kind) in
-    Mach_ocaml_rules.compile_ocaml_args ninja config
+    Mach_ocaml_rules.compile_ocaml_args rules config
       ~requires:(!! (m.requires)) ~build_dir ~deps:[ml] in
-  Mach_ocaml_rules.compile_ocaml_module ninja config ~path_ml:(m.path_ml)
+  Mach_ocaml_rules.compile_ocaml_module rules config ~path_ml:(m.path_ml)
     ~path_mli:(m.path_mli) ~requires:(!! (m.requires)) ~build_dir
-let configure_library ~build_dir ninja config (lib : Mach_library.t) =
+let configure_library ~build_dir rules config (lib : Mach_library.t) =
   let lib_name = Filename.basename lib.path in
   let (ocamldep_args, _compile_args) =
-    Mach_ocaml_rules.compile_ocaml_args ~include_self:true ninja config
+    Mach_ocaml_rules.compile_ocaml_args ~include_self:true rules config
       ~requires:(!! (lib.requires)) ~build_dir
       ~deps:[(let open Filename in lib.path / "Machlib")] in
   let (deps, cmxs) =
@@ -15679,19 +15613,19 @@ let configure_library ~build_dir ninja config (lib : Mach_library.t) =
               (fun file_mli -> let open Filename in lib.path / file_mli)
               m.file_mli in
           let (ml, mli) =
-            Mach_ocaml_rules.preprocess_ocaml_module ninja config ~build_dir
+            Mach_ocaml_rules.preprocess_ocaml_module rules config ~build_dir
               ~path_ml:src_ml ~path_mli:src_mli
               ~kind:(Mach_module.kind_of_path_ml src_ml) in
           let path_dep =
-            Mach_ocaml_rules.ocamldep ninja config ~build_dir ~path_ml:ml
+            Mach_ocaml_rules.ocamldep rules config ~build_dir ~path_ml:ml
               ~includes_args:ocamldep_args in
           let (_cmi, cmx) =
-            Mach_ocaml_rules.compile_ocaml_module ninja config
+            Mach_ocaml_rules.compile_ocaml_module rules config
               ~dyndep:path_dep ~build_dir ~path_ml:ml ~path_mli:mli
               ~requires:(!! (lib.requires)) in
           (path_dep, cmx)) (!! (lib.modules)))
       |> List.split in
-  Mach_ocaml_rules.link_ocaml_library ninja config ~build_dir ~cmxs ~deps
+  Mach_ocaml_rules.link_ocaml_library rules config ~build_dir ~cmxs ~deps
     ~lib_name
 let configure_exn config target =
   let target_path = target_path target in
@@ -15702,48 +15636,69 @@ let configure_exn config target =
   let libs = ref [] in
   let objs = ref [] in
   let extlibs = ref SS.empty in
+  let build_system = Mach_build.create () in
   List.iter
     (fun { Mach_state.unit = unit; unit_state; unit_status } ->
        match unit with
        | Mach_state.Unit_module m ->
            let build_dir = build_dir_of m.Mach_module.path_ml in
+           let mach_build = let open Filename in build_dir / "mach.build" in
            let cmx =
              match unit_status with
              | `Need_configure ->
                  (any_need_reconfigure := true;
                   log_verbose "mach: configuring %s" m.path_ml;
+                  rm_rf build_dir;
                   mkdir_p build_dir;
-                  (let b = Ninja.create () in
-                   let (_cmi, cmx) = configure_module ~build_dir b config m in
-                   write_file (let open Filename in build_dir / "mach.ninja")
-                     (Ninja.contents b);
+                  (let rules = Mach_build.Rules.create () in
+                   let (_cmi, cmx) =
+                     configure_module ~build_dir rules config m in
+                   let build = Mach_build.Rules.to_list rules in
+                   Mach_build.configure build_system build;
+                   write_file mach_build
+                     (Mach_build.Build_file_format.to_string build);
                    Mach_state.write config unit_state;
                    cmx))
              | `Fresh_but_update_state ->
-                 (Mach_state.write config unit_state;
+                 ((let open Mach_build in
+                     configure build_system
+                       (Build_file_format.of_file mach_build));
+                  Mach_state.write config unit_state;
                   Mach_module.cmx config m)
-             | `Fresh -> Mach_module.cmx config m in
+             | `Fresh ->
+                 ((let open Mach_build in
+                     configure build_system
+                       (Build_file_format.of_file mach_build));
+                  Mach_module.cmx config m) in
            (modules := (m :: (!modules));
             objs := (cmx :: (!objs));
             extlibs := (SS.union (Mach_module.extlibs m) (!extlibs)))
        | Mach_state.Unit_lib lib ->
+           let build_dir = Mach_config.build_dir_of config lib.path in
+           let mach_build = let open Filename in build_dir / "mach.build" in
            ((match unit_status with
              | `Need_configure ->
                  (any_need_reconfigure := true;
                   log_verbose "mach: configuring library %s"
                     lib.Mach_library.path;
-                  (let build_dir = Mach_config.build_dir_of config lib.path in
-                   let mach_cmd = config.Mach_config.mach_executable_path in
-                   mkdir_p build_dir;
-                   (let b = Ninja.create () in
-                    Ninja.var b "MACH" mach_cmd;
-                    configure_library b config lib ~build_dir;
-                    write_file
-                      (let open Filename in build_dir / "mach.ninja")
-                      (Ninja.contents b);
+                  rm_rf build_dir;
+                  mkdir_p build_dir;
+                  (let rules = Mach_build.Rules.create () in
+                   configure_library rules config lib ~build_dir;
+                   (let build = Mach_build.Rules.to_list rules in
+                    Mach_build.configure build_system build;
+                    write_file mach_build
+                      (Mach_build.Build_file_format.to_string build);
                     Mach_state.write config unit_state)))
-             | `Fresh_but_update_state -> Mach_state.write config unit_state
-             | `Fresh -> ());
+             | `Fresh_but_update_state ->
+                 ((let open Mach_build in
+                     configure build_system
+                       (Build_file_format.of_file mach_build));
+                  Mach_state.write config unit_state)
+             | `Fresh ->
+                 let open Mach_build in
+                   configure build_system
+                     (Build_file_format.of_file mach_build));
             libs := (lib :: (!libs));
             objs := ((Mach_library.cmxa config lib) :: (!objs));
             extlibs := (SS.union (Mach_library.extlibs lib) (!extlibs))))
@@ -15753,85 +15708,34 @@ let configure_exn config target =
    let objs = List.rev (!objs) in
    let extlibs = SS.elements (!extlibs) in
    let any_need_reconfigure = !any_need_reconfigure in
-   if any_need_reconfigure
-   then
-     (let build_dir = build_dir_of target_path in
-      mkdir_p build_dir;
-      write_file (let open Filename in build_dir / "build.ninja")
-        (log_verbose "mach: configuring %s (root)" target_path;
-         (let b = Ninja.create () in
-          Ninja.var b "MACH" config.Mach_config.mach_executable_path;
-          List.iter
-            (fun lib ->
-               Ninja.subninja b
-                 (let open Filename in
-                    (build_dir_of lib.Mach_library.path) / "mach.ninja"))
-            libs;
-          List.iter
-            (fun m ->
-               Ninja.subninja b
-                 (let open Filename in
-                    (build_dir_of m.Mach_module.path_ml) / "mach.ninja"))
-            modules;
-          (match target with
-           | Target_library lib_path ->
-               let cmxa_path =
-                 let open Filename in
-                   ((build_dir_of lib_path) / (Filename.basename lib_path)) ^
-                     ".cmxa" in
-               Ninja.rule_phony b ~target:"all" ~deps:[cmxa_path]
-           | Target_executable _ ->
-               let exe_path = let open Filename in build_dir / "a.out" in
-               (Ninja.rule_phony b ~target:"all" ~deps:[exe_path];
-                Mach_ocaml_rules.link_ocaml_executable b config ~exe_path
-                  ~extlibs ~objs ~build_dir));
-          Ninja.contents b));
-      (let cmd =
-         sprintf "ninja -C %s -t cleandead > /dev/null"
-           (Filename.quote build_dir) in
-       if (!Mach_log.verbose) = Very_very_verbose then eprintf "+ %s\n%!" cmd;
-       if (Sys.command cmd) <> 0
-       then Mach_error.user_errorf "ninja cleandead failed"));
-   (any_need_reconfigure, modules, libs))
+   (match target with
+    | Target_library _ -> ()
+    | Target_executable _ ->
+        let build_dir = build_dir_of target_path in
+        let exe_path = let open Filename in build_dir / "a.out" in
+        let rules = Mach_build.Rules.create () in
+        (Mach_ocaml_rules.link_ocaml_executable rules config ~exe_path
+           ~extlibs ~objs ~build_dir;
+         Mach_build.configure build_system (Mach_build.Rules.to_list rules)));
+   (any_need_reconfigure, build_system, modules, libs))
 let configure config target =
   try Ok (configure_exn config target)
   with | Mach_error.Mach_user_error msg -> Error (`User_error msg)
-let run_build cmd =
-  let open Unix in
-    let cmd = sprintf "%s 2>&1" cmd in
-    let ic = open_process_in cmd in
-    (try
-       while true do
-         let line = input_line ic in
-         if ((String.length line) >= 3) && ((String.sub line 0 3) = ">>>")
-         then prerr_endline (String.sub line 3 ((String.length line) - 3))
-         done
-     with | End_of_file -> ());
-    (match close_process_in ic with
-     | WEXITED code -> code
-     | WSIGNALED _ | WSTOPPED _ -> 1)
 let build_exn config target =
   let source_path = target_path target in
   let build_dir_of = Mach_config.build_dir_of config in
-  let (reconfigured, modules, libs) = configure_exn config target in
+  let (reconfigured, build_system, modules, libs) =
+    configure_exn config target in
   log_verbose "mach: building...";
-  (let cmd =
-     if (!Mach_log.verbose) = Very_very_verbose
-     then "ninja -v"
-     else "ninja --quiet" in
-   let cmd =
-     sprintf "%s -C %s" cmd (Filename.quote (build_dir_of source_path)) in
-   if (!Mach_log.verbose) = Very_very_verbose then eprintf "+ %s\n%!" cmd;
-   if (run_build cmd) <> 0 then Mach_error.user_errorf "build failed";
-   (let output_path =
-      match target with
-      | Target_executable _ ->
-          let open Filename in (build_dir_of source_path) / "a.out"
-      | Target_library lib_path ->
-          let open Filename in
-            ((build_dir_of lib_path) / (Filename.basename lib_path)) ^
-              ".cmxa" in
-    (output_path, reconfigured, modules, libs)))
+  (let build_dir = build_dir_of source_path in
+   let target_path =
+     match target with
+     | Target_executable _ -> let open Filename in build_dir / "a.out"
+     | Target_library lib_path ->
+         let open Filename in
+           ((build_dir_of lib_path) / (Filename.basename lib_path)) ^ ".cmxa" in
+   Mach_build.build build_system ~target_path;
+   (target_path, reconfigured, modules, libs))
 let build config target =
   try Ok (build_exn config target)
   with | Mach_error.Mach_user_error msg -> Error (`User_error msg)
@@ -21589,7 +21493,7 @@ let watch config target ?run_args () =
 
   let keep_watching = ref true in
   while !keep_watching do
-    let _reconfigured, mods, libs = configure config target |> or_exit in
+    let _reconfigured, _build_system, mods, libs = configure config target |> or_exit in
     let source_dirs = SS.empty in
     let source_dirs = List.fold_left (fun acc (m : Mach_module.t) ->
       SS.add (Filename.dirname m.path_ml) acc
@@ -21817,7 +21721,7 @@ let run_build_command_cmd =
   Cmd.v info Term.(const f $ stderr_only_arg $ cmd_arg)
 
 let dep_cmd =
-  let doc = "Run ocamldep and output ninja dyndep format" in
+  let doc = "Run ocamldep and output dyndep format" in
   let f input output args =
     let parse_dep_line line =
       match String.index_opt line ':' with
@@ -21842,16 +21746,16 @@ let dep_cmd =
       List.filter_map parse_dep_line lines
     in
     let build_dir = Filename.dirname (Unix.realpath input) in
-    atomic_write_file output (fun oc ->
-      Printf.fprintf oc "ninja_dyndep_version = 1\n";
+    let dyndeps : Mach_lib.Build.Dyndep_file_format.dyndep list =
       let norm_path path = if Filename.is_relative path then Filename.(build_dir / path) else path in
-      List.iter (fun (target, deps) ->
-        let target = norm_path target in
+      List.map (fun (target, deps) ->
+        let target = norm_path Filename.(build_dir / basename target) in
         let deps = List.map norm_path deps in
-        if deps = []
-        then Printf.fprintf oc "build %s: dyndep\n" target
-        else Printf.fprintf oc "build %s: dyndep | %s\n" target (String.concat " " deps)
-      ) deps)
+        { Mach_lib.Build.Dyndep_file_format.target;
+          deps = Array.of_list deps }
+      ) deps
+    in
+    Mach_lib.Build.Dyndep_file_format.to_file output dyndeps
   in
   Cmd.v (Cmd.info "dep" ~doc ~docs:Manpage.s_none)
     Term.(const f
@@ -21871,7 +21775,10 @@ let builder_cmd =
     let build = Mach_lib.Build.Build_file_format.of_string build in
     let build_system = Mach_lib.Build.create () in
     Mach_lib.Build.configure build_system build;
-    Mach_lib.Build.build build_system ~target_path
+    try Mach_lib.Build.build build_system ~target_path
+    with Mach_error.Mach_user_error msg ->
+      Printf.eprintf "mach: error: %s\n%!" msg;
+      exit 1
   in
   Cmd.v info
     Term.(
@@ -21885,35 +21792,13 @@ let builder_cmd =
 let link_deps_cmd =
   let doc = "Read .dep files and output sorted .cmx files for linking" in
   let f dep_files =
-    (* Parse a .dep file to get (target, deps) *)
-    let parse_dep_file path =
-      let lines = In_channel.with_open_text path In_channel.input_lines in
-      List.filter_map (fun line ->
-        (* Format: "build foo.cmx: dyndep | bar.cmx baz.cmx" or "build foo.cmx: dyndep" *)
-        if String.length line > 6 && String.sub line 0 6 = "build " then
-          match String.index_opt line ':' with
-          | None -> None
-          | Some colon ->
-            let target = String.trim (String.sub line 6 (colon - 6)) in
-            let rest = String.sub line (colon + 1) (String.length line - colon - 1) in
-            let deps = match String.index_opt rest '|' with
-              | None -> []
-              | Some pipe ->
-                String.sub rest (pipe + 1) (String.length rest - pipe - 1)
-                |> String.split_on_char ' '
-                |> List.filter (fun s -> String.length (String.trim s) > 0)
-                |> List.map String.trim
-            in
-            Some (target, deps)
-        else None
-      ) lines
-    in
     (* Build dependency graph from all .dep files *)
     let graph = Hashtbl.create 16 in
     List.iter (fun dep_file ->
-      List.iter (fun (target, deps) ->
-        Hashtbl.replace graph target deps
-      ) (parse_dep_file dep_file)
+      let dyndeps = Mach_lib.Build.Dyndep_file_format.of_file dep_file in
+      List.iter (fun (dyndep : Mach_lib.Build.Dyndep_file_format.dyndep) ->
+        Hashtbl.replace graph dyndep.target (Array.to_list dyndep.deps)
+      ) dyndeps
     ) dep_files;
     (* Topological sort *)
     let visited = Hashtbl.create 16 in

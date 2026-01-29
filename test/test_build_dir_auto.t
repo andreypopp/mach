@@ -20,13 +20,13 @@ Check that build directory was created (path contains normalized script path wit
   Mach.state
   a.out
   includes.args
+  mach.build
   main.cmi
   main.cmt
   main.cmx
   main.ml
   main.o
   objs.args
-  ocamldep.args
 
 Second run - reuses the same build directory:
 
@@ -39,10 +39,10 @@ Verify build artifacts exist in the auto-derived directory:
   Mach.state
   a.out
   includes.args
+  mach.build
   main.cmi
   main.cmt
   main.cmx
   main.ml
   main.o
   objs.args
-  ocamldep.args

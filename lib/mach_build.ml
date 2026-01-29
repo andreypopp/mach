@@ -30,7 +30,7 @@ module Build_file_format = struct
 
   let to_file file_path t =
     let s = to_string t in
-    Out_channel.(with_open_text file_path (fun oc -> output_string oc s))
+    atomic_write_file file_path (fun oc -> output_string oc s)
 end
 
 module Dyndep_file_format = struct
@@ -51,7 +51,7 @@ module Dyndep_file_format = struct
 
   let to_file file_path t : unit =
     let s = to_string t in
-    Out_channel.(with_open_text file_path (fun oc -> output_string oc s))
+    atomic_write_file file_path (fun oc -> output_string oc s)
 end
 
 module T = Hashtbl.Make(String)
@@ -78,11 +78,11 @@ let needs_rebuild (rule : rule) =
   let targets = rule_targets rule in
   (* Get oldest target mtime, or None if any target missing *)
   let target_mtime =
-    Array.fold_left ~init:(Some max_int) ~f:(fun acc target_path ->
+    Array.fold_left ~init:(Some Float.max_float) ~f:(fun acc target_path ->
       match acc, file_stat target_path with
       | None, _ -> None
       | _, None -> None
-      | Some oldest, Some stat -> Some (min oldest stat.mtime)
+      | Some oldest, Some stat -> Some (Float.min oldest stat.mtime)
     ) targets
   in
   match target_mtime with
@@ -118,7 +118,7 @@ let build_rule (rule : rule) =
     (String.concat ~sep:", " (Array.to_list targets));
   assert (rule.deps_pending = 0);
   Array.iter targets ~f:(fun t ->
-    Mach_log.log_verbose "mach: building %s" t);
+    Mach_log.log_very_very_verbose "mach: building %s" t);
   let dev_null = Unix.openfile "/dev/null" [Unix.O_RDONLY] 0 in
   Fun.protect ~finally:(fun () -> Unix.close dev_null) @@ fun () ->
   Array.iter rule.commands ~f:begin fun cmd ->
@@ -131,7 +131,7 @@ let build_rule (rule : rule) =
     let rec read_loop () =
       let n = Unix.read pipe_read buf 0 4096 in
       if n > 0 then begin
-        ignore (Unix.write Unix.stdout buf 0 n);
+        ignore (Unix.write Unix.stderr buf 0 n);
         read_loop ()
       end
     in
@@ -139,9 +139,7 @@ let build_rule (rule : rule) =
     let _, status = Unix.waitpid [] pid in
     match status with
     | Unix.WEXITED 0 -> ()
-    | Unix.WEXITED n -> Mach_error.user_errorf "command failed with exit code %d: %s" n cmd
-    | Unix.WSIGNALED n -> Mach_error.user_errorf "command killed by signal %d: %s" n cmd
-    | Unix.WSTOPPED n -> Mach_error.user_errorf "command stopped by signal %d: %s" n cmd
+    | Unix.WEXITED _ | Unix.WSIGNALED _ | Unix.WSTOPPED _ -> Mach_error.user_errorf "build error"
   end;
   rule.built <- true
 
@@ -166,6 +164,31 @@ let iter_rev_deps rev_deps rule ~f =
 
 type build_queue = rule Queue.t
 
+module Rules = struct
+  type t = Build_file_format.stanza list ref
+
+  let create () : t = ref []
+  let add (t : t) stanza = t := stanza :: !t
+  let to_list (t : t) = List.rev !t
+
+  let rule t ~target ~deps commands =
+    add t (Build_file_format.Rule {
+      targets = [|target|];
+      deps = Array.of_list deps;
+      commands = Array.of_list commands;
+    })
+
+  let rulef t ~target ~deps fmt =
+    Printf.ksprintf (fun cmd -> rule t ~target ~deps [cmd]) fmt
+
+  let rule_dyndep t ~target ~deps commands =
+    add t (Build_file_format.Rule_dyndep {
+      target;
+      deps = Array.of_list deps;
+      commands = Array.of_list commands;
+    })
+end
+
 let build t ~target_path =
   let queue : build_queue = Queue.create () in (* targets ready to build *)
   let rev_deps : rule list ref T.t = T.create 256 in (* next targets to schedule after build of a target *)
@@ -179,13 +202,18 @@ let build t ~target_path =
         rule.deps_pending <- rule.deps_pending - 1;
         if rule.deps_pending = 0 then Queue.add rule queue) rev_dep
     | Some rule ->
-      if T.mem rev_deps target_path
-      then Option.iter (add_rev_dep rev_deps target_path) rev_dep
+      if rule.built then begin
+        Option.iter (fun rev_dep_rule ->
+          rev_dep_rule.deps_pending <- rev_dep_rule.deps_pending - 1;
+          if rev_dep_rule.deps_pending = 0 then Queue.add rev_dep_rule queue
+        ) rev_dep
+      end else if T.mem rev_deps target_path then
+        Option.iter (add_rev_dep rev_deps target_path) rev_dep
       else begin
-          Option.iter (add_rev_dep rev_deps target_path) rev_dep;
-          if rule.deps_pending = 0
-          then Queue.add rule queue
-          else Array.iter rule.deps ~f:(schedule ~rev_dep:rule)
+        Option.iter (add_rev_dep rev_deps target_path) rev_dep;
+        if rule.deps_pending = 0
+        then Queue.add rule queue
+        else Array.iter rule.deps ~f:(schedule ~rev_dep:rule)
       end
     end;
     T.remove visiting target_path
