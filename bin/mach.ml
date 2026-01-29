@@ -304,42 +304,6 @@ let pp_cmd =
       $ Arg.(value & opt (some string) None & info ["o"; "output"] ~docv:"FILE" ~doc:"Write output to FILE instead of stdout")
       $ Arg.(value & opt (some string) None & info ["pp"] ~docv:"COMMAND" ~doc:"External preprocessor to run after mach preprocessing"))
 
-let run_build_command_cmd =
-  let doc = "Run a build command, prefixing output with >>>" in
-  let info = Cmd.info "run-build-command" ~doc ~docs:Manpage.s_none in
-  let cmd_arg = Arg.(non_empty & pos_all string [] & info [] ~docv:"COMMAND") in
-  let stderr_only_arg = Arg.(value & flag & info ["stderr-only"] ~doc:"Only capture stderr, let stdout pass through") in
-  let f stderr_only args =
-    let open Unix in
-    let prog, argv = match args with
-      | [] -> prerr_endline "mach run-build-command: no command"; exit 1
-      | prog :: _ -> prog, Array.of_list args
-    in
-    let (pipe_read, pipe_write) = pipe () in
-    let pid = match fork () with
-      | 0 ->
-        close pipe_read;
-        if not stderr_only then dup2 pipe_write stdout;
-        dup2 pipe_write stderr;
-        close pipe_write;
-        execvp prog argv
-      | pid -> pid
-    in
-    close pipe_write;
-    let ic = in_channel_of_descr pipe_read in
-    (try while true do
-      let line = input_line ic in
-      Printf.eprintf ">>>%s\n%!" line
-    done with End_of_file -> ());
-    close_in ic;
-    let _, status = waitpid [] pid in
-    match status with
-    | WEXITED code -> exit code
-    | WSIGNALED n -> exit (128 + n)
-    | WSTOPPED _ -> exit 1
-  in
-  Cmd.v info Term.(const f $ stderr_only_arg $ cmd_arg)
-
 let dep_cmd =
   let doc = "Run ocamldep and output dyndep format" in
   let f input output args =
@@ -445,6 +409,6 @@ let cmd =
   let doc = "Run OCaml scripts with automatic dependency resolution" in
   let info = Cmd.info "mach" ~doc ~man:[`S Manpage.s_synopsis] in
   let default = Term.(ret (const (`Help (`Pager, None)))) in
-  Cmd.group ~default info [run_cmd; build_cmd; configure_cmd; pp_cmd; run_build_command_cmd; dep_cmd; link_deps_cmd; builder_cmd]
+  Cmd.group ~default info [run_cmd; build_cmd; configure_cmd; pp_cmd; dep_cmd; link_deps_cmd; builder_cmd]
 
 let () = exit (Cmdliner.Cmd.eval cmd)
