@@ -17,3 +17,20 @@ val pp : source_path:string -> in_channel -> out_channel -> unit
 val configure : Mach_config.t -> target -> (bool * Mach_module.t list * Mach_library.t list, Mach_error.t) result
 
 val build : Mach_config.t -> target -> (string * bool * Mach_module.t list * Mach_library.t list, Mach_error.t) result
+
+module Build : sig
+  type rule = {
+    targets: string array; (** absolute paths of targets rule produces *)
+    deps: string array; (** absolute paths of dependencies rule requires *)
+    commands: string array; (** a list of shell commands to execute to build the targets *)
+  }
+
+  type build = {
+    rules: rule list;
+  }
+
+  val build_of_string : string -> build
+  val build_of_file : string -> build
+
+  val build : target_path:string -> build -> unit
+end

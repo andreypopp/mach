@@ -15,6 +15,21 @@ module Buffer = struct
   let output_line oc line = output_string oc line; output_char oc '\n'
 end
 
+module Hashset : sig
+  type 'a t = ('a, unit) Hashtbl.t
+
+  val create : unit -> 'a t
+  val add : 'a t -> 'a -> unit
+  val mem : 'a t -> 'a -> bool
+end = struct
+  type 'a t = ('a, unit) Hashtbl.t
+
+  let create () : 'a t = Hashtbl.create 16
+
+  let add set v = Hashtbl.replace set v ()
+  let mem set v = Hashtbl.mem set v
+end
+
 module SS = Set.Make(String)
 module SM = Map.Make(String)
 

@@ -224,3 +224,5 @@ let build_exn config target =
 let build config target =
   try Ok (build_exn config target)
   with Mach_error.Mach_user_error msg -> Error (`User_error msg)
+
+module Build = Mach_build

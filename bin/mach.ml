@@ -383,6 +383,27 @@ let dep_cmd =
       $ Arg.(required & opt (some string) None & info ["o"; "output"] ~docv:"FILE" ~doc:"Output file for dyndep")
       $ Arg.(value & opt (some string) None & info ["args"] ~docv:"FILE" ~doc:"Args file to pass to ocamldep"))
 
+let builder_cmd =
+  let doc = "Run the build system on a build specification" in
+  let info = Cmd.info "builder" ~doc ~docs:Manpage.s_none in
+  let f () build_file target_path =
+    let build =
+      match build_file with
+      | "-" -> In_channel.input_all stdin
+      | path -> In_channel.(with_open_text path input_all)
+    in
+    let build = Mach_lib.Build.build_of_string build in
+    Mach_lib.Build.build build ~target_path
+  in
+  Cmd.v info
+    Term.(
+      const f
+      $ verbose_arg
+      $ Arg.(required & opt (some non_dir_file) None
+                      & info ["build-file"] ~docv:"BUILD_FILE" ~doc:"File containing build specification (sexp format), use - for stdin")
+      $ Arg.(required & pos 0 (some string) None & info [] ~docv:"TARGET" ~doc:"Target path to build")
+    )
+
 let link_deps_cmd =
   let doc = "Read .dep files and output sorted .cmx files for linking" in
   let f dep_files =
@@ -441,6 +462,6 @@ let cmd =
   let doc = "Run OCaml scripts with automatic dependency resolution" in
   let info = Cmd.info "mach" ~doc ~man:[`S Manpage.s_synopsis] in
   let default = Term.(ret (const (`Help (`Pager, None)))) in
-  Cmd.group ~default info [run_cmd; build_cmd; configure_cmd; pp_cmd; run_build_command_cmd; dep_cmd; link_deps_cmd]
+  Cmd.group ~default info [run_cmd; build_cmd; configure_cmd; pp_cmd; run_build_command_cmd; dep_cmd; link_deps_cmd; builder_cmd]
 
 let () = exit (Cmdliner.Cmd.eval cmd)

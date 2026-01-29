@@ -12975,6 +12975,19 @@ module Buffer =
     include Buffer
     let output_line oc line = output_string oc line; output_char oc '\n'
   end
+module Hashset :
+  sig
+    type 'a t = ('a, unit) Hashtbl.t
+    val create : unit -> 'a t
+    val add : 'a t -> 'a -> unit
+    val mem : 'a t -> 'a -> bool
+  end =
+  struct
+    type 'a t = ('a, unit) Hashtbl.t
+    let create () : 'a t= Hashtbl.create 16
+    let add set v = Hashtbl.replace set v ()
+    let mem set v = Hashtbl.mem set v
+  end 
 module SS = (Set.Make)(String)
 module SM = (Map.Make)(String)
 type 'a with_loc = {
@@ -13445,6 +13458,233 @@ let build_dir_of config script_path =
   let normalized =
     (String.split_on_char '/' script_path) |> (String.concat "__") in
   let open Filename in ((config.home / "_mach") / "build") / normalized
+end
+module Mach_build = struct
+[@@@ocaml.ppx.context
+  {
+    tool_name = "ppx_driver";
+    include_dirs = [];
+    hidden_include_dirs = [];
+    load_path = ([], []);
+    open_modules = [];
+    for_package = None;
+    debug = false;
+    use_threads = false;
+    use_vmthreads = false;
+    recursive_types = false;
+    principal = false;
+    no_alias_deps = false;
+    unboxed_types = false;
+    unsafe_string = false;
+    cookies = [("library-name", "mach_lib")]
+  }]
+[@@@ocaml.text " A simple build system implementation in OCaml. "]
+open! Sexplib0.Sexp_conv
+open! StdLabels
+open! Mach_std
+type rule =
+  {
+  targets: string array
+    [@ocaml.doc " absolute paths of targets rule produces "];
+  deps: string array
+    [@ocaml.doc " absolute paths of dependencies rule requires "];
+  commands: string array
+    [@ocaml.doc " a list of shell commands to execute to build the targets "]}
+[@@deriving sexp]
+include
+  struct
+    let _ = fun (_ : rule) -> ()
+    let rule_of_sexp =
+      (let error_source__002_ = "lib/mach_build.ml.rule" in
+       fun x__003_ ->
+         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__002_
+           ~fields:(Field
+                      {
+                        name = "targets";
+                        kind = Required;
+                        conv = (array_of_sexp string_of_sexp);
+                        rest =
+                          (Field
+                             {
+                               name = "deps";
+                               kind = Required;
+                               conv = (array_of_sexp string_of_sexp);
+                               rest =
+                                 (Field
+                                    {
+                                      name = "commands";
+                                      kind = Required;
+                                      conv = (array_of_sexp string_of_sexp);
+                                      rest = Empty
+                                    })
+                             })
+                      })
+           ~index_of_field:(function
+                            | "targets" -> 0
+                            | "deps" -> 1
+                            | "commands" -> 2
+                            | _ -> (-1)) ~allow_extra_fields:false
+           ~create:(fun (targets, (deps, (commands, ()))) ->
+                      ({ targets; deps; commands } : rule)) x__003_ : 
+      Sexplib0.Sexp.t -> rule)
+    let _ = rule_of_sexp
+    let sexp_of_rule =
+      (fun
+         { targets = targets__005_; deps = deps__007_;
+           commands = commands__009_ }
+         ->
+         let bnds__004_ = ([] : _ Stdlib.List.t) in
+         let bnds__004_ =
+           let arg__010_ = sexp_of_array sexp_of_string commands__009_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "commands"; arg__010_])
+             :: bnds__004_ : _ Stdlib.List.t) in
+         let bnds__004_ =
+           let arg__008_ = sexp_of_array sexp_of_string deps__007_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "deps"; arg__008_]) ::
+             bnds__004_ : _ Stdlib.List.t) in
+         let bnds__004_ =
+           let arg__006_ = sexp_of_array sexp_of_string targets__005_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "targets"; arg__006_]) ::
+             bnds__004_ : _ Stdlib.List.t) in
+         Sexplib0.Sexp.List bnds__004_ : rule -> Sexplib0.Sexp.t)
+    let _ = sexp_of_rule
+  end[@@ocaml.doc "@inline"][@@merlin.hide ]
+type build = {
+  rules: rule list }[@@deriving sexp]
+include
+  struct
+    let _ = fun (_ : build) -> ()
+    let build_of_sexp =
+      (let error_source__012_ = "lib/mach_build.ml.build" in
+       fun x__013_ ->
+         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__012_
+           ~fields:(Field
+                      {
+                        name = "rules";
+                        kind = Required;
+                        conv = (list_of_sexp rule_of_sexp);
+                        rest = Empty
+                      })
+           ~index_of_field:(function | "rules" -> 0 | _ -> (-1))
+           ~allow_extra_fields:false
+           ~create:(fun (rules, ()) -> ({ rules } : build)) x__013_ : 
+      Sexplib0.Sexp.t -> build)
+    let _ = build_of_sexp
+    let sexp_of_build =
+      (fun { rules = rules__015_ } ->
+         let bnds__014_ = ([] : _ Stdlib.List.t) in
+         let bnds__014_ =
+           let arg__016_ = sexp_of_list sexp_of_rule rules__015_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "rules"; arg__016_]) ::
+             bnds__014_ : _ Stdlib.List.t) in
+         Sexplib0.Sexp.List bnds__014_ : build -> Sexplib0.Sexp.t)
+    let _ = sexp_of_build
+  end[@@ocaml.doc "@inline"][@@merlin.hide ]
+module T = (Hashtbl.Make)(String)
+type build_system = {
+  targets: target T.t }
+and target = {
+  rule: rule ;
+  mutable deps_pending: int ;
+  mutable built: bool }
+let create () : build_system= { targets = (T.create 256) }
+let configure { targets } (b : build) : unit=
+  List.iter b.rules
+    ~f:(fun (rule : rule) ->
+          let target =
+            { rule; deps_pending = (Array.length rule.deps); built = false } in
+          Array.iter rule.targets ~f:(fun t -> T.replace targets t target))
+let build_target (target : target) =
+  if target.built
+  then
+    failwithf "target already built: %s"
+      (String.concat ~sep:", " (Array.to_list (target.rule).targets));
+  assert (target.deps_pending = 0);
+  Array.iter (target.rule).targets
+    ~f:(fun t -> Mach_log.log_verbose "mach: building %s" t);
+  (let dev_null = Unix.openfile "/dev/null" [Unix.O_RDONLY] 0 in
+   (Fun.protect ~finally:(fun () -> Unix.close dev_null)) @@
+     (fun () ->
+        Array.iter (target.rule).commands
+          ~f:(fun cmd ->
+                let (pipe_read, pipe_write) = Unix.pipe () in
+                (Fun.protect ~finally:(fun () -> Unix.close pipe_read)) @@
+                  (fun () ->
+                     let pid =
+                       Unix.create_process "/bin/sh" [|"/bin/sh";"-c";cmd|]
+                         dev_null pipe_write pipe_write in
+                     Unix.close pipe_write;
+                     (let buf = Bytes.create 4096 in
+                      let rec read_loop () =
+                        let n = Unix.read pipe_read buf 0 4096 in
+                        if n > 0
+                        then
+                          (ignore (Unix.write Unix.stdout buf 0 n);
+                           read_loop ()) in
+                      read_loop ();
+                      (let (_, status) = Unix.waitpid [] pid in
+                       match status with
+                       | Unix.WEXITED 0 -> ()
+                       | Unix.WEXITED n ->
+                           failwithf "command failed with exit code %d: %s" n
+                             cmd
+                       | Unix.WSIGNALED n ->
+                           failwithf "command killed by signal %d: %s" n cmd
+                       | Unix.WSTOPPED n ->
+                           failwithf "command stopped by signal %d: %s" n cmd))));
+        target.built <- true))
+type rev_deps = target list ref T.t
+let add_rev_dep rev_deps target_path target =
+  let targets =
+    match T.find_opt rev_deps target_path with
+    | Some targets -> targets
+    | None ->
+        let targets = ref [] in
+        (T.replace rev_deps target_path targets; targets) in
+  targets := (target :: (!targets))
+let iter_rev_deps rev_deps target ~f =
+  Array.iter (target.rule).targets
+    ~f:(fun target_path ->
+          match T.find_opt rev_deps target_path with
+          | Some targets -> List.iter (!targets) ~f
+          | None -> ())
+type build_queue = target Queue.t
+let run t ~target_path =
+  let (queue, rev_deps) =
+    let queue : build_queue = Queue.create () in
+    let rev_deps : target list ref T.t = T.create 256 in
+    let visiting : unit T.t = T.create 256 in
+    let rec schedule ?rev_dep target_path =
+      if T.mem visiting target_path
+      then failwithf "dependency cycle detected: %s" target_path;
+      if T.mem rev_deps target_path
+      then Option.iter (add_rev_dep rev_deps target_path) rev_dep
+      else
+        (T.add visiting target_path ();
+         (let target = T.find t.targets target_path in
+          Option.iter (add_rev_dep rev_deps target_path) rev_dep;
+          if target.deps_pending = 0
+          then Queue.add target queue
+          else Array.iter (target.rule).deps ~f:(schedule ~rev_dep:target);
+          T.remove visiting target_path)) in
+    schedule target_path; (queue, rev_deps) in
+  let rec build () =
+    match Queue.take queue with
+    | exception Queue.Empty -> ()
+    | target ->
+        (build_target target;
+         iter_rev_deps rev_deps target
+           ~f:(fun target ->
+                 target.deps_pending <- (target.deps_pending - 1);
+                 if target.deps_pending = 0 then Queue.add target queue);
+         build ()) in
+  build ()
+let build_of_string s = build_of_sexp (Parsexp.Single.parse_string_exn s)
+let build_of_file file_path =
+  let content = let open In_channel in with_open_text file_path input_all in
+  build_of_string content
+let build ~target_path build =
+  let bs = create () in configure bs build; run bs ~target_path
 end
 module Mach_module : sig
 [@@@ocaml.ppx.context
@@ -15109,6 +15349,23 @@ val build :
     target ->
       ((string * bool * Mach_module.t list * Mach_library.t list),
         Mach_error.t) result
+module Build :
+sig
+  type rule =
+    {
+    targets: string array
+      [@ocaml.doc " absolute paths of targets rule produces "];
+    deps: string array
+      [@ocaml.doc " absolute paths of dependencies rule requires "];
+    commands: string array
+      [@ocaml.doc
+        " a list of shell commands to execute to build the targets "]}
+  type build = {
+    rules: rule list }
+  val build_of_string : string -> build
+  val build_of_file : string -> build
+  val build : target_path:string -> build -> unit
+end
 end = struct
 [@@@ocaml.ppx.context
   {
@@ -15330,6 +15587,7 @@ let build_exn config target =
 let build config target =
   try Ok (build_exn config target)
   with | Mach_error.Mach_user_error msg -> Error (`User_error msg)
+module Build = Mach_build
 end
 include Mach_lib
 (* THIS FILE WAS AUTOMATICALLY GENERATED BY CAT'ING LIBRARY SOURCES *)
@@ -21353,6 +21611,27 @@ let dep_cmd =
       $ Arg.(required & opt (some string) None & info ["o"; "output"] ~docv:"FILE" ~doc:"Output file for dyndep")
       $ Arg.(value & opt (some string) None & info ["args"] ~docv:"FILE" ~doc:"Args file to pass to ocamldep"))
 
+let builder_cmd =
+  let doc = "Run the build system on a build specification" in
+  let info = Cmd.info "builder" ~doc ~docs:Manpage.s_none in
+  let f () build_file target_path =
+    let build =
+      match build_file with
+      | "-" -> In_channel.input_all stdin
+      | path -> In_channel.(with_open_text path input_all)
+    in
+    let build = Mach_lib.Build.build_of_string build in
+    Mach_lib.Build.build build ~target_path
+  in
+  Cmd.v info
+    Term.(
+      const f
+      $ verbose_arg
+      $ Arg.(required & opt (some non_dir_file) None
+                      & info ["build-file"] ~docv:"BUILD_FILE" ~doc:"File containing build specification (sexp format), use - for stdin")
+      $ Arg.(required & pos 0 (some string) None & info [] ~docv:"TARGET" ~doc:"Target path to build")
+    )
+
 let link_deps_cmd =
   let doc = "Read .dep files and output sorted .cmx files for linking" in
   let f dep_files =
@@ -21411,6 +21690,6 @@ let cmd =
   let doc = "Run OCaml scripts with automatic dependency resolution" in
   let info = Cmd.info "mach" ~doc ~man:[`S Manpage.s_synopsis] in
   let default = Term.(ret (const (`Help (`Pager, None)))) in
-  Cmd.group ~default info [run_cmd; build_cmd; configure_cmd; pp_cmd; run_build_command_cmd; dep_cmd; link_deps_cmd]
+  Cmd.group ~default info [run_cmd; build_cmd; configure_cmd; pp_cmd; run_build_command_cmd; dep_cmd; link_deps_cmd; builder_cmd]
 
 let () = exit (Cmdliner.Cmd.eval cmd)
