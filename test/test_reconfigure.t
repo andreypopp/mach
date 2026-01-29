@@ -19,7 +19,7 @@ Second build without changes - should NOT reconfigure:
   mach: building...
   v1
 
-Content-only change - should NOT reconfigure (Make handles rebuild):
+Content-only change - should NOT reconfigure:
 
   $ sleep 1
   $ cat << 'EOF' > main.ml

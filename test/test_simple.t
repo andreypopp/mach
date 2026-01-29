@@ -13,7 +13,7 @@ Test:
   Hello, World!
 
 Inspect the build dir:
-  $ ls _mach/build/*__lib.ml | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
+  $ ls _mach/build/*__lib.ml | sort
   Mach.state
   includes.args
   lib.cmi
@@ -23,7 +23,7 @@ Inspect the build dir:
   lib.o
   mach.build
 
-  $ ls _mach/build/*__main.ml | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
+  $ ls _mach/build/*__main.ml | sort
   Mach.state
   a.out
   includes.args

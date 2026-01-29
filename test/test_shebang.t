@@ -6,7 +6,7 @@
   $ mach run ./myscript.ml
   Hello from shebang script!
 
-  $ ls _mach/build/*myscript.ml/ | grep -v Makefile | grep -v .mk | grep -v .ninja | sort
+  $ ls _mach/build/*myscript.ml/ | sort
   Mach.state
   a.out
   includes.args

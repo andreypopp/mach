@@ -26,7 +26,7 @@ If you need to test something, create a new cram test `.t` file in `test/`.
 mach run script.ml [args...] # run script
 mach run -v script.ml        # verbose mode (logs build commands)
 mach run -vv script.ml       # very verbose mode
-mach run -vvv script.ml      # very very verbose mode (shows ninja output)
+mach run -vvv script.ml      # very very verbose mode (shows build output)
 
 mach build script.ml         # build without executing
 mach build -w script.ml      # watch mode: rebuild on file changes
@@ -53,15 +53,16 @@ mach-lsp ocaml-merlin # merlin server mode (called by ocamllsp)
 ## Architecture
 
 Split across multiple files:
-- `bin/mach.ml` (~430 lines) - CLI entry point
+- `bin/mach.ml` (~415 lines) - CLI entry point
 - `bin/mach_lsp.ml` (~150 lines) - LSP/merlin support
-- `lib/mach_std.ml` (~55 lines) - shared utilities (use `open! Mach_std` in all lib modules)
+- `lib/mach_std.ml` (~100 lines) - shared utilities (use `open! Mach_std` in all lib modules)
 - `lib/mach_config.ml` (~115 lines) - configuration discovery, parsing, and toolchain detection
-- `lib/mach_lib.ml` (~275 lines) - core implementation (configure, build, watch)
-- `lib/mach_library.ml` (~180 lines) - mach library support (multi-module libraries)
-- `lib/mach_module.ml` (~125 lines) - module parsing and require extraction
-- `lib/mach_state.ml` (~230 lines) - dependency state caching
-- `lib/ninja.ml` (~40 lines) - Ninja build file generation
+- `lib/mach_lib.ml` (~205 lines) - core implementation (configure, build, watch)
+- `lib/mach_library.ml` (~65 lines) - mach library support (multi-module libraries)
+- `lib/mach_module.ml` (~140 lines) - module parsing and require extraction
+- `lib/mach_state.ml` (~235 lines) - dependency state caching
+- `lib/mach_build.ml` (~250 lines) - build system implementation
+- `lib/mach_ocaml_rules.ml` (~140 lines) - OCaml build rules
 - `lib/mach_log.ml` (~10 lines) - logging utilities
 - `lib/mach_error.ml` (~5 lines) - error handling
 
@@ -74,12 +75,18 @@ The library uses `(wrapped false)` so modules are accessed directly (e.g., `Mach
 Key exports:
 - `Filename.(/)` - path concatenation operator
 - `Buffer.output_line` - write line with newline
+- `Hashset` - simple hashset module (create, add, mem)
 - `SS` - `Set.Make(String)` for string sets
 - `SM` - `Map.Make(String)` for string maps
 - `type 'a with_loc = { v: 'a; filename: string; line: int }` - value with source location
 - `equal_without_loc` - compare `with_loc` values ignoring location (use with `List.equal`)
+- `failwithf` - formatted failwith
+- `command_exists` - check if a command exists in PATH
 - `run_cmd`, `run_cmd_lines` - execute shell commands
 - `mkdir_p`, `rm_rf`, `write_file` - file system utilities
+- `type file_stat = { mtime: float; size: int }` - file stat info
+- `file_stat`, `file_stat_exn` - get file stat
+- `atomic_write_file` - write file atomically via temp file and rename
 
 ### Toolchain Detection
 
@@ -93,16 +100,16 @@ Libraries referenced via `#require "libname"` are validated at configure time ag
 ### Code Sections (lib/mach_lib.ml)
 
 The code is organized with comment headers:
-- `(* --- Module kind (ML or MLX) --- *)` - Module type detection
+- `(* --- Target type --- *)` - Target type definitions
 - `(* --- PP (for merlin and build) --- *)` - Preprocessor support
 - `(* --- Configure --- *)` - Build configuration generation
-- `(* --- Build --- *)` - Build execution via Ninja
+- `(* --- Build --- *)` - Build execution
 
 ### Pipeline
 
 1. **Configure** - Check `Mach.state` freshness; if stale, collect dependencies via DFS and generate per-module build files
 2. **Preprocessing** - Replace shebang and `#require` lines with empty lines (preserves line numbers via `# 1 "path"` directive)
-3. **Build** - Run Ninja which handles compilation order and caching
+3. **Build** - Run Mach_build which handles compilation order and caching
 4. **Execution** - `Unix.execv` the resulting binary
 
 ### Build Directories
@@ -111,7 +118,7 @@ The code is organized with comment headers:
 - **Location**: `$MACH_HOME/_mach/build/<normalized-path>/`
 - **Normalized path**: Source path with `/` replaced by `__`
 - **State file**: `Mach.state` tracks file mtimes/sizes for cache invalidation
-- **Build files**: `build.ninja` (root), `mach.ninja` (per-module), `includes.args`, `all_objects.args`
+- **Build files**: `Mach.rules` (build rules in sexp format), `includes.args`, `all_objects.args`
 
 ## Code Style
 
@@ -126,6 +133,7 @@ bin/
   dune
 lib/
   mach_std.ml      -- shared utilities (open! Mach_std in all modules)
+  mach_build.ml    -- build system implementation
   mach_config.ml   -- configuration discovery, parsing, toolchain detection
   mach_config.mli
   mach_error.ml    -- error handling
@@ -137,10 +145,9 @@ lib/
   mach_log.mli
   mach_module.ml   -- module parsing and require extraction
   mach_module.mli
+  mach_ocaml_rules.ml -- OCaml build rules
   mach_state.ml    -- dependency state caching
   mach_state.mli
-  ninja.ml         -- Ninja build file generation
-  ninja.mli
   dune
 test/
   test_*.t     -- cram test case files, add test to this dir
