@@ -395,7 +395,10 @@ let builder_cmd =
     let build = Mach_lib.Build.Build_file_format.of_string build in
     let build_system = Mach_lib.Build.create () in
     Mach_lib.Build.configure build_system build;
-    Mach_lib.Build.build build_system ~target_path
+    try Mach_lib.Build.build build_system ~target_path
+    with Mach_error.Mach_user_error msg ->
+      Printf.eprintf "mach: error: %s\n%!" msg;
+      exit 1
   in
   Cmd.v info
     Term.(

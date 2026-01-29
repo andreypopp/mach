@@ -13817,12 +13817,14 @@ let build_rule (rule : rule) =
                        match status with
                        | Unix.WEXITED 0 -> ()
                        | Unix.WEXITED n ->
-                           failwithf "command failed with exit code %d: %s" n
-                             cmd
+                           Mach_error.user_errorf
+                             "command failed with exit code %d: %s" n cmd
                        | Unix.WSIGNALED n ->
-                           failwithf "command killed by signal %d: %s" n cmd
+                           Mach_error.user_errorf
+                             "command killed by signal %d: %s" n cmd
                        | Unix.WSTOPPED n ->
-                           failwithf "command stopped by signal %d: %s" n cmd))));
+                           Mach_error.user_errorf
+                             "command stopped by signal %d: %s" n cmd))));
         rule.built <- true))
 type rev_deps = target list ref T.t
 let add_rev_dep rev_deps target_path target =
@@ -13846,7 +13848,7 @@ let build t ~target_path =
   let visiting : unit T.t = T.create 256 in
   let rec schedule ?rev_dep target_path =
     if T.mem visiting target_path
-    then failwithf "dependency cycle detected: %s" target_path;
+    then Mach_error.user_errorf "dependency cycle detected: %s" target_path;
     T.add visiting target_path ();
     (match T.find_opt t.rules target_path with
      | None ->
@@ -13867,55 +13869,30 @@ let build t ~target_path =
     match Queue.take queue with
     | exception Queue.Empty -> ()
     | rule ->
-        (if needs_rebuild rule
-         then
-           (build_rule rule;
-            (match rule.target with
-             | Targets _ -> ()
-             | Target_dyndep target ->
-                 List.iter (Dyndep_file_format.of_file target)
-                   ~f:(fun (dyndep : Dyndep_file_format.dyndep) ->
-                         match T.find_opt t.rules dyndep.target with
-                         | None ->
-                             failwithf "dyndep references unknown target: %s"
-                               dyndep.target
-                         | Some dep_rule ->
-                             (if dep_rule.deps_pending = 0
-                              then
-                                failwithf
-                                  "dyndep references target that is already scheduled/built: %s"
-                                  dyndep.target;
-                              dep_rule.dyndeps <-
-                                (Array.append dep_rule.dyndeps dyndep.deps);
-                              dep_rule.deps_pending <-
-                                (dep_rule.deps_pending +
-                                   (Array.length dyndep.deps));
-                              Array.iter dyndep.deps
-                                ~f:(schedule ~rev_dep:dep_rule)))))
-         else
-           (rule.built <- true;
-            (match rule.target with
-             | Targets _ -> ()
-             | Target_dyndep target ->
-                 List.iter (Dyndep_file_format.of_file target)
-                   ~f:(fun (dyndep : Dyndep_file_format.dyndep) ->
-                         match T.find_opt t.rules dyndep.target with
-                         | None ->
-                             failwithf "dyndep references unknown target: %s"
-                               dyndep.target
-                         | Some dep_rule ->
-                             (if dep_rule.deps_pending = 0
-                              then
-                                failwithf
-                                  "dyndep references target that is already scheduled/built: %s"
-                                  dyndep.target;
-                              dep_rule.dyndeps <-
-                                (Array.append dep_rule.dyndeps dyndep.deps);
-                              dep_rule.deps_pending <-
-                                (dep_rule.deps_pending +
-                                   (Array.length dyndep.deps));
-                              Array.iter dyndep.deps
-                                ~f:(schedule ~rev_dep:dep_rule)))));
+        (if needs_rebuild rule then build_rule rule else rule.built <- true;
+         (match rule.target with
+          | Targets _ -> ()
+          | Target_dyndep target ->
+              List.iter (Dyndep_file_format.of_file target)
+                ~f:(fun (dyndep : Dyndep_file_format.dyndep) ->
+                      match T.find_opt t.rules dyndep.target with
+                      | None ->
+                          Mach_error.user_errorf
+                            "dyndep references unknown target: %s"
+                            dyndep.target
+                      | Some dep_rule ->
+                          (if dep_rule.deps_pending = 0
+                           then
+                             Mach_error.user_errorf
+                               "dyndep references target that is already scheduled/built: %s"
+                               dyndep.target;
+                           dep_rule.dyndeps <-
+                             (Array.append dep_rule.dyndeps dyndep.deps);
+                           dep_rule.deps_pending <-
+                             (dep_rule.deps_pending +
+                                (Array.length dyndep.deps));
+                           Array.iter dyndep.deps
+                             ~f:(schedule ~rev_dep:dep_rule))));
          iter_rev_deps rev_deps rule
            ~f:(fun rule ->
                  rule.deps_pending <- (rule.deps_pending - 1);

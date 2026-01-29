@@ -139,9 +139,9 @@ let build_rule (rule : rule) =
     let _, status = Unix.waitpid [] pid in
     match status with
     | Unix.WEXITED 0 -> ()
-    | Unix.WEXITED n -> failwithf "command failed with exit code %d: %s" n cmd
-    | Unix.WSIGNALED n -> failwithf "command killed by signal %d: %s" n cmd
-    | Unix.WSTOPPED n -> failwithf "command stopped by signal %d: %s" n cmd
+    | Unix.WEXITED n -> Mach_error.user_errorf "command failed with exit code %d: %s" n cmd
+    | Unix.WSIGNALED n -> Mach_error.user_errorf "command killed by signal %d: %s" n cmd
+    | Unix.WSTOPPED n -> Mach_error.user_errorf "command stopped by signal %d: %s" n cmd
   end;
   rule.built <- true
 
@@ -171,7 +171,7 @@ let build t ~target_path =
   let rev_deps : rule list ref T.t = T.create 256 in (* next targets to schedule after build of a target *)
   let visiting : unit T.t = T.create 256 in
   let rec schedule ?rev_dep target_path =
-    if T.mem visiting target_path then failwithf "dependency cycle detected: %s" target_path;
+    if T.mem visiting target_path then Mach_error.user_errorf "dependency cycle detected: %s" target_path;
     T.add visiting target_path ();
     begin match T.find_opt t.rules target_path with
     | None -> (* not a target we know about, a source file perhaps, just notify rev_deps *)
@@ -202,10 +202,10 @@ let build t ~target_path =
       | Target_dyndep target ->
         List.iter (Dyndep_file_format.of_file target) ~f:(fun (dyndep : Dyndep_file_format.dyndep) ->
           match T.find_opt t.rules dyndep.target with
-          | None -> failwithf "dyndep references unknown target: %s" dyndep.target
+          | None -> Mach_error.user_errorf "dyndep references unknown target: %s" dyndep.target
           | Some dep_rule ->
             if dep_rule.deps_pending = 0 then
-              failwithf "dyndep references target that is already scheduled/built: %s" dyndep.target;
+              Mach_error.user_errorf "dyndep references target that is already scheduled/built: %s" dyndep.target;
             dep_rule.dyndeps <- Array.append dep_rule.dyndeps dyndep.deps;
             dep_rule.deps_pending <- dep_rule.deps_pending + Array.length dyndep.deps;
             Array.iter dyndep.deps ~f:(schedule ~rev_dep:dep_rule))
