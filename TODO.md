@@ -12,6 +12,11 @@ Let's implement an I/O abstraction:
 
 ## Support passing -H hidden includes args when compiling
 
+## [DONE] mach_build.ml: change tracking
+
+Right now we rebuild everything, we need to track changes and only rebuild what
+is needed. For simplicity we are going to track file mtimes.
+
 ## [DONE] fix `mach build` to be able to build libs
 
 Now if you do `mach build lib/` it fails because it tries to build an executable out of it. Let's first add a test for that.

@@ -60,6 +60,7 @@ type t = { rules : rule T.t; }
 
 and rule = {
   deps : string array;
+  mutable dyndeps : string array;  (* extra deps discovered via dyndeps at build time *)
   commands : string array;
   target : target;
   mutable deps_pending: int;
@@ -73,6 +74,28 @@ let rule_targets (rule : rule) =
   | Targets targets -> targets
   | Target_dyndep target -> [|target|]
 
+let needs_rebuild (rule : rule) =
+  let targets = rule_targets rule in
+  (* Get oldest target mtime, or None if any target missing *)
+  let target_mtime =
+    Array.fold_left ~init:(Some max_int) ~f:(fun acc target_path ->
+      match acc, file_stat target_path with
+      | None, _ -> None
+      | _, None -> None
+      | Some oldest, Some stat -> Some (min oldest stat.mtime)
+    ) targets
+  in
+  match target_mtime with
+  | None -> true  (* target doesn't exist *)
+  | Some target_mtime ->
+    (* Check if any dep (static or dynamic) is newer *)
+    let dep_is_newer dep_path =
+      match file_stat dep_path with
+      | None -> true  (* dep missing, rebuild to get error *)
+      | Some stat -> stat.mtime > target_mtime
+    in
+    Array.exists ~f:dep_is_newer rule.deps || Array.exists ~f:dep_is_newer rule.dyndeps
+
 let create () : t =
   { rules = T.create 256; }
 
@@ -85,7 +108,7 @@ let configure t (rules : Build_file_format.stanza list) : unit =
       | Build_file_format.Rule_dyndep { target; deps; commands } ->
         Target_dyndep target, deps, commands
     in
-    let rule = { target; deps; commands; deps_pending = Array.length deps; built = false } in
+    let rule = { target; deps; dyndeps = [||]; commands; deps_pending = Array.length deps; built = false } in
     Array.iter (rule_targets rule) ~f:(fun target ->
       T.replace t.rules target rule))
 
@@ -171,9 +194,9 @@ let build t ~target_path =
     match Queue.take queue with
     | exception Queue.Empty -> ()
     | rule ->
-      build_rule rule;
-      (* Handle dyndeps: after building a dyndep target, load additional deps
-         and add them to targets that depend on this dyndep *)
+      if needs_rebuild rule
+      then build_rule rule
+      else rule.built <- true;
       begin match rule.target with
       | Targets _ -> ()
       | Target_dyndep target ->
@@ -183,6 +206,7 @@ let build t ~target_path =
           | Some dep_rule ->
             if dep_rule.deps_pending = 0 then
               failwithf "dyndep references target that is already scheduled/built: %s" dyndep.target;
+            dep_rule.dyndeps <- Array.append dep_rule.dyndeps dyndep.deps;
             dep_rule.deps_pending <- dep_rule.deps_pending + Array.length dyndep.deps;
             Array.iter dyndep.deps ~f:(schedule ~rev_dep:dep_rule))
       end;
