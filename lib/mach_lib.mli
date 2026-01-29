@@ -19,18 +19,43 @@ val configure : Mach_config.t -> target -> (bool * Mach_module.t list * Mach_lib
 val build : Mach_config.t -> target -> (string * bool * Mach_module.t list * Mach_library.t list, Mach_error.t) result
 
 module Build : sig
-  type rule = {
-    targets: string array; (** absolute paths of targets rule produces *)
-    deps: string array; (** absolute paths of dependencies rule requires *)
-    commands: string array; (** a list of shell commands to execute to build the targets *)
-  }
 
-  type build = {
-    rules: rule list;
-  }
+  module Build_file_format : sig
+    type t = stanza list
+    and stanza =
+      | Rule of {
+          targets: string array; (** absolute paths of targets rule produces *)
+          deps: string array; (** absolute paths of dependencies rule requires *)
+          commands: string array; (** a list of shell commands to execute to build the targets *)
+        }
+      | Rule_dyndep of {
+          target: string; (** absolute path of a target containing dyndep *)
+          deps: string array; (** absolute paths of dependencies rule requires *)
+          commands: string array; (** a list of shell commands to execute to build the target *)
+        }
 
-  val build_of_string : string -> build
-  val build_of_file : string -> build
+    val of_string : string -> t
+    val to_string : t -> string
+    val of_file : string -> t
+    val to_file : string -> t -> unit
+  end
 
-  val build : target_path:string -> build -> unit
+  module Dyndep_file_format : sig
+    type t = dyndep list
+    and dyndep = {
+      target: string; (** absolute path of target that lists additional dependencies *)
+      deps: string array; (** absolute paths of additional dependencies *)
+    }
+
+    val of_string : string -> t
+    val to_string : dyndep list -> string
+
+    val of_file : string -> t
+    val to_file : string -> dyndep list -> unit
+  end
+
+  type t
+  val create : unit -> t
+  val configure : t -> Build_file_format.t -> unit
+  val build : t -> target_path:string -> unit
 end

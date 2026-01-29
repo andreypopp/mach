@@ -13482,130 +13482,300 @@ module Mach_build = struct
 open! Sexplib0.Sexp_conv
 open! StdLabels
 open! Mach_std
-type rule =
-  {
-  targets: string array
-    [@ocaml.doc " absolute paths of targets rule produces "];
-  deps: string array
-    [@ocaml.doc " absolute paths of dependencies rule requires "];
-  commands: string array
-    [@ocaml.doc " a list of shell commands to execute to build the targets "]}
-[@@deriving sexp]
-include
+module Build_file_format =
   struct
-    let _ = fun (_ : rule) -> ()
-    let rule_of_sexp =
-      (let error_source__002_ = "lib/mach_build.ml.rule" in
-       fun x__003_ ->
-         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__002_
-           ~fields:(Field
-                      {
-                        name = "targets";
-                        kind = Required;
-                        conv = (array_of_sexp string_of_sexp);
-                        rest =
-                          (Field
-                             {
-                               name = "deps";
-                               kind = Required;
-                               conv = (array_of_sexp string_of_sexp);
-                               rest =
-                                 (Field
-                                    {
-                                      name = "commands";
-                                      kind = Required;
-                                      conv = (array_of_sexp string_of_sexp);
-                                      rest = Empty
-                                    })
-                             })
-                      })
-           ~index_of_field:(function
-                            | "targets" -> 0
-                            | "deps" -> 1
-                            | "commands" -> 2
-                            | _ -> (-1)) ~allow_extra_fields:false
-           ~create:(fun (targets, (deps, (commands, ()))) ->
-                      ({ targets; deps; commands } : rule)) x__003_ : 
-      Sexplib0.Sexp.t -> rule)
-    let _ = rule_of_sexp
-    let sexp_of_rule =
-      (fun
-         { targets = targets__005_; deps = deps__007_;
-           commands = commands__009_ }
-         ->
-         let bnds__004_ = ([] : _ Stdlib.List.t) in
-         let bnds__004_ =
-           let arg__010_ = sexp_of_array sexp_of_string commands__009_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "commands"; arg__010_])
-             :: bnds__004_ : _ Stdlib.List.t) in
-         let bnds__004_ =
-           let arg__008_ = sexp_of_array sexp_of_string deps__007_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "deps"; arg__008_]) ::
-             bnds__004_ : _ Stdlib.List.t) in
-         let bnds__004_ =
-           let arg__006_ = sexp_of_array sexp_of_string targets__005_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "targets"; arg__006_]) ::
-             bnds__004_ : _ Stdlib.List.t) in
-         Sexplib0.Sexp.List bnds__004_ : rule -> Sexplib0.Sexp.t)
-    let _ = sexp_of_rule
-  end[@@ocaml.doc "@inline"][@@merlin.hide ]
-type build = {
-  rules: rule list }[@@deriving sexp]
-include
+    type stanza =
+      | Rule of
+      {
+      targets: string array
+        [@ocaml.doc " absolute paths of targets rule produces "];
+      deps: string array
+        [@ocaml.doc " absolute paths of dependencies rule requires "];
+      commands: string array
+        [@ocaml.doc
+          " a list of shell commands to execute to build the targets "]}
+      
+      | Rule_dyndep of
+      {
+      target: string
+        [@ocaml.doc " absolute path of a target containing dyndep "];
+      deps: string array
+        [@ocaml.doc " absolute paths of dependencies rule requires "];
+      commands: string array
+        [@ocaml.doc
+          " a list of shell commands to execute to build the target "]}
+      [@@deriving sexp]
+    include
+      struct
+        let _ = fun (_ : stanza) -> ()
+        let stanza_of_sexp =
+          (let error_source__003_ =
+             "lib/mach_build.ml.Build_file_format.stanza" in
+           function
+           | Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom
+               ("rule" | "Rule"))::sexps__006_) as sexp__005_ ->
+               Sexplib0.Sexp_conv_record.record_of_sexps ~context:sexp__005_
+                 ~caller:error_source__003_
+                 ~fields:(Field
+                            {
+                              name = "targets";
+                              kind = Required;
+                              conv = (array_of_sexp string_of_sexp);
+                              rest =
+                                (Field
+                                   {
+                                     name = "deps";
+                                     kind = Required;
+                                     conv = (array_of_sexp string_of_sexp);
+                                     rest =
+                                       (Field
+                                          {
+                                            name = "commands";
+                                            kind = Required;
+                                            conv =
+                                              (array_of_sexp string_of_sexp);
+                                            rest = Empty
+                                          })
+                                   })
+                            })
+                 ~index_of_field:(function
+                                  | "targets" -> 0
+                                  | "deps" -> 1
+                                  | "commands" -> 2
+                                  | _ -> (-1)) ~allow_extra_fields:false
+                 ~create:(fun (targets, (deps, (commands, ()))) ->
+                            (Rule { targets; deps; commands } : stanza))
+                 sexps__006_
+           | Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom
+               ("rule_dyndep" | "Rule_dyndep"))::sexps__008_) as sexp__007_
+               ->
+               Sexplib0.Sexp_conv_record.record_of_sexps ~context:sexp__007_
+                 ~caller:error_source__003_
+                 ~fields:(Field
+                            {
+                              name = "target";
+                              kind = Required;
+                              conv = string_of_sexp;
+                              rest =
+                                (Field
+                                   {
+                                     name = "deps";
+                                     kind = Required;
+                                     conv = (array_of_sexp string_of_sexp);
+                                     rest =
+                                       (Field
+                                          {
+                                            name = "commands";
+                                            kind = Required;
+                                            conv =
+                                              (array_of_sexp string_of_sexp);
+                                            rest = Empty
+                                          })
+                                   })
+                            })
+                 ~index_of_field:(function
+                                  | "target" -> 0
+                                  | "deps" -> 1
+                                  | "commands" -> 2
+                                  | _ -> (-1)) ~allow_extra_fields:false
+                 ~create:(fun (target, (deps, (commands, ()))) ->
+                            (Rule_dyndep { target; deps; commands } : 
+                            stanza)) sexps__008_
+           | Sexplib0.Sexp.Atom ("rule" | "Rule") as sexp__004_ ->
+               Sexplib0.Sexp_conv_error.stag_takes_args error_source__003_
+                 sexp__004_
+           | Sexplib0.Sexp.Atom ("rule_dyndep" | "Rule_dyndep") as sexp__004_
+               ->
+               Sexplib0.Sexp_conv_error.stag_takes_args error_source__003_
+                 sexp__004_
+           | Sexplib0.Sexp.List ((Sexplib0.Sexp.List _)::_) as sexp__002_ ->
+               Sexplib0.Sexp_conv_error.nested_list_invalid_sum
+                 error_source__003_ sexp__002_
+           | Sexplib0.Sexp.List [] as sexp__002_ ->
+               Sexplib0.Sexp_conv_error.empty_list_invalid_sum
+                 error_source__003_ sexp__002_
+           | sexp__002_ ->
+               Sexplib0.Sexp_conv_error.unexpected_stag error_source__003_
+                 sexp__002_ : Sexplib0.Sexp.t -> stanza)
+        let _ = stanza_of_sexp
+        let sexp_of_stanza =
+          (function
+           | Rule
+               { targets = targets__010_; deps = deps__012_;
+                 commands = commands__014_ }
+               ->
+               let bnds__009_ = ([] : _ Stdlib.List.t) in
+               let bnds__009_ =
+                 let arg__015_ = sexp_of_array sexp_of_string commands__014_ in
+                 ((Sexplib0.Sexp.List
+                     [Sexplib0.Sexp.Atom "commands"; arg__015_])
+                   :: bnds__009_ : _ Stdlib.List.t) in
+               let bnds__009_ =
+                 let arg__013_ = sexp_of_array sexp_of_string deps__012_ in
+                 ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "deps"; arg__013_])
+                   :: bnds__009_ : _ Stdlib.List.t) in
+               let bnds__009_ =
+                 let arg__011_ = sexp_of_array sexp_of_string targets__010_ in
+                 ((Sexplib0.Sexp.List
+                     [Sexplib0.Sexp.Atom "targets"; arg__011_])
+                   :: bnds__009_ : _ Stdlib.List.t) in
+               Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom "Rule") :: bnds__009_)
+           | Rule_dyndep
+               { target = target__017_; deps = deps__019_;
+                 commands = commands__021_ }
+               ->
+               let bnds__016_ = ([] : _ Stdlib.List.t) in
+               let bnds__016_ =
+                 let arg__022_ = sexp_of_array sexp_of_string commands__021_ in
+                 ((Sexplib0.Sexp.List
+                     [Sexplib0.Sexp.Atom "commands"; arg__022_])
+                   :: bnds__016_ : _ Stdlib.List.t) in
+               let bnds__016_ =
+                 let arg__020_ = sexp_of_array sexp_of_string deps__019_ in
+                 ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "deps"; arg__020_])
+                   :: bnds__016_ : _ Stdlib.List.t) in
+               let bnds__016_ =
+                 let arg__018_ = sexp_of_string target__017_ in
+                 ((Sexplib0.Sexp.List
+                     [Sexplib0.Sexp.Atom "target"; arg__018_])
+                   :: bnds__016_ : _ Stdlib.List.t) in
+               Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom "Rule_dyndep") ::
+                 bnds__016_) : stanza -> Sexplib0.Sexp.t)
+        let _ = sexp_of_stanza
+      end[@@ocaml.doc "@inline"][@@merlin.hide ]
+    type t = stanza list
+    let of_string s =
+      (Parsexp.Many.parse_string_exn s) |> (List.map ~f:stanza_of_sexp)
+    let of_file file_path =
+      of_string (let open In_channel in with_open_text file_path input_all)
+    let to_string t =
+      ((List.map t ~f:sexp_of_stanza) |>
+         (List.map ~f:Sexplib0.Sexp.to_string_hum))
+        |> (String.concat ~sep:"\n")
+    let to_file file_path t =
+      let s = to_string t in
+      let open Out_channel in
+        with_open_text file_path (fun oc -> output_string oc s)
+  end
+module Dyndep_file_format =
   struct
-    let _ = fun (_ : build) -> ()
-    let build_of_sexp =
-      (let error_source__012_ = "lib/mach_build.ml.build" in
-       fun x__013_ ->
-         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__012_
-           ~fields:(Field
-                      {
-                        name = "rules";
-                        kind = Required;
-                        conv = (list_of_sexp rule_of_sexp);
-                        rest = Empty
-                      })
-           ~index_of_field:(function | "rules" -> 0 | _ -> (-1))
-           ~allow_extra_fields:false
-           ~create:(fun (rules, ()) -> ({ rules } : build)) x__013_ : 
-      Sexplib0.Sexp.t -> build)
-    let _ = build_of_sexp
-    let sexp_of_build =
-      (fun { rules = rules__015_ } ->
-         let bnds__014_ = ([] : _ Stdlib.List.t) in
-         let bnds__014_ =
-           let arg__016_ = sexp_of_list sexp_of_rule rules__015_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "rules"; arg__016_]) ::
-             bnds__014_ : _ Stdlib.List.t) in
-         Sexplib0.Sexp.List bnds__014_ : build -> Sexplib0.Sexp.t)
-    let _ = sexp_of_build
-  end[@@ocaml.doc "@inline"][@@merlin.hide ]
+    type dyndep =
+      {
+      target: string
+        [@ocaml.doc
+          " absolute path of target that lists additional dependencies "];
+      deps: string array
+        [@ocaml.doc " absolute paths of additional dependencies "]}[@@deriving
+                                                                    sexp]
+    include
+      struct
+        let _ = fun (_ : dyndep) -> ()
+        let dyndep_of_sexp =
+          (let error_source__024_ =
+             "lib/mach_build.ml.Dyndep_file_format.dyndep" in
+           fun x__025_ ->
+             Sexplib0.Sexp_conv_record.record_of_sexp
+               ~caller:error_source__024_
+               ~fields:(Field
+                          {
+                            name = "target";
+                            kind = Required;
+                            conv = string_of_sexp;
+                            rest =
+                              (Field
+                                 {
+                                   name = "deps";
+                                   kind = Required;
+                                   conv = (array_of_sexp string_of_sexp);
+                                   rest = Empty
+                                 })
+                          })
+               ~index_of_field:(function
+                                | "target" -> 0
+                                | "deps" -> 1
+                                | _ -> (-1)) ~allow_extra_fields:false
+               ~create:(fun (target, (deps, ())) ->
+                          ({ target; deps } : dyndep)) x__025_ : Sexplib0.Sexp.t
+                                                                   -> 
+                                                                   dyndep)
+        let _ = dyndep_of_sexp
+        let sexp_of_dyndep =
+          (fun { target = target__027_; deps = deps__029_ } ->
+             let bnds__026_ = ([] : _ Stdlib.List.t) in
+             let bnds__026_ =
+               let arg__030_ = sexp_of_array sexp_of_string deps__029_ in
+               ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "deps"; arg__030_])
+                 :: bnds__026_ : _ Stdlib.List.t) in
+             let bnds__026_ =
+               let arg__028_ = sexp_of_string target__027_ in
+               ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "target"; arg__028_])
+                 :: bnds__026_ : _ Stdlib.List.t) in
+             Sexplib0.Sexp.List bnds__026_ : dyndep -> Sexplib0.Sexp.t)
+        let _ = sexp_of_dyndep
+      end[@@ocaml.doc "@inline"][@@merlin.hide ]
+    type t = dyndep list
+    let of_string s : t=
+      (Parsexp.Many.parse_string_exn s) |> (List.map ~f:dyndep_of_sexp)
+    let of_file file_path : t=
+      of_string (let open In_channel in with_open_text file_path input_all)
+    let to_string t : string=
+      ((List.map t ~f:sexp_of_dyndep) |>
+         (List.map ~f:Sexplib0.Sexp.to_string_hum))
+        |> (String.concat ~sep:"\n")
+    let to_file file_path t : unit=
+      let s = to_string t in
+      let open Out_channel in
+        with_open_text file_path (fun oc -> output_string oc s)
+  end
 module T = (Hashtbl.Make)(String)
-type build_system = {
-  targets: target T.t }
-and target = {
-  rule: rule ;
+type t = {
+  rules: rule T.t }
+and rule =
+  {
+  deps: string array ;
+  commands: string array ;
+  target: target ;
   mutable deps_pending: int ;
   mutable built: bool }
-let create () : build_system= { targets = (T.create 256) }
-let configure { targets } (b : build) : unit=
-  List.iter b.rules
-    ~f:(fun (rule : rule) ->
-          let target =
-            { rule; deps_pending = (Array.length rule.deps); built = false } in
-          Array.iter rule.targets ~f:(fun t -> T.replace targets t target))
-let build_target (target : target) =
-  if target.built
+and target =
+  | Targets of string array 
+  | Target_dyndep of string 
+let rule_targets (rule : rule) =
+  match rule.target with
+  | Targets targets -> targets
+  | Target_dyndep target -> [|target|]
+let create () : t= { rules = (T.create 256) }
+let configure t (rules : Build_file_format.stanza list) : unit=
+  List.iter rules
+    ~f:(fun (rule : Build_file_format.stanza) ->
+          let (target, deps, commands) =
+            match rule with
+            | Build_file_format.Rule { targets; deps; commands } ->
+                ((Targets targets), deps, commands)
+            | Build_file_format.Rule_dyndep { target; deps; commands } ->
+                ((Target_dyndep target), deps, commands) in
+          let rule =
+            {
+              target;
+              deps;
+              commands;
+              deps_pending = (Array.length deps);
+              built = false
+            } in
+          Array.iter (rule_targets rule)
+            ~f:(fun target -> T.replace t.rules target rule))
+let build_rule (rule : rule) =
+  let targets = rule_targets rule in
+  if rule.built
   then
     failwithf "target already built: %s"
-      (String.concat ~sep:", " (Array.to_list (target.rule).targets));
-  assert (target.deps_pending = 0);
-  Array.iter (target.rule).targets
-    ~f:(fun t -> Mach_log.log_verbose "mach: building %s" t);
+      (String.concat ~sep:", " (Array.to_list targets));
+  assert (rule.deps_pending = 0);
+  Array.iter targets ~f:(fun t -> Mach_log.log_verbose "mach: building %s" t);
   (let dev_null = Unix.openfile "/dev/null" [Unix.O_RDONLY] 0 in
    (Fun.protect ~finally:(fun () -> Unix.close dev_null)) @@
      (fun () ->
-        Array.iter (target.rule).commands
+        Array.iter rule.commands
           ~f:(fun cmd ->
                 let (pipe_read, pipe_write) = Unix.pipe () in
                 (Fun.protect ~finally:(fun () -> Unix.close pipe_read)) @@
@@ -13632,7 +13802,7 @@ let build_target (target : target) =
                            failwithf "command killed by signal %d: %s" n cmd
                        | Unix.WSTOPPED n ->
                            failwithf "command stopped by signal %d: %s" n cmd))));
-        target.built <- true))
+        rule.built <- true))
 type rev_deps = target list ref T.t
 let add_rev_dep rev_deps target_path target =
   let targets =
@@ -13642,49 +13812,61 @@ let add_rev_dep rev_deps target_path target =
         let targets = ref [] in
         (T.replace rev_deps target_path targets; targets) in
   targets := (target :: (!targets))
-let iter_rev_deps rev_deps target ~f =
-  Array.iter (target.rule).targets
+let iter_rev_deps rev_deps rule ~f =
+  Array.iter (rule_targets rule)
     ~f:(fun target_path ->
           match T.find_opt rev_deps target_path with
           | Some targets -> List.iter (!targets) ~f
           | None -> ())
-type build_queue = target Queue.t
-let run t ~target_path =
-  let (queue, rev_deps) =
-    let queue : build_queue = Queue.create () in
-    let rev_deps : target list ref T.t = T.create 256 in
-    let visiting : unit T.t = T.create 256 in
-    let rec schedule ?rev_dep target_path =
-      if T.mem visiting target_path
-      then failwithf "dependency cycle detected: %s" target_path;
-      if T.mem rev_deps target_path
-      then Option.iter (add_rev_dep rev_deps target_path) rev_dep
-      else
-        (T.add visiting target_path ();
-         (let target = T.find t.targets target_path in
-          Option.iter (add_rev_dep rev_deps target_path) rev_dep;
-          if target.deps_pending = 0
-          then Queue.add target queue
-          else Array.iter (target.rule).deps ~f:(schedule ~rev_dep:target);
-          T.remove visiting target_path)) in
-    schedule target_path; (queue, rev_deps) in
+type build_queue = rule Queue.t
+let build t ~target_path =
+  let queue : build_queue = Queue.create () in
+  let rev_deps : rule list ref T.t = T.create 256 in
+  let visiting : unit T.t = T.create 256 in
+  let rec schedule ?rev_dep target_path =
+    if T.mem visiting target_path
+    then failwithf "dependency cycle detected: %s" target_path;
+    if T.mem rev_deps target_path
+    then Option.iter (add_rev_dep rev_deps target_path) rev_dep
+    else
+      (T.add visiting target_path ();
+       (let rule = T.find t.rules target_path in
+        Option.iter (add_rev_dep rev_deps target_path) rev_dep;
+        if rule.deps_pending = 0
+        then Queue.add rule queue
+        else Array.iter rule.deps ~f:(schedule ~rev_dep:rule);
+        T.remove visiting target_path)) in
   let rec build () =
     match Queue.take queue with
     | exception Queue.Empty -> ()
-    | target ->
-        (build_target target;
-         iter_rev_deps rev_deps target
-           ~f:(fun target ->
-                 target.deps_pending <- (target.deps_pending - 1);
-                 if target.deps_pending = 0 then Queue.add target queue);
+    | rule ->
+        (build_rule rule;
+         (match rule.target with
+          | Targets _ -> ()
+          | Target_dyndep target ->
+              List.iter (Dyndep_file_format.of_file target)
+                ~f:(fun (dyndep : Dyndep_file_format.dyndep) ->
+                      match T.find_opt t.rules dyndep.target with
+                      | None ->
+                          failwithf "dyndep references unknown target: %s"
+                            dyndep.target
+                      | Some dep_rule ->
+                          (if dep_rule.deps_pending = 0
+                           then
+                             failwithf
+                               "dyndep references target that is already scheduled/built: %s"
+                               dyndep.target;
+                           dep_rule.deps_pending <-
+                             (dep_rule.deps_pending +
+                                (Array.length dyndep.deps));
+                           Array.iter dyndep.deps
+                             ~f:(schedule ~rev_dep:dep_rule))));
+         iter_rev_deps rev_deps rule
+           ~f:(fun rule ->
+                 rule.deps_pending <- (rule.deps_pending - 1);
+                 if rule.deps_pending = 0 then Queue.add rule queue);
          build ()) in
-  build ()
-let build_of_string s = build_of_sexp (Parsexp.Single.parse_string_exn s)
-let build_of_file file_path =
-  let content = let open In_channel in with_open_text file_path input_all in
-  build_of_string content
-let build ~target_path build =
-  let bs = create () in configure bs build; run bs ~target_path
+  schedule target_path; build ()
 end
 module Mach_module : sig
 [@@@ocaml.ppx.context
@@ -15351,20 +15533,54 @@ val build :
         Mach_error.t) result
 module Build :
 sig
-  type rule =
-    {
-    targets: string array
-      [@ocaml.doc " absolute paths of targets rule produces "];
-    deps: string array
-      [@ocaml.doc " absolute paths of dependencies rule requires "];
-    commands: string array
-      [@ocaml.doc
-        " a list of shell commands to execute to build the targets "]}
-  type build = {
-    rules: rule list }
-  val build_of_string : string -> build
-  val build_of_file : string -> build
-  val build : target_path:string -> build -> unit
+  module Build_file_format :
+  sig
+    type t = stanza list
+    and stanza =
+      | Rule of
+      {
+      targets: string array
+        [@ocaml.doc " absolute paths of targets rule produces "];
+      deps: string array
+        [@ocaml.doc " absolute paths of dependencies rule requires "];
+      commands: string array
+        [@ocaml.doc
+          " a list of shell commands to execute to build the targets "]}
+      
+      | Rule_dyndep of
+      {
+      target: string
+        [@ocaml.doc " absolute path of a target containing dyndep "];
+      deps: string array
+        [@ocaml.doc " absolute paths of dependencies rule requires "];
+      commands: string array
+        [@ocaml.doc
+          " a list of shell commands to execute to build the target "]}
+      
+    val of_string : string -> t
+    val to_string : t -> string
+    val of_file : string -> t
+    val to_file : string -> t -> unit
+  end
+  module Dyndep_file_format :
+  sig
+    type t = dyndep list
+    and dyndep =
+      {
+      target: string
+        [@ocaml.doc
+          " absolute path of target that lists additional dependencies "];
+      deps: string array
+        [@ocaml.doc " absolute paths of additional dependencies "]}
+    val of_string : string -> t
+    val to_string : dyndep list -> string
+    val of_file : string -> t
+    val to_file : string -> dyndep list -> unit
+  end
+  type t
+  val create : unit -> t
+  val configure : t -> Build_file_format.t -> unit
+  val build : t -> target_path:string -> unit
 end
 end = struct
 [@@@ocaml.ppx.context
@@ -21620,8 +21836,10 @@ let builder_cmd =
       | "-" -> In_channel.input_all stdin
       | path -> In_channel.(with_open_text path input_all)
     in
-    let build = Mach_lib.Build.build_of_string build in
-    Mach_lib.Build.build build ~target_path
+    let build = Mach_lib.Build.Build_file_format.of_string build in
+    let build_system = Mach_lib.Build.create () in
+    Mach_lib.Build.configure build_system build;
+    Mach_lib.Build.build build_system ~target_path
   in
   Cmd.v info
     Term.(

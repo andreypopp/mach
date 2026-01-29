@@ -392,8 +392,10 @@ let builder_cmd =
       | "-" -> In_channel.input_all stdin
       | path -> In_channel.(with_open_text path input_all)
     in
-    let build = Mach_lib.Build.build_of_string build in
-    Mach_lib.Build.build build ~target_path
+    let build = Mach_lib.Build.Build_file_format.of_string build in
+    let build_system = Mach_lib.Build.create () in
+    Mach_lib.Build.configure build_system build;
+    Mach_lib.Build.build build_system ~target_path
   in
   Cmd.v info
     Term.(
