@@ -149,17 +149,23 @@ let build t ~target_path =
   let visiting : unit T.t = T.create 256 in
   let rec schedule ?rev_dep target_path =
     if T.mem visiting target_path then failwithf "dependency cycle detected: %s" target_path;
-    if T.mem rev_deps target_path
-    then Option.iter (add_rev_dep rev_deps target_path) rev_dep
-    else begin
-      T.add visiting target_path ();
-      let rule = T.find t.rules target_path in
-      Option.iter (add_rev_dep rev_deps target_path) rev_dep;
-      if rule.deps_pending = 0
-      then Queue.add rule queue
-      else Array.iter rule.deps ~f:(schedule ~rev_dep:rule);
-      T.remove visiting target_path
-    end
+    T.add visiting target_path ();
+    begin match T.find_opt t.rules target_path with
+    | None -> (* not a target we know about, a source file perhaps, just notify rev_deps *)
+      Option.iter (fun rule ->
+        rule.deps_pending <- rule.deps_pending - 1;
+        if rule.deps_pending = 0 then Queue.add rule queue) rev_dep
+    | Some rule ->
+      if T.mem rev_deps target_path
+      then Option.iter (add_rev_dep rev_deps target_path) rev_dep
+      else begin
+          Option.iter (add_rev_dep rev_deps target_path) rev_dep;
+          if rule.deps_pending = 0
+          then Queue.add rule queue
+          else Array.iter rule.deps ~f:(schedule ~rev_dep:rule)
+      end
+    end;
+    T.remove visiting target_path
   in
   let rec build () =
     match Queue.take queue with

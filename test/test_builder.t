@@ -76,3 +76,49 @@ D is built once, then B and C, then A:
   shared
   c:
   shared
+
+Test build with source file dependencies (no build rule for source files):
+
+  $ echo "source content" > $B/source.txt
+
+  $ cat > $B/build4.sexp << EOF
+  > (Rule
+  >   (targets ("$B/output.txt"))
+  >   (deps ("$B/source.txt"))
+  >   (commands ("cat $B/source.txt > $B/output.txt" "echo 'processed' >> $B/output.txt")))
+  > EOF
+
+  $ mach builder -v --build-file="$B/build4.sexp" "$B/output.txt"
+  mach: building $TESTCASE_ROOT/_build/output.txt
+
+  $ cat "$B/output.txt"
+  source content
+  processed
+
+Test with multiple targets depending on same source file:
+
+  $ cat > $B/build5.sexp << EOF
+  > (Rule
+  >   (targets ("$B/final.txt"))
+  >   (deps ("$B/x.txt" "$B/y.txt"))
+  >   (commands ("cat $B/x.txt $B/y.txt > $B/final.txt")))
+  > (Rule
+  >   (targets ("$B/x.txt"))
+  >   (deps ("$B/source.txt"))
+  >   (commands ("echo 'x:' > $B/x.txt" "cat $B/source.txt >> $B/x.txt")))
+  > (Rule
+  >   (targets ("$B/y.txt"))
+  >   (deps ("$B/source.txt"))
+  >   (commands ("echo 'y:' > $B/y.txt" "cat $B/source.txt >> $B/y.txt")))
+  > EOF
+
+  $ mach builder -v --build-file="$B/build5.sexp" "$B/final.txt"
+  mach: building $TESTCASE_ROOT/_build/x.txt
+  mach: building $TESTCASE_ROOT/_build/y.txt
+  mach: building $TESTCASE_ROOT/_build/final.txt
+
+  $ cat "$B/final.txt"
+  x:
+  source content
+  y:
+  source content

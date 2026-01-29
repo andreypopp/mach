@@ -13830,12 +13830,20 @@ let build t ~target_path =
     then Option.iter (add_rev_dep rev_deps target_path) rev_dep
     else
       (T.add visiting target_path ();
-       (let rule = T.find t.rules target_path in
-        Option.iter (add_rev_dep rev_deps target_path) rev_dep;
-        if rule.deps_pending = 0
-        then Queue.add rule queue
-        else Array.iter rule.deps ~f:(schedule ~rev_dep:rule);
-        T.remove visiting target_path)) in
+       (match T.find_opt t.rules target_path with
+        | None ->
+            (if not (Sys.file_exists target_path)
+             then failwithf "source file not found: %s" target_path;
+             T.replace rev_deps target_path (ref []);
+             Option.iter
+               (fun rule -> rule.deps_pending <- (rule.deps_pending - 1))
+               rev_dep)
+        | Some rule ->
+            (Option.iter (add_rev_dep rev_deps target_path) rev_dep;
+             if rule.deps_pending = 0
+             then Queue.add rule queue
+             else Array.iter rule.deps ~f:(schedule ~rev_dep:rule)));
+       T.remove visiting target_path) in
   let rec build () =
     match Queue.take queue with
     | exception Queue.Empty -> ()
