@@ -3,12 +3,14 @@ Error reporting tests - user errors should be reported nicely to stderr.
 Test error when script file doesn't exist (cmdliner validates before our code runs):
 
   $ mach run ./nonexistent.ml
-  Usage: mach run [--help] [--verbose] [--watch] [OPTION]… SCRIPT [ARGS]…
+  Usage: mach run [--help] [--jobs=N] [--verbose] [--watch] [OPTION]… SCRIPT
+         [ARGS]…
   mach: SCRIPT argument: no './nonexistent.ml' file or directory
   [124]
 
   $ mach build ./nonexistent.ml
-  Usage: mach build [--help] [--verbose] [--watch] [OPTION]… SCRIPT
+  Usage: mach build [--help] [--jobs=N] [--verbose] [--watch] [OPTION]…
+         SCRIPT
   mach: SCRIPT argument: no './nonexistent.ml' file or directory
   [124]
 
@@ -36,4 +38,4 @@ Test error when build fails:
 
   $ mach run ./bad_script.ml 2>&1 | grep -E "(Unbound|mach:)"
   Error: Unbound value this_is_not_valid
-  mach: build error
+  mach: build error (exit 2)

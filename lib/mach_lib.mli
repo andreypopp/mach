@@ -57,5 +57,5 @@ module Build : sig
   type t
   val create : unit -> t
   val configure : t -> Build_file_format.t -> unit
-  val build : t -> target_path:string -> unit
+  val build : t -> target_path:string -> parallelism:int -> unit
 end

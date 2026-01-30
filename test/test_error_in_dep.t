@@ -15,7 +15,7 @@ Test error reporting (should show lib.ml path, not build dir path):
   File "$TESTCASE_ROOT/lib.ml", line 3, characters 6-12:
   Error: This constant has type string but an expression was expected of type
            int
-  mach: build error
+  mach: build error (exit 2)
   [1]
 
 Now test error in .mli file:
@@ -40,5 +40,5 @@ Test error reporting for .mli (should show lib2.mli path, not build dir path):
   $ mach run ./main2.ml
   File "$TESTCASE_ROOT/lib2.mli", line 3, characters 0-0:
   Error: Syntax error
-  mach: build error
+  mach: build error (exit 2)
   [1]

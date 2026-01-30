@@ -194,7 +194,7 @@ let build_exn config target =
     | Target_executable _ -> Filename.(build_dir / "a.out")
     | Target_library lib_path -> Filename.(build_dir_of lib_path / Filename.basename lib_path ^ ".cmxa")
   in
-  Mach_build.build build_system ~target_path;
+  Mach_build.build build_system ~target_path ~parallelism:config.parallelism;
   target_path, reconfigured, modules, libs
 
 let build config target =

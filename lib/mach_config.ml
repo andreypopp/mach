@@ -4,6 +4,17 @@ open! Mach_std
 open Sexplib0.Sexp_conv
 open Printf
 
+(* --- CPU detection --- *)
+
+let detect_num_cpus () =
+  (* Try nproc (Linux), then sysctl (macOS), fallback to 4 *)
+  match run_cmd "nproc 2>/dev/null" with
+  | Some n -> (try int_of_string n with _ -> 4)
+  | None ->
+    match run_cmd "sysctl -n hw.ncpu 2>/dev/null" with
+    | Some n -> (try int_of_string n with _ -> 4)
+    | None -> 4
+
 (* --- Toolchain detection --- *)
 
 type ocamlfind_info = {
@@ -45,6 +56,7 @@ type t = {
   home: string;
   mach_executable_path: string;
   toolchain: toolchain;
+  parallelism: int;  (* max concurrent builds *)
 }
 
 (* Config file sexp format *)
@@ -83,16 +95,20 @@ let find_mach_config () =
   in
   search (Sys.getcwd ())
 
-let make_config ?mach_path home =
+let make_config ?mach_path ?parallelism home =
   let mach_executable_path = Lazy.force mach_executable_path in
   let toolchain = detect_toolchain () in
+  let parallelism = match parallelism with
+    | Some n -> n
+    | None -> detect_num_cpus ()
+  in
   let mach_path = Option.value mach_path ~default:Filename.(home / "Mach") in
   if Sys.file_exists mach_path && Sys.is_regular_file mach_path then
     match parse_file mach_path with
-    | Ok () -> Ok { home; mach_executable_path; toolchain }
+    | Ok () -> Ok { home; mach_executable_path; toolchain; parallelism }
     | Error _ as err -> err
   else
-    Ok { home; mach_executable_path; toolchain }
+    Ok { home; mach_executable_path; toolchain; parallelism }
 
 let config =
   lazy (
@@ -108,7 +124,15 @@ let config =
         in
         make_config home)
 
-let get () = Lazy.force config
+let get ?parallelism () =
+  match Lazy.force config with
+  | Ok config ->
+    let config = match parallelism with
+      | Some n -> { config with parallelism = n }
+      | None -> config
+    in
+    Ok config
+  | Error _ as err -> err
 
 let build_dir_of config script_path =
   let normalized = String.split_on_char '/' script_path |> String.concat "__" in

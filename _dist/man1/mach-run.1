@@ -10,7 +10,7 @@
 mach\N'45'run \N'45' Run an OCaml script
 .SH SYNOPSIS
 .P
-\fBmach run\fR [\fB\N'45'\N'45'verbose\fR] [\fB\N'45'\N'45'watch\fR] [\fIOPTION\fR]… \fISCRIPT\fR [\fIARGS\fR]…
+\fBmach run\fR [\fB\N'45'\N'45'jobs\fR=\fIN\fR] [\fB\N'45'\N'45'verbose\fR] [\fB\N'45'\N'45'watch\fR] [\fIOPTION\fR]… \fISCRIPT\fR [\fIARGS\fR]…
 .SH ARGUMENTS
 .TP 4
 \fIARGS\fR
@@ -19,6 +19,9 @@ Arguments to pass to the script
 \fISCRIPT\fR (required)
 OCaml script or library to build
 .SH OPTIONS
+.TP 4
+\fB\N'45'j\fR \fIN\fR, \fB\N'45'\N'45'jobs\fR=\fIN\fR
+Number of parallel builds (default: number of CPUs)
 .TP 4
 \fB\N'45'v\fR, \fB\N'45'\N'45'verbose\fR
 Log external command invocations to stderr\N'46'

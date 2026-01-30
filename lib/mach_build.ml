@@ -189,10 +189,93 @@ module Rules = struct
     })
 end
 
-let build t ~target_path =
+type in_flight_build = {
+  rule: rule;
+  pid: int;
+  pipe_read: Unix.file_descr;
+  output_buffer: Buffer.t;
+  cmd_index: int;  (* which command in commands array is running *)
+}
+
+let start_command (rule : rule) (cmd_index : int) : in_flight_build option =
+  if cmd_index >= Array.length rule.commands then
+    None  (* All commands complete *)
+  else begin
+    let cmd = rule.commands.(cmd_index) in
+    let dev_null = Unix.openfile "/dev/null" [Unix.O_RDONLY] 0 in
+    let pipe_read, pipe_write = Unix.pipe () in
+    let pid = Unix.create_process "/bin/sh" [|"/bin/sh"; "-c"; cmd|]
+      dev_null pipe_write pipe_write in
+    Unix.close dev_null;
+    Unix.close pipe_write;
+    Unix.set_nonblock pipe_read;
+    Some {
+      rule;
+      pid;
+      pipe_read;
+      output_buffer = Buffer.create 4096;
+      cmd_index;
+    }
+  end
+
+let start_build (rule : rule) : in_flight_build option =
+  assert (not rule.built);
+  assert (rule.deps_pending = 0);
+  Array.iter (rule_targets rule) ~f:(Mach_log.log_very_very_verbose "mach: building %s");
+  start_command rule 0
+
+let drain_output (build : in_flight_build) =
+  let buf = Bytes.create 4096 in
+  let rec loop () =
+    try
+      let n = Unix.read build.pipe_read buf 0 4096 in
+      if n > 0 then begin
+        Buffer.add_subbytes build.output_buffer buf 0 n;
+        loop ()
+      end
+    with
+    | Unix.Unix_error (Unix.EAGAIN, _, _)
+    | Unix.Unix_error (Unix.EWOULDBLOCK, _, _) -> ()
+  in
+  loop ()
+
+let flush_output (build : in_flight_build) =
+  let output = Buffer.contents build.output_buffer in
+  if String.length output > 0 then
+    output_string stderr output;
+  Buffer.clear build.output_buffer
+
+let poll_build (build : in_flight_build) : [`Running | `Exited of Unix.process_status] =
+  drain_output build;
+  match Unix.waitpid [Unix.WNOHANG] build.pid with
+  | 0, _ -> `Running
+  | _, status ->
+    drain_output build;
+    flush_output build;
+    Unix.close build.pipe_read;
+    `Exited status
+
+let handle_command_complete (build : in_flight_build) (status : Unix.process_status)
+    : [`Done | `Continue of in_flight_build | `Error of string] =
+  match status with
+  | Unix.WEXITED 0 ->
+    begin match start_command build.rule (build.cmd_index + 1) with
+    | None -> build.rule.built <- true; `Done
+    | Some next_build -> `Continue next_build
+    end
+  | Unix.WEXITED code       -> `Error (Printf.sprintf "build error (exit %d)" code)
+  | Unix.WSIGNALED sig_num  -> `Error (Printf.sprintf "build error (signal %d)" sig_num)
+  | Unix.WSTOPPED _         -> `Error "build error (stopped)"
+
+
+let build t ~target_path ~parallelism =
   let queue : build_queue = Queue.create () in (* targets ready to build *)
   let rev_deps : rule list ref T.t = T.create 256 in (* next targets to schedule after build of a target *)
   let visiting : unit T.t = T.create 256 in
+
+  let in_flight : in_flight_build list ref = ref [] in
+  let error_occurred : string option ref = ref None in
+
   let rec schedule ?rev_dep target_path =
     if T.mem visiting target_path then Mach_error.user_errorf "dependency cycle detected: %s" target_path;
     T.add visiting target_path ();
@@ -218,30 +301,69 @@ let build t ~target_path =
     end;
     T.remove visiting target_path
   in
-  let rec build () =
-    match Queue.take queue with
-    | exception Queue.Empty -> ()
-    | rule ->
-      if needs_rebuild rule
-      then build_rule rule
-      else rule.built <- true;
-      begin match rule.target with
-      | Targets _ -> ()
-      | Target_dyndep target ->
-        List.iter (Dyndep_file_format.of_file target) ~f:(fun (dyndep : Dyndep_file_format.dyndep) ->
-          match T.find_opt t.rules dyndep.target with
-          | None -> Mach_error.user_errorf "dyndep references unknown target: %s" dyndep.target
-          | Some dep_rule ->
-            if dep_rule.deps_pending = 0 then
-              Mach_error.user_errorf "dyndep references target that is already scheduled/built: %s" dyndep.target;
+
+  let process_completed (rule : rule) =
+    begin match rule.target with
+    | Targets _ -> ()
+    | Target_dyndep target ->
+      List.iter (Dyndep_file_format.of_file target) ~f:(fun (dyndep : Dyndep_file_format.dyndep) ->
+        match T.find_opt t.rules dyndep.target with
+        | None ->
+          error_occurred := Some (Printf.sprintf "dyndep references unknown target: %s" dyndep.target)
+        | Some dep_rule ->
+          if dep_rule.deps_pending = 0 then
+            error_occurred := Some (Printf.sprintf
+              "dyndep references target that is already scheduled/built: %s" dyndep.target)
+          else begin
             dep_rule.dyndeps <- Array.append dep_rule.dyndeps dyndep.deps;
             dep_rule.deps_pending <- dep_rule.deps_pending + Array.length dyndep.deps;
-            Array.iter dyndep.deps ~f:(schedule ~rev_dep:dep_rule))
-      end;
-      iter_rev_deps rev_deps rule ~f:(fun rule ->
-        rule.deps_pending <- rule.deps_pending - 1;
-        if rule.deps_pending = 0 then Queue.add rule queue);
-      build ()
+            Array.iter dyndep.deps ~f:(schedule ~rev_dep:dep_rule)
+          end)
+    end;
+    iter_rev_deps rev_deps rule ~f:(fun rule ->
+      rule.deps_pending <- rule.deps_pending - 1;
+      if rule.deps_pending = 0 then Queue.add rule queue)
   in
+
+  let start_pending_builds () =
+    while List.length !in_flight < parallelism
+          && not (Queue.is_empty queue)
+          && Option.is_none !error_occurred do
+      let rule = Queue.take queue in
+      if needs_rebuild rule then
+        match start_build rule with
+        | Some build -> in_flight := build :: !in_flight
+        | None -> rule.built <- true; process_completed rule
+      else begin
+        rule.built <- true;  (* Up-to-date, mark as built *)
+        process_completed rule
+      end
+    done
+  in
+
+  let rec process_in_flight in_flight = function
+    | [] -> in_flight
+    | build :: rest ->
+    match poll_build build with
+    | `Running -> process_in_flight (build::in_flight) rest
+    | `Exited status ->
+      match handle_command_complete build status with
+      | `Done -> process_completed build.rule; process_in_flight in_flight rest
+      | `Continue next_build -> process_in_flight (next_build::in_flight) rest
+      | `Error msg -> error_occurred := Some msg; process_in_flight in_flight rest
+  in
+
+  let rec build_loop () =
+    start_pending_builds ();
+    Option.iter (Mach_error.user_errorf "%s") !error_occurred;
+    if !in_flight = [] then ()
+    else begin
+      let read_fds = List.map ~f:(fun (b : in_flight_build) -> b.pipe_read) !in_flight in
+      let _, _, _ = Unix.select read_fds [] [] 0.05 in  (* 50ms timeout *)
+      in_flight := process_in_flight [] !in_flight;
+      build_loop ()
+    end
+  in
+
   schedule target_path;
-  build ()
+  build_loop ()

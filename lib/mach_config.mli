@@ -19,14 +19,18 @@ type t = {
   home : string;
   mach_executable_path : string;
   toolchain : toolchain;
+  parallelism : int;  (** max concurrent builds *)
 }
+
+(** Detect number of CPUs available *)
+val detect_num_cpus : unit -> int
 
 (** Get the current configuration.
     Resolution order:
     1. $MACH_HOME env var if set
     2. Walk up from cwd to find Mach file
     3. Fall back to $XDG_STATE_HOME/mach (or ~/.local/state/mach) *)
-val get : unit -> (t, Mach_error.t) result
+val get : ?parallelism:int -> unit -> (t, Mach_error.t) result
 
 (** Get build directory for a script path *)
 val build_dir_of : t -> string -> string

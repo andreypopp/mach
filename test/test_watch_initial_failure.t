@@ -32,7 +32,7 @@ Check the log shows initial failure then successful rebuild:
   mach: building...
   File "$TESTCASE_ROOT/hello.ml", line 1, characters 14-15:
   Error: String literal not terminated
-  mach: build error
+  mach: build error (exit 2)
   mach: watching 1 directories (Ctrl+C to stop):
     $TESTCASE_ROOT
   mach: file changed: hello.ml

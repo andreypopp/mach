@@ -218,11 +218,16 @@ let watch_arg =
   Arg.(value & flag & info ["w"; "watch"]
     ~doc:"Watch for changes and rebuild automatically. Requires watchexec to be installed.")
 
+let jobs_arg =
+  Arg.(value & opt (some int) None
+    & info ["j"; "jobs"] ~docv:"N"
+      ~doc:"Number of parallel builds (default: number of CPUs)")
+
 let run_cmd =
   let doc = "Run an OCaml script" in
   let info = Cmd.info "run" ~doc in
-  let f () watch_mode script_path args =
-    let config = Mach_config.get () |> or_exit in
+  let f () jobs watch_mode script_path args =
+    let config = Mach_config.get ?parallelism:jobs () |> or_exit in
     let target = Mach_lib.resolve_target config script_path in
     begin match target with
     | Mach_lib.Target_library _ ->
@@ -237,18 +242,18 @@ let run_cmd =
       Unix.execv exe_path argv
     end
   in
-  Cmd.v info Term.(const f $ verbose_arg $ watch_arg $ target_arg $ args_arg)
+  Cmd.v info Term.(const f $ verbose_arg $ jobs_arg $ watch_arg $ target_arg $ args_arg)
 
 let build_cmd =
   let doc = "Build an OCaml script or library without executing it" in
   let info = Cmd.info "build" ~doc in
-  let f () watch_mode script_path =
-    let config = Mach_config.get () |> or_exit in
+  let f () jobs watch_mode script_path =
+    let config = Mach_config.get ?parallelism:jobs () |> or_exit in
     let target = Mach_lib.resolve_target config script_path in
     if watch_mode then watch config target ()
     else build config target |> or_exit |> ignore
   in
-  Cmd.v info Term.(const f $ verbose_arg $ watch_arg $ target_arg)
+  Cmd.v info Term.(const f $ verbose_arg $ jobs_arg $ watch_arg $ target_arg)
 
 let source_arg =
   Arg.(required & pos 0 (some file) None & info [] ~docv:"SOURCE" ~doc:"OCaml source file or library to configure")
@@ -350,7 +355,7 @@ let dep_cmd =
 let builder_cmd =
   let doc = "Run the build system on a build specification" in
   let info = Cmd.info "builder" ~doc ~docs:Manpage.s_none in
-  let f () build_file target_path =
+  let f () jobs build_file target_path =
     let build =
       match build_file with
       | "-" -> In_channel.input_all stdin
@@ -359,7 +364,8 @@ let builder_cmd =
     let build = Mach_lib.Build.Build_file_format.of_string build in
     let build_system = Mach_lib.Build.create () in
     Mach_lib.Build.configure build_system build;
-    try Mach_lib.Build.build build_system ~target_path
+    let parallelism = Option.value jobs ~default:(Mach_config.detect_num_cpus ()) in
+    try Mach_lib.Build.build build_system ~target_path ~parallelism
     with Mach_error.Mach_user_error msg ->
       Printf.eprintf "mach: error: %s\n%!" msg;
       exit 1
@@ -368,6 +374,7 @@ let builder_cmd =
     Term.(
       const f
       $ verbose_arg
+      $ jobs_arg
       $ Arg.(required & opt (some non_dir_file) None
                       & info ["build-file"] ~docv:"BUILD_FILE" ~doc:"File containing build specification (sexp format), use - for stdin")
       $ Arg.(required & pos 0 (some string) None & info [] ~docv:"TARGET" ~doc:"Target path to build")

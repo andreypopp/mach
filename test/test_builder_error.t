@@ -13,7 +13,7 @@ Test that a failing command produces a proper error message:
 
   $ mach builder -vvv --build-file="$B/build.sexp" "$B/fail.txt"
   mach: building $TESTCASE_ROOT/_build/fail.txt
-  mach: error: build error
+  mach: error: build error (exit 1)
   [1]
 
 Test that a command with non-zero exit code shows the exit code:
@@ -27,7 +27,7 @@ Test that a command with non-zero exit code shows the exit code:
 
   $ mach builder -vvv --build-file="$B/build2.sexp" "$B/fail2.txt"
   mach: building $TESTCASE_ROOT/_build/fail2.txt
-  mach: error: build error
+  mach: error: build error (exit 42)
   [1]
 
 Test that the error shows the actual failing command:
@@ -42,7 +42,7 @@ Test that the error shows the actual failing command:
   $ mach builder -vvv --build-file="$B/build3.sexp" "$B/fail3.txt"
   mach: building $TESTCASE_ROOT/_build/fail3.txt
   start
-  mach: error: build error
+  mach: error: build error (exit 1)
   [1]
 
 Test dependency cycle detection (A depends on B, B depends on A):
