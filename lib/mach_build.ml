@@ -64,6 +64,7 @@ and rule = {
   commands : string array;
   target : target;
   mutable deps_pending: int;
+  mutable scheduled: bool;
   mutable built: bool;
 }
 
@@ -108,7 +109,7 @@ let configure t (rules : Build_file_format.stanza list) : unit =
       | Build_file_format.Rule_dyndep { target; deps; commands } ->
         Target_dyndep target, deps, commands
     in
-    let rule = { target; deps; dyndeps = [||]; commands; deps_pending = Array.length deps; built = false } in
+    let rule = { target; deps; dyndeps = [||]; commands; deps_pending = Array.length deps; scheduled = false; built = false } in
     Array.iter (rule_targets rule) ~f:(fun target ->
       T.replace t.rules target rule))
 
@@ -247,6 +248,12 @@ let build t ~target_path ~parallelism =
   let in_flight : in_flight_build list ref = ref [] in
   let error_occurred : string option ref = ref None in
 
+  let schedule_rule rule =
+    if not rule.scheduled then (
+      rule.scheduled <- true;
+      Queue.add rule queue)
+  in
+
   let rec schedule ?rev_dep target_path =
     if T.mem visiting target_path then Mach_error.user_errorf "dependency cycle detected: %s" target_path;
     T.add visiting target_path ();
@@ -254,19 +261,19 @@ let build t ~target_path ~parallelism =
     | None -> (* not a target we know about, a source file perhaps, just notify rev_deps *)
       Option.iter (fun rule ->
         rule.deps_pending <- rule.deps_pending - 1;
-        if rule.deps_pending = 0 then Queue.add rule queue) rev_dep
+        if rule.deps_pending = 0 then schedule_rule rule) rev_dep
     | Some rule ->
       if rule.built then begin
         Option.iter (fun rev_dep_rule ->
           rev_dep_rule.deps_pending <- rev_dep_rule.deps_pending - 1;
-          if rev_dep_rule.deps_pending = 0 then Queue.add rev_dep_rule queue
+          if rev_dep_rule.deps_pending = 0 then schedule_rule rev_dep_rule
         ) rev_dep
-      end else if T.mem rev_deps target_path then
+      end else if rule.scheduled then
         Option.iter (Rev_deps.add rev_deps target_path) rev_dep
       else begin
         Option.iter (Rev_deps.add rev_deps target_path) rev_dep;
         if rule.deps_pending = 0
-        then Queue.add rule queue
+        then schedule_rule rule
         else Array.iter rule.deps ~f:(schedule ~rev_dep:rule)
       end
     end;
@@ -293,7 +300,7 @@ let build t ~target_path ~parallelism =
     end;
     Rev_deps.iter rev_deps rule ~f:(fun rule ->
       rule.deps_pending <- rule.deps_pending - 1;
-      if rule.deps_pending = 0 then Queue.add rule queue)
+      if rule.deps_pending = 0 then schedule_rule rule)
   in
 
   let start_pending_builds () =
