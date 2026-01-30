@@ -19,21 +19,8 @@ val configure : Mach_config.t -> target -> (bool * Mach_build.t * Mach_module.t 
 val build : Mach_config.t -> target -> (string * bool * Mach_module.t list * Mach_library.t list, Mach_error.t) result
 
 module Build : sig
-
   module Build_file_format : sig
-    type t = stanza list
-    and stanza =
-      | Rule of {
-          targets: string array; (** absolute paths of targets rule produces *)
-          deps: string array; (** absolute paths of dependencies rule requires *)
-          commands: string array; (** a list of shell commands to execute to build the targets *)
-        }
-      | Rule_dyndep of {
-          target: string; (** absolute path of a target containing dyndep *)
-          deps: string array; (** absolute paths of dependencies rule requires *)
-          commands: string array; (** a list of shell commands to execute to build the target *)
-        }
-
+    type t
     val of_string : string -> t
     val to_string : t -> string
     val of_file : string -> t

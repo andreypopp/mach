@@ -112,55 +112,26 @@ let configure t (rules : Build_file_format.stanza list) : unit =
     Array.iter (rule_targets rule) ~f:(fun target ->
       T.replace t.rules target rule))
 
-let build_rule (rule : rule) =
-  let targets = rule_targets rule in
-  if rule.built then failwithf "target already built: %s"
-    (String.concat ~sep:", " (Array.to_list targets));
-  assert (rule.deps_pending = 0);
-  Array.iter targets ~f:(fun t ->
-    Mach_log.log_very_very_verbose "mach: building %s" t);
-  let dev_null = Unix.openfile "/dev/null" [Unix.O_RDONLY] 0 in
-  Fun.protect ~finally:(fun () -> Unix.close dev_null) @@ fun () ->
-  Array.iter rule.commands ~f:begin fun cmd ->
-    let pipe_read, pipe_write = Unix.pipe () in
-    Fun.protect ~finally:(fun () -> Unix.close pipe_read) @@ fun () ->
-    let pid = Unix.create_process "/bin/sh" [|"/bin/sh"; "-c"; cmd|]
-      dev_null pipe_write pipe_write in
-    Unix.close pipe_write;
-    let buf = Bytes.create 4096 in
-    let rec read_loop () =
-      let n = Unix.read pipe_read buf 0 4096 in
-      if n > 0 then begin
-        ignore (Unix.write Unix.stderr buf 0 n);
-        read_loop ()
-      end
+module Rev_deps = struct
+  type t = rule list ref T.t
+
+  let add (rev_deps : t) target_path target =
+    let targets =
+      match T.find_opt rev_deps target_path with
+      | Some targets -> targets
+      | None ->
+        let targets = ref [] in
+        T.replace rev_deps target_path targets;
+        targets
     in
-    read_loop ();
-    let _, status = Unix.waitpid [] pid in
-    match status with
-    | Unix.WEXITED 0 -> ()
-    | Unix.WEXITED _ | Unix.WSIGNALED _ | Unix.WSTOPPED _ -> Mach_error.user_errorf "build error"
-  end;
-  rule.built <- true
+    targets := target :: !targets
 
-type rev_deps = target list ref T.t
-
-let add_rev_dep rev_deps target_path target =
-  let targets =
+  let iter (rev_deps : t) rule ~f =
+    Array.iter (rule_targets rule) ~f:(fun target_path ->
     match T.find_opt rev_deps target_path with
-    | Some targets -> targets
-    | None ->
-      let targets = ref [] in
-      T.replace rev_deps target_path targets;
-      targets
-  in
-  targets := target :: !targets
-
-let iter_rev_deps rev_deps rule ~f =
-  Array.iter (rule_targets rule) ~f:(fun target_path ->
-  match T.find_opt rev_deps target_path with
-  | Some targets -> List.iter !targets ~f
-  | None -> ())
+    | Some targets -> List.iter !targets ~f
+    | None -> ())
+end
 
 type build_queue = rule Queue.t
 
@@ -270,7 +241,7 @@ let handle_command_complete (build : in_flight_build) (status : Unix.process_sta
 
 let build t ~target_path ~parallelism =
   let queue : build_queue = Queue.create () in (* targets ready to build *)
-  let rev_deps : rule list ref T.t = T.create 256 in (* next targets to schedule after build of a target *)
+  let rev_deps : Rev_deps.t = T.create 256 in (* next targets to schedule after build of a target *)
   let visiting : unit T.t = T.create 256 in
 
   let in_flight : in_flight_build list ref = ref [] in
@@ -291,9 +262,9 @@ let build t ~target_path ~parallelism =
           if rev_dep_rule.deps_pending = 0 then Queue.add rev_dep_rule queue
         ) rev_dep
       end else if T.mem rev_deps target_path then
-        Option.iter (add_rev_dep rev_deps target_path) rev_dep
+        Option.iter (Rev_deps.add rev_deps target_path) rev_dep
       else begin
-        Option.iter (add_rev_dep rev_deps target_path) rev_dep;
+        Option.iter (Rev_deps.add rev_deps target_path) rev_dep;
         if rule.deps_pending = 0
         then Queue.add rule queue
         else Array.iter rule.deps ~f:(schedule ~rev_dep:rule)
@@ -320,7 +291,7 @@ let build t ~target_path ~parallelism =
             Array.iter dyndep.deps ~f:(schedule ~rev_dep:dep_rule)
           end)
     end;
-    iter_rev_deps rev_deps rule ~f:(fun rule ->
+    Rev_deps.iter rev_deps rule ~f:(fun rule ->
       rule.deps_pending <- rule.deps_pending - 1;
       if rule.deps_pending = 0 then Queue.add rule queue)
   in

@@ -13392,7 +13392,66 @@ let build_dir_of config script_path =
     (String.split_on_char '/' script_path) |> (String.concat "__") in
   let open Filename in ((config.home / "_mach") / "build") / normalized
 end
-module Mach_build = struct
+module Mach_build : sig
+[@@@ocaml.ppx.context
+  {
+    tool_name = "ppx_driver";
+    include_dirs = [];
+    hidden_include_dirs = [];
+    load_path = ([], []);
+    open_modules = [];
+    for_package = None;
+    debug = false;
+    use_threads = false;
+    use_vmthreads = false;
+    recursive_types = false;
+    principal = false;
+    no_alias_deps = false;
+    unboxed_types = false;
+    unsafe_string = false;
+    cookies = [("library-name", "mach_lib")]
+  }]
+module Build_file_format :
+sig
+  type t
+  val of_string : string -> t
+  val to_string : t -> string
+  val of_file : string -> t
+  val to_file : string -> t -> unit
+end
+module Dyndep_file_format :
+sig
+  type t = dyndep list
+  and dyndep =
+    {
+    target: string
+      [@ocaml.doc
+        " absolute path of target that lists additional dependencies "];
+    deps: string array
+      [@ocaml.doc " absolute paths of additional dependencies "]}
+  val of_string : string -> t
+  val to_string : dyndep list -> string
+  val of_file : string -> t
+  val to_file : string -> dyndep list -> unit
+end
+module Rules :
+sig
+  type t
+  val create : unit -> t
+  val to_list : t -> Build_file_format.t
+  val rule : t -> target:string -> deps:string list -> string list -> unit
+  val rulef :
+    t ->
+      target:string ->
+        deps:string list -> ('a, unit, string, unit) format4 -> 'a
+  val rule_dyndep :
+    t -> target:string -> deps:string list -> string list -> unit
+end
+type t
+val create : unit -> t
+val configure : t -> Build_file_format.t -> unit
+val build : t -> target_path:string -> parallelism:int -> unit
+end = struct
 [@@@ocaml.ppx.context
   {
     tool_name = "ppx_driver";
@@ -13716,56 +13775,24 @@ let configure t (rules : Build_file_format.stanza list) : unit=
             } in
           Array.iter (rule_targets rule)
             ~f:(fun target -> T.replace t.rules target rule))
-let build_rule (rule : rule) =
-  let targets = rule_targets rule in
-  if rule.built
-  then
-    failwithf "target already built: %s"
-      (String.concat ~sep:", " (Array.to_list targets));
-  assert (rule.deps_pending = 0);
-  Array.iter targets
-    ~f:(fun t -> Mach_log.log_very_very_verbose "mach: building %s" t);
-  (let dev_null = Unix.openfile "/dev/null" [Unix.O_RDONLY] 0 in
-   (Fun.protect ~finally:(fun () -> Unix.close dev_null)) @@
-     (fun () ->
-        Array.iter rule.commands
-          ~f:(fun cmd ->
-                let (pipe_read, pipe_write) = Unix.pipe () in
-                (Fun.protect ~finally:(fun () -> Unix.close pipe_read)) @@
-                  (fun () ->
-                     let pid =
-                       Unix.create_process "/bin/sh" [|"/bin/sh";"-c";cmd|]
-                         dev_null pipe_write pipe_write in
-                     Unix.close pipe_write;
-                     (let buf = Bytes.create 4096 in
-                      let rec read_loop () =
-                        let n = Unix.read pipe_read buf 0 4096 in
-                        if n > 0
-                        then
-                          (ignore (Unix.write Unix.stderr buf 0 n);
-                           read_loop ()) in
-                      read_loop ();
-                      (let (_, status) = Unix.waitpid [] pid in
-                       match status with
-                       | Unix.WEXITED 0 -> ()
-                       | Unix.WEXITED _ | Unix.WSIGNALED _ | Unix.WSTOPPED _
-                           -> Mach_error.user_errorf "build error"))));
-        rule.built <- true))
-type rev_deps = target list ref T.t
-let add_rev_dep rev_deps target_path target =
-  let targets =
-    match T.find_opt rev_deps target_path with
-    | Some targets -> targets
-    | None ->
-        let targets = ref [] in
-        (T.replace rev_deps target_path targets; targets) in
-  targets := (target :: (!targets))
-let iter_rev_deps rev_deps rule ~f =
-  Array.iter (rule_targets rule)
-    ~f:(fun target_path ->
-          match T.find_opt rev_deps target_path with
-          | Some targets -> List.iter (!targets) ~f
-          | None -> ())
+module Rev_deps =
+  struct
+    type t = rule list ref T.t
+    let add (rev_deps : t) target_path target =
+      let targets =
+        match T.find_opt rev_deps target_path with
+        | Some targets -> targets
+        | None ->
+            let targets = ref [] in
+            (T.replace rev_deps target_path targets; targets) in
+      targets := (target :: (!targets))
+    let iter (rev_deps : t) rule ~f =
+      Array.iter (rule_targets rule)
+        ~f:(fun target_path ->
+              match T.find_opt rev_deps target_path with
+              | Some targets -> List.iter (!targets) ~f
+              | None -> ())
+  end
 type build_queue = rule Queue.t
 module Rules =
   struct
@@ -13865,7 +13892,7 @@ let handle_command_complete (build : in_flight_build)
   | Unix.WSTOPPED _ -> `Error "build error (stopped)"
 let build t ~target_path ~parallelism =
   let queue : build_queue = Queue.create () in
-  let rev_deps : rule list ref T.t = T.create 256 in
+  let rev_deps : Rev_deps.t = T.create 256 in
   let visiting : unit T.t = T.create 256 in
   let in_flight : in_flight_build list ref = ref [] in
   let error_occurred : string option ref = ref None in
@@ -13889,9 +13916,9 @@ let build t ~target_path ~parallelism =
                 then Queue.add rev_dep_rule queue) rev_dep
          else
            if T.mem rev_deps target_path
-           then Option.iter (add_rev_dep rev_deps target_path) rev_dep
+           then Option.iter (Rev_deps.add rev_deps target_path) rev_dep
            else
-             (Option.iter (add_rev_dep rev_deps target_path) rev_dep;
+             (Option.iter (Rev_deps.add rev_deps target_path) rev_dep;
               if rule.deps_pending = 0
               then Queue.add rule queue
               else Array.iter rule.deps ~f:(schedule ~rev_dep:rule)));
@@ -13924,7 +13951,7 @@ let build t ~target_path ~parallelism =
                           (dep_rule.deps_pending + (Array.length dyndep.deps));
                         Array.iter dyndep.deps
                           ~f:(schedule ~rev_dep:dep_rule))));
-    iter_rev_deps rev_deps rule
+    Rev_deps.iter rev_deps rule
       ~f:(fun rule ->
             rule.deps_pending <- (rule.deps_pending - 1);
             if rule.deps_pending = 0 then Queue.add rule queue) in
@@ -15636,28 +15663,7 @@ module Build :
 sig
   module Build_file_format :
   sig
-    type t = stanza list
-    and stanza =
-      | Rule of
-      {
-      targets: string array
-        [@ocaml.doc " absolute paths of targets rule produces "];
-      deps: string array
-        [@ocaml.doc " absolute paths of dependencies rule requires "];
-      commands: string array
-        [@ocaml.doc
-          " a list of shell commands to execute to build the targets "]}
-      
-      | Rule_dyndep of
-      {
-      target: string
-        [@ocaml.doc " absolute path of a target containing dyndep "];
-      deps: string array
-        [@ocaml.doc " absolute paths of dependencies rule requires "];
-      commands: string array
-        [@ocaml.doc
-          " a list of shell commands to execute to build the target "]}
-      
+    type t
     val of_string : string -> t
     val to_string : t -> string
     val of_file : string -> t
