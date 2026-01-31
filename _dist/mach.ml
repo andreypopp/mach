@@ -13481,22 +13481,25 @@ module Build_file_format =
       | Rule of
       {
       targets: string array
-        [@ocaml.doc " absolute paths of targets rule produces "];
+        [@sexp.array ][@ocaml.doc
+                        " absolute paths of targets rule produces "];
       deps: string array
-        [@ocaml.doc " absolute paths of dependencies rule requires "];
+        [@sexp.array ][@ocaml.doc
+                        " absolute paths of dependencies rule requires "];
       commands: string array
-        [@ocaml.doc
-          " a list of shell commands to execute to build the targets "]}
+        [@sexp.array ][@ocaml.doc
+                        " a list of shell commands to execute to build the targets "]}
       
       | Rule_dyndep of
       {
       target: string
         [@ocaml.doc " absolute path of a target containing dyndep "];
       deps: string array
-        [@ocaml.doc " absolute paths of dependencies rule requires "];
+        [@sexp.array ][@ocaml.doc
+                        " absolute paths of dependencies rule requires "];
       commands: string array
-        [@ocaml.doc
-          " a list of shell commands to execute to build the target "]}
+        [@sexp.array ][@ocaml.doc
+                        " a list of shell commands to execute to build the target "]}
       [@@deriving sexp]
     include
       struct
@@ -13512,21 +13515,20 @@ module Build_file_format =
                  ~fields:(Field
                             {
                               name = "targets";
-                              kind = Required;
-                              conv = (array_of_sexp string_of_sexp);
+                              kind = Sexp_array;
+                              conv = string_of_sexp;
                               rest =
                                 (Field
                                    {
                                      name = "deps";
-                                     kind = Required;
-                                     conv = (array_of_sexp string_of_sexp);
+                                     kind = Sexp_array;
+                                     conv = string_of_sexp;
                                      rest =
                                        (Field
                                           {
                                             name = "commands";
-                                            kind = Required;
-                                            conv =
-                                              (array_of_sexp string_of_sexp);
+                                            kind = Sexp_array;
+                                            conv = string_of_sexp;
                                             rest = Empty
                                           })
                                    })
@@ -13553,15 +13555,14 @@ module Build_file_format =
                                 (Field
                                    {
                                      name = "deps";
-                                     kind = Required;
-                                     conv = (array_of_sexp string_of_sexp);
+                                     kind = Sexp_array;
+                                     conv = string_of_sexp;
                                      rest =
                                        (Field
                                           {
                                             name = "commands";
-                                            kind = Required;
-                                            conv =
-                                              (array_of_sexp string_of_sexp);
+                                            kind = Sexp_array;
+                                            conv = string_of_sexp;
                                             rest = Empty
                                           })
                                    })
@@ -13594,46 +13595,71 @@ module Build_file_format =
         let sexp_of_stanza =
           (function
            | Rule
-               { targets = targets__010_; deps = deps__012_;
-                 commands = commands__014_ }
+               { targets = targets__011_; deps = deps__015_;
+                 commands = commands__019_ }
                ->
                let bnds__009_ = ([] : _ Stdlib.List.t) in
                let bnds__009_ =
-                 let arg__015_ = sexp_of_array sexp_of_string commands__014_ in
-                 ((Sexplib0.Sexp.List
-                     [Sexplib0.Sexp.Atom "commands"; arg__015_])
-                   :: bnds__009_ : _ Stdlib.List.t) in
+                 if match commands__019_ with | [||] -> true | _ -> false
+                 then bnds__009_
+                 else
+                   (let arg__021_ =
+                      (sexp_of_array sexp_of_string) commands__019_ in
+                    let bnd__020_ =
+                      Sexplib0.Sexp.List
+                        [Sexplib0.Sexp.Atom "commands"; arg__021_] in
+                    (bnd__020_ :: bnds__009_ : _ Stdlib.List.t)) in
                let bnds__009_ =
-                 let arg__013_ = sexp_of_array sexp_of_string deps__012_ in
-                 ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "deps"; arg__013_])
-                   :: bnds__009_ : _ Stdlib.List.t) in
+                 if match deps__015_ with | [||] -> true | _ -> false
+                 then bnds__009_
+                 else
+                   (let arg__017_ = (sexp_of_array sexp_of_string) deps__015_ in
+                    let bnd__016_ =
+                      Sexplib0.Sexp.List
+                        [Sexplib0.Sexp.Atom "deps"; arg__017_] in
+                    (bnd__016_ :: bnds__009_ : _ Stdlib.List.t)) in
                let bnds__009_ =
-                 let arg__011_ = sexp_of_array sexp_of_string targets__010_ in
-                 ((Sexplib0.Sexp.List
-                     [Sexplib0.Sexp.Atom "targets"; arg__011_])
-                   :: bnds__009_ : _ Stdlib.List.t) in
+                 if match targets__011_ with | [||] -> true | _ -> false
+                 then bnds__009_
+                 else
+                   (let arg__013_ =
+                      (sexp_of_array sexp_of_string) targets__011_ in
+                    let bnd__012_ =
+                      Sexplib0.Sexp.List
+                        [Sexplib0.Sexp.Atom "targets"; arg__013_] in
+                    (bnd__012_ :: bnds__009_ : _ Stdlib.List.t)) in
                Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom "Rule") :: bnds__009_)
            | Rule_dyndep
-               { target = target__017_; deps = deps__019_;
-                 commands = commands__021_ }
+               { target = target__023_; deps = deps__026_;
+                 commands = commands__030_ }
                ->
-               let bnds__016_ = ([] : _ Stdlib.List.t) in
-               let bnds__016_ =
-                 let arg__022_ = sexp_of_array sexp_of_string commands__021_ in
+               let bnds__022_ = ([] : _ Stdlib.List.t) in
+               let bnds__022_ =
+                 if match commands__030_ with | [||] -> true | _ -> false
+                 then bnds__022_
+                 else
+                   (let arg__032_ =
+                      (sexp_of_array sexp_of_string) commands__030_ in
+                    let bnd__031_ =
+                      Sexplib0.Sexp.List
+                        [Sexplib0.Sexp.Atom "commands"; arg__032_] in
+                    (bnd__031_ :: bnds__022_ : _ Stdlib.List.t)) in
+               let bnds__022_ =
+                 if match deps__026_ with | [||] -> true | _ -> false
+                 then bnds__022_
+                 else
+                   (let arg__028_ = (sexp_of_array sexp_of_string) deps__026_ in
+                    let bnd__027_ =
+                      Sexplib0.Sexp.List
+                        [Sexplib0.Sexp.Atom "deps"; arg__028_] in
+                    (bnd__027_ :: bnds__022_ : _ Stdlib.List.t)) in
+               let bnds__022_ =
+                 let arg__024_ = sexp_of_string target__023_ in
                  ((Sexplib0.Sexp.List
-                     [Sexplib0.Sexp.Atom "commands"; arg__022_])
-                   :: bnds__016_ : _ Stdlib.List.t) in
-               let bnds__016_ =
-                 let arg__020_ = sexp_of_array sexp_of_string deps__019_ in
-                 ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "deps"; arg__020_])
-                   :: bnds__016_ : _ Stdlib.List.t) in
-               let bnds__016_ =
-                 let arg__018_ = sexp_of_string target__017_ in
-                 ((Sexplib0.Sexp.List
-                     [Sexplib0.Sexp.Atom "target"; arg__018_])
-                   :: bnds__016_ : _ Stdlib.List.t) in
+                     [Sexplib0.Sexp.Atom "target"; arg__024_])
+                   :: bnds__022_ : _ Stdlib.List.t) in
                Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom "Rule_dyndep") ::
-                 bnds__016_) : stanza -> Sexplib0.Sexp.t)
+                 bnds__022_) : stanza -> Sexplib0.Sexp.t)
         let _ = sexp_of_stanza
       end[@@ocaml.doc "@inline"][@@merlin.hide ]
     type t = stanza list
@@ -13657,17 +13683,18 @@ module Dyndep_file_format =
         [@ocaml.doc
           " absolute path of target that lists additional dependencies "];
       deps: string array
-        [@ocaml.doc " absolute paths of additional dependencies "]}[@@deriving
-                                                                    sexp]
+        [@sexp.array ][@ocaml.doc
+                        " absolute paths of additional dependencies "]}
+    [@@deriving sexp]
     include
       struct
         let _ = fun (_ : dyndep) -> ()
         let dyndep_of_sexp =
-          (let error_source__024_ =
+          (let error_source__034_ =
              "lib/mach_build.ml.Dyndep_file_format.dyndep" in
-           fun x__025_ ->
+           fun x__035_ ->
              Sexplib0.Sexp_conv_record.record_of_sexp
-               ~caller:error_source__024_
+               ~caller:error_source__034_
                ~fields:(Field
                           {
                             name = "target";
@@ -13677,8 +13704,8 @@ module Dyndep_file_format =
                               (Field
                                  {
                                    name = "deps";
-                                   kind = Required;
-                                   conv = (array_of_sexp string_of_sexp);
+                                   kind = Sexp_array;
+                                   conv = string_of_sexp;
                                    rest = Empty
                                  })
                           })
@@ -13687,22 +13714,26 @@ module Dyndep_file_format =
                                 | "deps" -> 1
                                 | _ -> (-1)) ~allow_extra_fields:false
                ~create:(fun (target, (deps, ())) ->
-                          ({ target; deps } : dyndep)) x__025_ : Sexplib0.Sexp.t
+                          ({ target; deps } : dyndep)) x__035_ : Sexplib0.Sexp.t
                                                                    -> 
                                                                    dyndep)
         let _ = dyndep_of_sexp
         let sexp_of_dyndep =
-          (fun { target = target__027_; deps = deps__029_ } ->
-             let bnds__026_ = ([] : _ Stdlib.List.t) in
-             let bnds__026_ =
-               let arg__030_ = sexp_of_array sexp_of_string deps__029_ in
-               ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "deps"; arg__030_])
-                 :: bnds__026_ : _ Stdlib.List.t) in
-             let bnds__026_ =
-               let arg__028_ = sexp_of_string target__027_ in
-               ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "target"; arg__028_])
-                 :: bnds__026_ : _ Stdlib.List.t) in
-             Sexplib0.Sexp.List bnds__026_ : dyndep -> Sexplib0.Sexp.t)
+          (fun { target = target__037_; deps = deps__040_ } ->
+             let bnds__036_ = ([] : _ Stdlib.List.t) in
+             let bnds__036_ =
+               if match deps__040_ with | [||] -> true | _ -> false
+               then bnds__036_
+               else
+                 (let arg__042_ = (sexp_of_array sexp_of_string) deps__040_ in
+                  let bnd__041_ =
+                    Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "deps"; arg__042_] in
+                  (bnd__041_ :: bnds__036_ : _ Stdlib.List.t)) in
+             let bnds__036_ =
+               let arg__038_ = sexp_of_string target__037_ in
+               ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "target"; arg__038_])
+                 :: bnds__036_ : _ Stdlib.List.t) in
+             Sexplib0.Sexp.List bnds__036_ : dyndep -> Sexplib0.Sexp.t)
         let _ = sexp_of_dyndep
       end[@@ocaml.doc "@inline"][@@merlin.hide ]
     type t = dyndep list
@@ -14350,6 +14381,8 @@ let compile_ocaml_module ?dyndep rules cfg ~build_dir ~path_ml ~path_mli
   let cmi = let open Filename in (build_dir / modname) ^ ".cmi" in
   let cmx = let open Filename in (build_dir / modname) ^ ".cmx" in
   let cmt = let open Filename in (build_dir / modname) ^ ".cmt" in
+  let cmti = let open Filename in (build_dir / modname) ^ ".cmti" in
+  let o = let open Filename in (build_dir / modname) ^ ".o" in
   let includes_args = let open Filename in build_dir / "includes.args" in
   let deps =
     List.filter_map
@@ -14367,16 +14400,16 @@ let compile_ocaml_module ?dyndep rules cfg ~build_dir ~path_ml ~path_mli
     match dyndep with | None -> deps | Some d -> d :: deps in
   (match path_mli with
    | Some _ ->
-       (Mach_build.Rules.rule rules ~targets:[|cmi|] ~deps:(mli ::
+       (Mach_build.Rules.rule rules ~targets:[|cmi;cmti|] ~deps:(mli ::
           includes_args :: deps)
           [cmdf "ocamlc -bin-annot -c -opaque -args %s -o %s %s"
              includes_args cmi mli];
-        Mach_build.Rules.rule rules ~targets:[|cmx;cmt|]
+        Mach_build.Rules.rule rules ~targets:[|cmx;o;cmt|]
           ~deps:(add_dyndep [ml; cmi; includes_args])
           [cmdf "ocamlopt -bin-annot -c -args %s -cmi-file %s -o %s -impl %s"
              includes_args cmi cmx ml])
    | None ->
-       Mach_build.Rules.rule rules ~targets:[|cmx;cmi;cmt|]
+       Mach_build.Rules.rule rules ~targets:[|cmx;cmi;o;cmt|]
          ~deps:(add_dyndep (ml :: includes_args :: deps))
          [cmdf "ocamlopt -bin-annot -c -args %s -o %s -impl %s" includes_args
             cmx ml]);
@@ -14410,9 +14443,9 @@ let link_ocaml_library rules cfg ~build_dir ~cmxs:(cmxs : string list) ~deps
     "%s link-deps %s > %s" mach (String.concat " " deps) all_deps_sorted;
   (let cmxa = let open Filename in (build_dir / lib_name) ^ ".cmxa" in
    let cmxa_a = let open Filename in (build_dir / lib_name) ^ ".a" in
-   Mach_build.Rules.rule rules ~targets:[|cmxa|] ~deps:(all_deps_sorted ::
-     cmxs) [cmdf "ocamlopt -a -o %s -args %s" cmxa all_deps_sorted];
-   Mach_build.Rules.rule rules ~targets:[|cmxa_a|] ~deps:[cmxa] [])
+   Mach_build.Rules.rule rules ~targets:[|cmxa;cmxa_a|]
+     ~deps:(all_deps_sorted :: cmxs)
+     [cmdf "ocamlopt -a -o %s -args %s" cmxa all_deps_sorted])
 end
 module Mach_library : sig
 [@@@ocaml.ppx.context

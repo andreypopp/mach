@@ -8,8 +8,7 @@ Create a simple module with no dependencies:
   $ mach dep foo.ml -o foo.dep
   $ cat foo.dep
   ((target
-    $TESTCASE_ROOT/foo.cmx)
-   (deps ()))
+    $TESTCASE_ROOT/foo.cmx))
 
 Create a module that depends on another:
   $ cat << 'EOF' > bar.ml

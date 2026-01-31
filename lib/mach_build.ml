@@ -7,14 +7,14 @@ open! Mach_std
 module Build_file_format = struct
   type stanza =
     | Rule of {
-        targets: string array; (** absolute paths of targets rule produces *)
-        deps: string array; (** absolute paths of dependencies rule requires *)
-        commands: string array; (** a list of shell commands to execute to build the targets *)
+        targets: string array; [@sexp.array] (** absolute paths of targets rule produces *)
+        deps: string array; [@sexp.array] (** absolute paths of dependencies rule requires *)
+        commands: string array; [@sexp.array] (** a list of shell commands to execute to build the targets *)
       }
     | Rule_dyndep of {
         target: string; (** absolute path of a target containing dyndep *)
-        deps: string array; (** absolute paths of dependencies rule requires *)
-        commands: string array; (** a list of shell commands to execute to build the target *)
+        deps: string array; [@sexp.array] (** absolute paths of dependencies rule requires *)
+        commands: string array; [@sexp.array] (** a list of shell commands to execute to build the target *)
       }
   [@@deriving sexp]
 
@@ -36,7 +36,7 @@ end
 module Dyndep_file_format = struct
   type dyndep = {
     target: string; (** absolute path of target that lists additional dependencies *)
-    deps: string array; (** absolute paths of additional dependencies *)
+    deps: string array; [@sexp.array] (** absolute paths of additional dependencies *)
   } [@@deriving sexp]
 
   type t = dyndep list
