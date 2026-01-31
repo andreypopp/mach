@@ -101,10 +101,10 @@ Test dyndep referencing unknown target:
   mach: error: dyndep references unknown target: $TESTCASE_ROOT/_build/nonexistent.txt
   [1]
 
-Test dyndep referencing target that is already scheduled/built:
-(C is defined but not part of main's dependency chain, so deps_pending=0)
+Test dyndep can add deps to an unscheduled rule (rule has no deps, so deps_pending=0,
+but it was never scheduled because it's not in the dependency chain):
 
-  $ cat > $B/build_dyndep_scheduled.sexp << EOF
+  $ cat > $B/build_dyndep_unscheduled.sexp << EOF
   > (Rule
   >   (targets ("$B/main2.txt"))
   >   (deps ("$B/dyndep2.txt"))
@@ -123,7 +123,39 @@ Test dyndep referencing target that is already scheduled/built:
   >   (commands ("echo extra > $B/extra.txt")))
   > EOF
 
-  $ mach builder -vvv --build-file="$B/build_dyndep_scheduled.sexp" "$B/main2.txt"
+This should work - other.txt was never scheduled, even though it has deps_pending=0:
+
+  $ mach builder -vvv --build-file="$B/build_dyndep_unscheduled.sexp" "$B/main2.txt"
   mach: building $TESTCASE_ROOT/_build/dyndep2.txt
-  mach: error: dyndep references target that is already scheduled/built: $TESTCASE_ROOT/_build/other.txt
+  mach: building $TESTCASE_ROOT/_build/extra.txt
+  mach: building $TESTCASE_ROOT/_build/main2.txt
+  mach: building $TESTCASE_ROOT/_build/other.txt
+
+Test dyndep referencing target that is actually scheduled (in the dependency chain):
+
+  $ cat > $B/build_dyndep_scheduled.sexp << EOF
+  > (Rule
+  >   (targets ("$B/final.txt"))
+  >   (deps ("$B/dyndep3.txt" "$B/target.txt"))
+  >   (commands ("echo done > $B/final.txt")))
+  > (Rule_dyndep
+  >   (target "$B/dyndep3.txt")
+  >   (deps ())
+  >   (commands ("echo '((target \"$B/target.txt\") (deps (\"$B/extra2.txt\")))' > $B/dyndep3.txt")))
+  > (Rule
+  >   (targets ("$B/target.txt"))
+  >   (deps ())
+  >   (commands ("echo target > $B/target.txt")))
+  > (Rule
+  >   (targets ("$B/extra2.txt"))
+  >   (deps ())
+  >   (commands ("echo extra > $B/extra2.txt")))
+  > EOF
+
+This should error - target.txt is scheduled because final.txt depends on it directly:
+
+  $ mach builder -vvv --build-file="$B/build_dyndep_scheduled.sexp" "$B/final.txt"
+  mach: building $TESTCASE_ROOT/_build/dyndep3.txt
+  mach: building $TESTCASE_ROOT/_build/target.txt
+  mach: error: dyndep references target that is already scheduled/built: $TESTCASE_ROOT/_build/target.txt
   [1]

@@ -64,7 +64,8 @@ and rule = {
   commands : string array;
   target : target;
   mutable deps_pending: int;
-  mutable scheduled: bool;
+  mutable visited: bool;   (* true once we've iterated this rule's deps *)
+  mutable scheduled: bool; (* true once added to the build queue *)
   mutable built: bool;
 }
 
@@ -109,7 +110,8 @@ let configure t (rules : Build_file_format.stanza list) : unit =
       | Build_file_format.Rule_dyndep { target; deps; commands } ->
         Target_dyndep target, deps, commands
     in
-    let rule = { target; deps; dyndeps = [||]; commands; deps_pending = Array.length deps; scheduled = false; built = false } in
+    let deps_pending = Array.length deps in
+    let rule = { target; deps; dyndeps = [||]; commands; deps_pending; visited = false; scheduled = false; built = false } in
     Array.iter (rule_targets rule) ~f:(fun target ->
       T.replace t.rules target rule))
 
@@ -249,9 +251,14 @@ let build t ~target_path ~parallelism =
   let error_occurred : string option ref = ref None in
 
   let schedule_rule rule =
+    rule.scheduled <- true;
+    Queue.add rule queue
+  in
+
+  let dep_ready rule =
     if not rule.scheduled then (
-      rule.scheduled <- true;
-      Queue.add rule queue)
+      rule.deps_pending <- rule.deps_pending - 1;
+      if rule.deps_pending = 0 then schedule_rule rule)
   in
 
   let rec schedule ?rev_dep target_path =
@@ -259,18 +266,16 @@ let build t ~target_path ~parallelism =
     T.add visiting target_path ();
     begin match T.find_opt t.rules target_path with
     | None -> (* not a target we know about, a source file perhaps, just notify rev_deps *)
-      Option.iter (fun rule ->
-        rule.deps_pending <- rule.deps_pending - 1;
-        if rule.deps_pending = 0 then schedule_rule rule) rev_dep
+      Option.iter dep_ready rev_dep
     | Some rule ->
       if rule.built then begin
-        Option.iter (fun rev_dep_rule ->
-          rev_dep_rule.deps_pending <- rev_dep_rule.deps_pending - 1;
-          if rev_dep_rule.deps_pending = 0 then schedule_rule rev_dep_rule
-        ) rev_dep
-      end else if rule.scheduled then
+        Option.iter dep_ready rev_dep
+      end else if rule.visited then begin
+        Array.iter rule.deps ~f:(fun dep ->
+          if T.mem visiting dep then Mach_error.user_errorf "dependency cycle detected: %s" dep);
         Option.iter (Rev_deps.add rev_deps target_path) rev_dep
-      else begin
+      end else begin
+        rule.visited <- true;
         Option.iter (Rev_deps.add rev_deps target_path) rev_dep;
         if rule.deps_pending = 0
         then schedule_rule rule
@@ -289,7 +294,7 @@ let build t ~target_path ~parallelism =
         | None ->
           error_occurred := Some (Printf.sprintf "dyndep references unknown target: %s" dyndep.target)
         | Some dep_rule ->
-          if dep_rule.deps_pending = 0 then
+          if dep_rule.scheduled then
             error_occurred := Some (Printf.sprintf
               "dyndep references target that is already scheduled/built: %s" dyndep.target)
           else begin
@@ -298,9 +303,7 @@ let build t ~target_path ~parallelism =
             Array.iter dyndep.deps ~f:(schedule ~rev_dep:dep_rule)
           end)
     end;
-    Rev_deps.iter rev_deps rule ~f:(fun rule ->
-      rule.deps_pending <- rule.deps_pending - 1;
-      if rule.deps_pending = 0 then schedule_rule rule)
+    Rev_deps.iter rev_deps rule ~f:dep_ready
   in
 
   let start_pending_builds () =
