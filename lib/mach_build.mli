@@ -28,14 +28,14 @@ module Rules : sig
 
   val rule :
     t ->
-    target:string ->
+    targets:string array ->
     deps:string list ->
     string list ->
     unit
 
   val rulef :
     t ->
-    target:string ->
+    targets:string array ->
     deps:string list ->
     ('a, unit, string, unit) format4 ->
     'a

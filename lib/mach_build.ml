@@ -145,15 +145,15 @@ module Rules = struct
   let add (t : t) stanza = t := stanza :: !t
   let to_list (t : t) = List.rev !t
 
-  let rule t ~target ~deps commands =
+  let rule t ~targets ~deps commands =
     add t (Build_file_format.Rule {
-      targets = [|target|];
+      targets;
       deps = Array.of_list deps;
       commands = Array.of_list commands;
     })
 
-  let rulef t ~target ~deps fmt =
-    Printf.ksprintf (fun cmd -> rule t ~target ~deps [cmd]) fmt
+  let rulef t ~targets ~deps fmt =
+    Printf.ksprintf (fun cmd -> rule t ~targets ~deps [cmd]) fmt
 
   let rule_dyndep t ~target ~deps commands =
     add t (Build_file_format.Rule_dyndep {
