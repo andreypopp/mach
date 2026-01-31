@@ -14,6 +14,7 @@ Test:
 
 Inspect the build dir:
   $ ls _mach/build/*__lib.ml | sort
+  Mach.build
   Mach.state
   includes.args
   lib.cmi
@@ -21,13 +22,12 @@ Inspect the build dir:
   lib.cmx
   lib.ml
   lib.o
-  mach.build
 
   $ ls _mach/build/*__main.ml | sort
+  Mach.build
   Mach.state
   a.out
   includes.args
-  mach.build
   main.cmi
   main.cmt
   main.cmx

@@ -7,10 +7,10 @@
   Hello from shebang script!
 
   $ ls _mach/build/*myscript.ml/ | sort
+  Mach.build
   Mach.state
   a.out
   includes.args
-  mach.build
   myscript.cmi
   myscript.cmt
   myscript.cmx

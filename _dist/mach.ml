@@ -13344,7 +13344,7 @@ let parse_file path =
 let find_mach_config () =
   let rec search dir =
     let mach_path = let open Filename in dir / "Mach" in
-    if Sys.file_exists mach_path
+    if try Sys.is_regular_file mach_path with | Sys_error _ -> false
     then Some (dir, mach_path)
     else
       (let parent = Filename.dirname dir in
@@ -15820,7 +15820,7 @@ let configure_exn config target =
        match unit with
        | Mach_state.Unit_module m ->
            let build_dir = build_dir_of m.Mach_module.path_ml in
-           let mach_build = let open Filename in build_dir / "mach.build" in
+           let mach_build = let open Filename in build_dir / "Mach.build" in
            let cmx =
              match unit_status with
              | `Need_configure ->
@@ -15853,7 +15853,7 @@ let configure_exn config target =
             extlibs := (SS.union (Mach_module.extlibs m) (!extlibs)))
        | Mach_state.Unit_lib lib ->
            let build_dir = Mach_config.build_dir_of config lib.path in
-           let mach_build = let open Filename in build_dir / "mach.build" in
+           let mach_build = let open Filename in build_dir / "Mach.build" in
            ((match unit_status with
              | `Need_configure ->
                  (any_need_reconfigure := true;

@@ -17,10 +17,10 @@ First run - creates build directory:
 Check that build directory was created (path contains normalized script path with __):
 
   $ ls _mach/build/*main.ml/ | sort
+  Mach.build
   Mach.state
   a.out
   includes.args
-  mach.build
   main.cmi
   main.cmt
   main.cmx
@@ -36,10 +36,10 @@ Second run - reuses the same build directory:
 Verify build artifacts exist in the auto-derived directory:
 
   $ ls _mach/build/*main.ml/ | sort
+  Mach.build
   Mach.state
   a.out
   includes.args
-  mach.build
   main.cmi
   main.cmt
   main.cmx

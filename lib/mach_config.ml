@@ -87,7 +87,8 @@ let parse_file path =
 let find_mach_config () =
   let rec search dir =
     let mach_path = Filename.(dir / "Mach") in
-    if Sys.file_exists mach_path then Some (dir, mach_path)
+    if (try Sys.is_regular_file mach_path with Sys_error _ -> false)
+    then Some (dir, mach_path)
     else
       let parent = Filename.dirname dir in
       if parent = dir then None

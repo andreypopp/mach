@@ -20,6 +20,7 @@ Test basic .mli interface file support.
 Check that .mli was copied to build dir:
 
   $ ls _mach/build/*__lib.ml | sort
+  Mach.build
   Mach.state
   includes.args
   lib.cmi
@@ -29,4 +30,3 @@ Check that .mli was copied to build dir:
   lib.ml
   lib.mli
   lib.o
-  mach.build
