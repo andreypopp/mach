@@ -19,5 +19,14 @@ Test basic .mli interface file support.
 
 Check that .mli was copied to build dir:
 
-  $ ls _mach/build/*__lib.ml/*.mli | xargs basename
+  $ ls _mach/build/*__lib.ml | sort
+  Mach.state
+  includes.args
+  lib.cmi
+  lib.cmt
+  lib.cmti
+  lib.cmx
+  lib.ml
   lib.mli
+  lib.o
+  mach.build

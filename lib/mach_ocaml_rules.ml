@@ -91,6 +91,8 @@ let compile_ocaml_module ?dyndep rules cfg ~build_dir ~path_ml ~path_mli ~requir
   let cmi = Filename.(build_dir / modname ^ ".cmi") in
   let cmx = Filename.(build_dir / modname ^ ".cmx") in
   let cmt = Filename.(build_dir / modname ^ ".cmt") in
+  let cmti = Filename.(build_dir / modname ^ ".cmti") in
+  let o = Filename.(build_dir / modname ^ ".o") in
   let includes_args = Filename.(build_dir / "includes.args") in
   let deps = List.filter_map (function
     | Mach_module.Require r -> Some Filename.(build_dir_of r.v / modname_of r.v ^ ".cmi")
@@ -100,16 +102,13 @@ let compile_ocaml_module ?dyndep rules cfg ~build_dir ~path_ml ~path_mli ~requir
   let add_dyndep deps = match dyndep with None -> deps | Some d -> d :: deps in
   begin match path_mli with
   | Some _ -> (* With .mli: compile .mli to .cmi/.cmti first (using ocamlc for speed), then .ml to .cmx *)
-    Mach_build.Rules.rule rules ~targets:[|cmi|] ~deps:(mli :: includes_args :: deps)
+    Mach_build.Rules.rule rules ~targets:[|cmi; cmti|] ~deps:(mli :: includes_args :: deps)
       [cmdf "ocamlc -bin-annot -c -opaque -args %s -o %s %s" includes_args cmi mli];
-    Mach_build.Rules.rule rules ~targets:[|cmx|] ~deps:(add_dyndep [ml; cmi; includes_args])
-      [cmdf "ocamlopt -bin-annot -c -args %s -cmi-file %s -o %s -impl %s" includes_args cmi cmx ml];
-    Mach_build.Rules.rule rules ~targets:[|cmt|] ~deps:[cmx] []
+    Mach_build.Rules.rule rules ~targets:[|cmx; o; cmt|] ~deps:(add_dyndep [ml; cmi; includes_args])
+      [cmdf "ocamlopt -bin-annot -c -args %s -cmi-file %s -o %s -impl %s" includes_args cmi cmx ml]
   | None -> (* Without .mli: ocamlopt produces both .cmi and .cmx *)
-    Mach_build.Rules.rule rules ~targets:[|cmx|] ~deps:(add_dyndep (ml :: includes_args :: deps))
-      [cmdf "ocamlopt -bin-annot -c -args %s -o %s -impl %s" includes_args cmx ml];
-    Mach_build.Rules.rule rules ~targets:[|cmi|] ~deps:[cmx] [];
-    Mach_build.Rules.rule rules ~targets:[|cmt|] ~deps:[cmx] []
+    Mach_build.Rules.rule rules ~targets:[|cmx; cmi; o; cmt|] ~deps:(add_dyndep (ml :: includes_args :: deps))
+      [cmdf "ocamlopt -bin-annot -c -args %s -o %s -impl %s" includes_args cmx ml]
   end;
   cmi, cmx
 
@@ -136,6 +135,5 @@ let link_ocaml_library rules cfg ~build_dir ~(cmxs : string list) ~deps ~lib_nam
     "%s link-deps %s > %s" mach (String.concat " " deps) all_deps_sorted;
   let cmxa = Filename.(build_dir / lib_name ^ ".cmxa") in
   let cmxa_a = Filename.(build_dir / lib_name ^ ".a") in
-  Mach_build.Rules.rule rules ~targets:[|cmxa|] ~deps:(all_deps_sorted :: cmxs)
-    [cmdf "ocamlopt -a -o %s -args %s" cmxa all_deps_sorted];
-  Mach_build.Rules.rule rules ~targets:[|cmxa_a|] ~deps:[cmxa] [];
+  Mach_build.Rules.rule rules ~targets:[|cmxa; cmxa_a|] ~deps:(all_deps_sorted :: cmxs)
+    [cmdf "ocamlopt -a -o %s -args %s" cmxa all_deps_sorted]

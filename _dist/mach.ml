@@ -14371,18 +14371,15 @@ let compile_ocaml_module ?dyndep rules cfg ~build_dir ~path_ml ~path_mli
           includes_args :: deps)
           [cmdf "ocamlc -bin-annot -c -opaque -args %s -o %s %s"
              includes_args cmi mli];
-        Mach_build.Rules.rule rules ~targets:[|cmx|]
+        Mach_build.Rules.rule rules ~targets:[|cmx;cmt|]
           ~deps:(add_dyndep [ml; cmi; includes_args])
           [cmdf "ocamlopt -bin-annot -c -args %s -cmi-file %s -o %s -impl %s"
-             includes_args cmi cmx ml];
-        Mach_build.Rules.rule rules ~targets:[|cmt|] ~deps:[cmx] [])
+             includes_args cmi cmx ml])
    | None ->
-       (Mach_build.Rules.rule rules ~targets:[|cmx|]
-          ~deps:(add_dyndep (ml :: includes_args :: deps))
-          [cmdf "ocamlopt -bin-annot -c -args %s -o %s -impl %s"
-             includes_args cmx ml];
-        Mach_build.Rules.rule rules ~targets:[|cmi|] ~deps:[cmx] [];
-        Mach_build.Rules.rule rules ~targets:[|cmt|] ~deps:[cmx] []));
+       Mach_build.Rules.rule rules ~targets:[|cmx;cmi;cmt|]
+         ~deps:(add_dyndep (ml :: includes_args :: deps))
+         [cmdf "ocamlopt -bin-annot -c -args %s -o %s -impl %s" includes_args
+            cmx ml]);
   (cmi, cmx)
 let link_ocaml_executable rules _cfg ~build_dir ~objs:(objs : string list)
   ~extlibs:(extlibs : string list) ~exe_path =
