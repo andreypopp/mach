@@ -91,7 +91,7 @@ Test dyndep referencing unknown target:
   >   (deps ("$B/dyndep.txt"))
   >   (commands ("echo done > $B/main.txt")))
   > (Rule_dyndep
-  >   (target "$B/dyndep.txt")
+  >   (targets ("$B/dyndep.txt"))
   >   (deps ())
   >   (commands ("echo '((target \"$B/nonexistent.txt\") (deps (\"$B/foo.txt\")))' > $B/dyndep.txt")))
   > EOF
@@ -110,7 +110,7 @@ but it was never scheduled because it's not in the dependency chain):
   >   (deps ("$B/dyndep2.txt"))
   >   (commands ("echo done > $B/main2.txt")))
   > (Rule_dyndep
-  >   (target "$B/dyndep2.txt")
+  >   (targets ("$B/dyndep2.txt"))
   >   (deps ())
   >   (commands ("echo '((target \"$B/other.txt\") (deps (\"$B/extra.txt\")))' > $B/dyndep2.txt")))
   > (Rule
@@ -139,7 +139,7 @@ Test dyndep referencing target that is actually scheduled (in the dependency cha
   >   (deps ("$B/dyndep3.txt" "$B/target.txt"))
   >   (commands ("echo done > $B/final.txt")))
   > (Rule_dyndep
-  >   (target "$B/dyndep3.txt")
+  >   (targets ("$B/dyndep3.txt"))
   >   (deps ())
   >   (commands ("echo '((target \"$B/target.txt\") (deps (\"$B/extra2.txt\")))' > $B/dyndep3.txt")))
   > (Rule

@@ -53,7 +53,7 @@ module Rule : sig
 
   val rule_dyndep :
     t ->
-    target:string ->
+    targets:string list ->
     deps:string list ->
     string list ->
     unit

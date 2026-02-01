@@ -96,7 +96,7 @@ Test with dyndeps:
   >   (deps ("$B/dyndep.txt"))
   >   (commands ("cat $B/extra.txt > $B/main.txt" "echo 'main' >> $B/main.txt")))
   > (Rule_dyndep
-  >   (target "$B/dyndep.txt")
+  >   (targets ("$B/dyndep.txt"))
   >   (deps ())
   >   (commands ("echo '((target \"$B/main.txt\") (deps (\"$B/extra.txt\")))' > $B/dyndep.txt")))
   > (Rule
@@ -156,7 +156,7 @@ Build spec where dyndep reads config to decide which dep to declare:
   >   (deps ("$B/dyndep4.txt"))
   >   (commands ("cat $B/dep1.txt $B/dep2.txt 2>/dev/null > $B/result.txt || true" "echo done >> $B/result.txt")))
   > (Rule_dyndep
-  >   (target "$B/dyndep4.txt")
+  >   (targets ("$B/dyndep4.txt"))
   >   (deps ("$B/config.txt"))
   >   (commands ("$B/gen_dyndep.sh $B/config.txt $B/result.txt $B/dyndep4.txt")))
   > EOF

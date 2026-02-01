@@ -12,7 +12,7 @@ module Build_file_format = struct
         commands: string array; [@sexp.array] (** a list of shell commands to execute to build the targets *)
       }
     | Rule_dyndep of {
-        target: string; (** absolute path of a target containing dyndep *)
+        targets: string array; [@sexp.array] (** absolute path of a target containing dyndep *)
         deps: string array; [@sexp.array] (** absolute paths of dependencies rule requires *)
         commands: string array; [@sexp.array] (** a list of shell commands to execute to build the target *)
       }
@@ -62,19 +62,15 @@ and rule = {
   deps : string array;
   mutable dyndeps : string array;  (* extra deps discovered via dyndeps at build time *)
   commands : string array;
-  target : target;
+  targets : string array;
   mutable deps_pending: int;
   mutable visited: bool;   (* true once we've iterated this rule's deps *)
   mutable scheduled: bool; (* true once added to the build queue *)
   mutable built: bool;
+  is_dyndep: bool;
 }
 
-and target = Targets of string array | Target_dyndep of string
-
-let rule_targets (rule : rule) =
-  match rule.target with
-  | Targets targets -> targets
-  | Target_dyndep target -> [|target|]
+let rule_targets (rule : rule) = rule.targets
 
 let needs_rebuild (rule : rule) =
   let targets = rule_targets rule in
@@ -103,15 +99,15 @@ let create () : t =
 
 let configure t (rules : Build_file_format.stanza list) : unit =
   List.iter rules ~f:(fun (rule : Build_file_format.stanza) ->
-    let target, deps, commands =
+    let targets, deps, commands, is_dyndep =
       match rule with
       | Build_file_format.Rule { targets; deps; commands } ->
-        Targets targets, deps, commands
-      | Build_file_format.Rule_dyndep { target; deps; commands } ->
-        Target_dyndep target, deps, commands
+        targets, deps, commands, false
+      | Build_file_format.Rule_dyndep { targets; deps; commands } ->
+        targets, deps, commands, true
     in
     let deps_pending = Array.length deps in
-    let rule = { target; deps; dyndeps = [||]; commands; deps_pending; visited = false; scheduled = false; built = false } in
+    let rule = { targets; deps; dyndeps = [||]; commands; deps_pending; visited = false; scheduled = false; built = false; is_dyndep } in
     Array.iter (rule_targets rule) ~f:(fun target ->
       T.replace t.rules target rule))
 
@@ -261,9 +257,8 @@ let build t ~target_path ~parallelism =
   in
 
   let process_completed (rule : rule) =
-    begin match rule.target with
-    | Targets _ -> ()
-    | Target_dyndep target ->
+    if rule.is_dyndep then
+      Array.iter rule.targets ~f:(fun target ->
       List.iter (Dyndep_file_format.of_file target) ~f:(fun (dyndep : Dyndep_file_format.dyndep) ->
         match T.find_opt t.rules dyndep.target with
         | None ->
@@ -276,8 +271,7 @@ let build t ~target_path ~parallelism =
             dep_rule.dyndeps <- Array.append dep_rule.dyndeps dyndep.deps;
             dep_rule.deps_pending <- dep_rule.deps_pending + Array.length dyndep.deps;
             Array.iter dyndep.deps ~f:(schedule ~rev_dep:dep_rule)
-          end)
-    end;
+          end));
     Rev_deps.iter rev_deps rule ~f:dep_ready
   in
 
@@ -371,9 +365,9 @@ module Rule = struct
       commands = Array.of_list commands;
     })
 
-  let rule_dyndep t ~target ~deps commands =
+  let rule_dyndep t ~targets ~deps commands =
     add t (Build_file_format.Rule_dyndep {
-      target;
+      targets = Array.of_list targets;
       deps = Array.of_list deps;
       commands = Array.of_list commands;
     })

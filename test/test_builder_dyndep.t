@@ -13,7 +13,7 @@ Create a build spec with a dyndep rule:
   >   (deps ("$B/dyndep.txt"))
   >   (commands ("cat $B/e.txt >> $B/a.txt" "echo 'from a' >> $B/a.txt")))
   > (Rule_dyndep
-  >   (target "$B/dyndep.txt")
+  >   (targets ("$B/dyndep.txt"))
   >   (deps ())
   >   (commands ("echo '((target \"$B/a.txt\") (deps (\"$B/e.txt\")))' > $B/dyndep.txt")))
   > (Rule
@@ -43,7 +43,7 @@ Test dyndeps with multiple dynamic dependencies:
   >   (deps ("$B/dyndep2.txt"))
   >   (commands ("cat $B/dep1.txt $B/dep2.txt > $B/main.txt" "echo 'from main' >> $B/main.txt")))
   > (Rule_dyndep
-  >   (target "$B/dyndep2.txt")
+  >   (targets ("$B/dyndep2.txt"))
   >   (deps ())
   >   (commands ("echo '((target \"$B/main.txt\") (deps (\"$B/dep1.txt\" \"$B/dep2.txt\")))' > $B/dyndep2.txt")))
   > (Rule

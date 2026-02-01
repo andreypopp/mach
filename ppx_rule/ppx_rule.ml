@@ -315,12 +315,9 @@ let expand_rule ~ctxt payload =
            ~deps:[%e deps_expr]
            [%e commands_expr]]
 
-(** Expand [%rule_dyndep "..."] to Rule.rule_dyndep call.
-    Must have exactly one target. Cmd.t fragments are supported for command text
-    and their deps are merged, but their targets are ignored (rule_dyndep has single target). *)
+(** Expand [%rule_dyndep "..."] to Rule.rule_dyndep call. *)
 let expand_rule_dyndep ~ctxt payload =
   let loc = Expansion_context.Extension.extension_point_loc ctxt in
-  let open Ast_builder.Default in
   (* Extract command strings from payload *)
   let command_strings = match payload with
     | PStr items ->
@@ -351,40 +348,13 @@ let expand_rule_dyndep ~ctxt payload =
   (* Analyze to get targets, deps, dep_lists, and cmd fragments *)
   let targets, deps, dep_lists, cmd_fragments, cmd_fragment_lists = analyze_commands ~loc parsed_commands in
 
-  (* rule_dyndep requires exactly one static target *)
-  if List.length targets <> 1 then
-    Location.raise_errorf ~loc "[%%rule_dyndep] requires exactly one target";
-
-  let target_expr = evar ~loc (List.hd targets) in
-
-  let has_cmd_parts = cmd_fragments <> [] || cmd_fragment_lists <> [] in
-
-  (* Build deps expression - merge static deps with Cmd.t deps and list deps *)
-  let deps_expr =
-    if not has_cmd_parts && dep_lists = [] then
-      elist ~loc (List.map (evar ~loc) deps)
-    else begin
-      let static_parts = List.map (fun name ->
-        [%expr [[%e evar ~loc name]]]
-      ) deps in
-      let list_parts = List.map (fun name ->
-        evar ~loc name
-      ) dep_lists in
-      let cmd_dep_parts = List.map (fun name ->
-        [%expr [%e evar ~loc name].Mach_build.Cmd.deps]
-      ) cmd_fragments in
-      let cmd_list_dep_parts = List.map (fun name ->
-        [%expr (Mach_build.Cmd.concat [%e evar ~loc name]).Mach_build.Cmd.deps]
-      ) cmd_fragment_lists in
-      [%expr List.flatten [%e elist ~loc (static_parts @ list_parts @ cmd_dep_parts @ cmd_list_dep_parts)]]
-    end
+  let targets_expr, deps_expr, commands_expr =
+    build_rule_exprs ~loc
+      ~targets ~deps ~dep_lists ~cmd_fragments ~cmd_fragment_lists parsed_commands
   in
 
-  (* Build commands list *)
-  let commands_expr = elist ~loc (List.map (build_sprintf ~loc) parsed_commands) in
-
   [%expr Mach_build.Rule.rule_dyndep rules
-           ~target:[%e target_expr]
+           ~targets:[%e targets_expr]
            ~deps:[%e deps_expr]
            [%e commands_expr]]
 
