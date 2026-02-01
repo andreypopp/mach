@@ -1,7 +1,9 @@
 {
+open! Mach_std
+
 type token =
-  | TARGET of string list
-  | DEP of concat list
+  | TARGET of string Non_empty_list.t
+  | DEP of concat Non_empty_list.t
   | CMD_FRAGMENT of concat
   | LITERAL of string
   | PERCENT
@@ -27,8 +29,8 @@ let dep_names = ws '|'? ws ident_or_list (ws '|' ws ident_or_list)* ws
 let cmd_name = ws ident_or_list ws
 
 rule token = parse
-  | ">{" (target_names as names) "}"  { TARGET (split_on_pipe names) }
-  | "<{" (dep_names as names) "}"     { DEP (List.map parse_concat (split_on_pipe names)) }
+  | ">{" (target_names as names) "}"  { TARGET (Non_empty_list.of_list (split_on_pipe names)) }
+  | "<{" (dep_names as names) "}"     { DEP (Non_empty_list.of_list (List.map parse_concat (split_on_pipe names))) }
   | "%{" (cmd_name as name) "}"       { CMD_FRAGMENT (parse_concat (String.trim name)) }
   | '%'                           { PERCENT }
   | [^'>' '<' '{' '%']+ as s      { LITERAL s }

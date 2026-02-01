@@ -5,6 +5,13 @@ open Sexplib0.Sexp_conv
 
 let (!!) = Lazy.force
 
+module Non_empty_list = struct
+  type 'a t = (::) of 'a * 'a list
+  let of_list = function
+    | [] -> failwith "invariant violation: expected a non-empty list"
+    | x::xs -> x::xs
+end
+
 module Filename = struct
   include Filename
   let (/) = concat

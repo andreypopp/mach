@@ -12938,7 +12938,7 @@ module Mach_error = struct
     no_alias_deps = false;
     unboxed_types = false;
     unsafe_string = false;
-    cookies = [("library-name", "mach_lib")]
+    cookies = [("library-name", "mach_std")]
   }]
 exception Mach_user_error of string 
 let user_errorf fmt =
@@ -12962,12 +12962,21 @@ module Mach_std = struct
     no_alias_deps = false;
     unboxed_types = false;
     unsafe_string = false;
-    cookies = [("library-name", "mach_lib")]
+    cookies = [("library-name", "mach_std")]
   }]
 [@@@ocaml.text " Standard utility functions used across the Mach code. "]
 open Printf
 open Sexplib0.Sexp_conv
 let (!!) = Lazy.force
+module Non_empty_list =
+  struct
+    type 'a t =
+      | (::) of 'a * 'a list 
+    let of_list =
+      function
+      | [] -> failwith "invariant violation: expected a non-empty list"
+      | x::xs -> x :: xs
+  end
 module Filename = struct include Filename
                          let (/) = concat end
 module Buffer =

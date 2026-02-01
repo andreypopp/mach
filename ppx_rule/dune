@@ -1,7 +1,7 @@
 (library
  (name ppx_rule)
  (kind ppx_rewriter)
- (libraries ppxlib)
+ (libraries ppxlib mach_std)
  (preprocess (pps ppxlib.metaquot)))
 
 (ocamllex rule_lexer)

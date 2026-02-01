@@ -28,35 +28,32 @@ let parse_command ~loc:_ str =
     | Rule_lexer.EOF -> ()
     | Rule_lexer.TARGET names ->
       (* First target appears in command, rest are silent *)
-      List.iteri (fun idx name ->
-        if idx = 0 then begin
-          vars := { name; kind = Target } :: !vars;
-          Buffer.add_string buf "%s"
-        end else
-          vars := { name; kind = Target_silent } :: !vars
-      ) names;
+      let name::silent = names in
+      vars := { name; kind = Target } :: !vars;
+      Buffer.add_string buf "%s";
+      List.iter (fun name -> vars := { name; kind = Target_silent } :: !vars) silent;
       loop ()
     | Rule_lexer.DEP names ->
       (* First dep appears in command, rest are silent.
          If first element is ONE "", all deps are silent.
          CONCAT means it's a list of deps, ONE means single dep. *)
-      let add_silent_dep = function
+      let add_silent = function
         | Rule_lexer.ONE "" -> ()
         | Rule_lexer.ONE name -> vars := { name; kind = Dep_silent } :: !vars
         | Rule_lexer.CONCAT name -> vars := { name; kind = Dep_silent_list } :: !vars
       in
-      begin match names with
-      | [] -> ()
-      | Rule_lexer.ONE "" :: rest ->
-        List.iter add_silent_dep rest
-      | Rule_lexer.CONCAT name :: rest ->
+      let name::silent = names in
+      begin match name with
+      | Rule_lexer.ONE "" ->
+        List.iter add_silent silent
+      | Rule_lexer.CONCAT name ->
         vars := { name; kind = Dep_list } :: !vars;
         Buffer.add_string buf "%s";
-        List.iter add_silent_dep rest
-      | Rule_lexer.ONE name :: rest ->
+        List.iter add_silent silent
+      | Rule_lexer.ONE name ->
         vars := { name; kind = Dep } :: !vars;
         Buffer.add_string buf "%s";
-        List.iter add_silent_dep rest
+        List.iter add_silent silent
       end;
       loop ()
     | Rule_lexer.CMD_FRAGMENT (Rule_lexer.ONE name) ->
