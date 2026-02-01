@@ -18,13 +18,13 @@ Run the script:
 Inspect the build dir - should have ppx driver:
   $ ls _mach/build/*__main.ml/_ppx | sort
   cclib.args
+  driver.cmi
+  driver.cmx
+  driver.exe
+  driver.ml
+  driver.o
   includes.args
   lib_objs.args
-  mach_ppx_driver
-  mach_ppx_driver.cmi
-  mach_ppx_driver.cmx
-  mach_ppx_driver.ml
-  mach_ppx_driver.o
 
 Test error for unknown ppx package:
   $ cat << 'EOF' > bad_ppx.ml
@@ -62,13 +62,13 @@ Test PPX in a library:
 Inspect the library build dir - should have ppx driver:
   $ ls _mach/build/*__mylib/_ppx | sort
   cclib.args
+  driver.cmi
+  driver.cmx
+  driver.exe
+  driver.ml
+  driver.o
   includes.args
   lib_objs.args
-  mach_ppx_driver
-  mach_ppx_driver.cmi
-  mach_ppx_driver.cmx
-  mach_ppx_driver.ml
-  mach_ppx_driver.o
 
 Test reconfiguration when ppx changes:
   $ rm -rf _mach

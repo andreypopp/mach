@@ -20,11 +20,29 @@ module Dyndep_file_format : sig
   val to_file : string -> dyndep list -> unit
 end
 
-module Rules : sig
+(** A command line fragment, along with its dependencies and targets. *)
+module Cmd : sig
+  type t = {
+    command : string;
+    deps : string list;
+    targets : string list;
+  }
+
+  val v : ?deps:string list -> ?targets:string list -> string -> t
+
+  val concat : t list -> t
+  (** Concatenate commands by joining them with " " *)
+end
+
+(** A rule builder *)
+module Rule : sig
   type t
 
   val create : unit -> t
+  (** Create an empty rule builder *)
+
   val to_list : t -> Build_file_format.t
+  (** Convert the rule builder to a list of build rules *)
 
   val rule :
     t ->
@@ -33,19 +51,14 @@ module Rules : sig
     string list ->
     unit
 
-  val rulef :
-    t ->
-    targets:string array ->
-    deps:string list ->
-    ('a, unit, string, unit) format4 ->
-    'a
-
   val rule_dyndep :
     t ->
     target:string ->
     deps:string list ->
     string list ->
     unit
+
+  val rule_of_commands : ?deps:string list -> t -> Cmd.t list -> unit
 end
 
 type t

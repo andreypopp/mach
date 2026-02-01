@@ -65,8 +65,38 @@ Split across multiple files:
 - `lib/mach_ocaml_rules.ml` (~140 lines) - OCaml build rules
 - `lib/mach_log.ml` (~10 lines) - logging utilities
 - `lib/mach_error.ml` (~5 lines) - error handling
+- `ppx_rule/` - PPX for build rule DSL
 
 The library uses `(wrapped false)` so modules are accessed directly (e.g., `Mach_config`, `Mach_lib`).
+
+### ppx_rule DSL
+
+`ppx_rule` provides a DSL for expressing build rules. Used in `mach_ocaml_rules.ml`.
+
+**Extensions:**
+- `[%rule "..."]` - generates `Rule.rule` call
+- `[%rule_dyndep "..."]` - generates `Rule.rule_dyndep` call (for dynamic dependencies)
+- `[%cmd "..."]` - generates `Cmd.v` value
+
+**Syntax in rule strings:**
+- `>{target}` - target file (first appears in command)
+- `>{target1|target2}` - multiple targets (first in command, rest silent)
+- `<{dep}` - dependency file (first appears in command)
+- `<{dep1|dep2}` - multiple deps (first in command, rest silent)
+- `<{|dep}` - silent dep (not in command, just tracked)
+- `<{deps...}` - dep list, uses `String.concat " " deps` in command
+- `<{|deps...}` - silent dep list
+- `%{cmd}` - Cmd.t fragment, merges its targets/deps
+- `%{cmds...}` - Cmd.t list, uses `Cmd.concat cmds`
+
+**Example:**
+```ocaml
+let ml = "foo.ml" in
+let cmi = "foo.cmi" in
+let cmx = "foo.cmx" in
+[%rule "ocamlopt -c -o >{cmx|cmi} <{ml}"]
+(* Generates: Rule.rule rules ~targets:[|cmx; cmi|] ~deps:[ml] ["ocamlopt -c -o %s %s" cmx ml] *)
+```
 
 ### Mach_std Module
 
@@ -118,7 +148,7 @@ The code is organized with comment headers:
 - **Location**: `$MACH_HOME/_mach/build/<normalized-path>/`
 - **Normalized path**: Source path with `/` replaced by `__`
 - **State file**: `Mach.state` tracks file mtimes/sizes for cache invalidation
-- **Build files**: `Mach.rules` (build rules in sexp format), `includes.args`, `all_objects.args`
+- **Build files**: `Mach.build` (build rules in sexp format), `includes.args`, `ocamldep.args`
 
 ## Code Style
 
@@ -148,6 +178,10 @@ lib/
   mach_ocaml_rules.ml -- OCaml build rules
   mach_state.ml    -- dependency state caching
   mach_state.mli
+  dune
+ppx_rule/
+  ppx_rule.ml    -- PPX rewriter implementation
+  rule_lexer.mll -- ocamllex lexer for rule syntax
   dune
 test/
   test_*.t     -- cram test case files, add test to this dir

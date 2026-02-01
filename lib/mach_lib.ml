@@ -129,9 +129,9 @@ let configure_exn config target =
           log_verbose "mach: configuring %s" m.path_ml;
           rm_rf build_dir;
           mkdir_p build_dir;
-          let rules = Mach_build.Rules.create () in
+          let rules = Mach_build.Rule.create () in
           let _cmi, cmx = configure_module ~build_dir rules config m in
-          let build = Mach_build.Rules.to_list rules in
+          let build = Mach_build.Rule.to_list rules in
           Mach_build.configure build_system build;
           write_file mach_build (Mach_build.Build_file_format.to_string build);
           Mach_state.write config unit_state;
@@ -156,9 +156,9 @@ let configure_exn config target =
         log_verbose "mach: configuring library %s" lib.Mach_library.path;
         rm_rf build_dir;
         mkdir_p build_dir;
-        let rules = Mach_build.Rules.create () in
+        let rules = Mach_build.Rule.create () in
         configure_library rules config lib ~build_dir;
-        let build = Mach_build.Rules.to_list rules in
+        let build = Mach_build.Rule.to_list rules in
         Mach_build.configure build_system build;
         write_file mach_build (Mach_build.Build_file_format.to_string build);
         Mach_state.write config unit_state
@@ -182,13 +182,13 @@ let configure_exn config target =
   | Target_executable _ ->
     let build_dir = build_dir_of target_path in
     let exe_path = Filename.(build_dir / "a.out") in
-    let rules = Mach_build.Rules.create () in
+    let rules = Mach_build.Rule.create () in
     Mach_ocaml_rules.link_ocaml_executable rules config
       ~exe_path
       ~extlibs
       ~objs
       ~build_dir;
-    Mach_build.configure build_system (Mach_build.Rules.to_list rules)
+    Mach_build.configure build_system (Mach_build.Rule.to_list rules)
   end;
   any_need_reconfigure, build_system, modules, libs
 

@@ -138,31 +138,6 @@ end
 
 type build_queue = rule Queue.t
 
-module Rules = struct
-  type t = Build_file_format.stanza list ref
-
-  let create () : t = ref []
-  let add (t : t) stanza = t := stanza :: !t
-  let to_list (t : t) = List.rev !t
-
-  let rule t ~targets ~deps commands =
-    add t (Build_file_format.Rule {
-      targets;
-      deps = Array.of_list deps;
-      commands = Array.of_list commands;
-    })
-
-  let rulef t ~targets ~deps fmt =
-    Printf.ksprintf (fun cmd -> rule t ~targets ~deps [cmd]) fmt
-
-  let rule_dyndep t ~target ~deps commands =
-    add t (Build_file_format.Rule_dyndep {
-      target;
-      deps = Array.of_list deps;
-      commands = Array.of_list commands;
-    })
-end
-
 type in_flight_build = {
   rule: rule;
   pid: int;
@@ -348,3 +323,58 @@ let build t ~target_path ~parallelism =
 
   schedule target_path;
   build_loop ()
+
+let flatten_uniq_list xss =
+  ListLabels.fold_left xss ~init:SS.empty ~f:(fun acc xs ->
+    SS.add_seq (List.to_seq xs) acc) |> SS.to_list
+
+module Cmd = struct
+  type t = { command: string; deps: string list; targets: string list; }
+  let v ?(deps=[]) ?(targets=[]) command = { command; deps; targets }
+
+  let concat' cmds =
+    let all_deps = ref [] in
+    let all_targets = ref [] in
+    let commands =
+      List.map cmds ~f:(fun ({ command; deps; targets }) ->
+        all_deps := deps :: !all_deps;
+        all_targets := targets :: !all_targets;
+        command)
+    in
+    commands, flatten_uniq_list !all_deps, flatten_uniq_list !all_targets
+
+  let concat cmds =
+    let commands, deps, targets = concat' cmds in
+    { command = String.concat ~sep:" " commands; deps; targets }
+end
+
+module Rule = struct
+  type t = Build_file_format.stanza list ref
+
+  let create () : t = ref []
+  let add (t : t) stanza = t := stanza :: !t
+  let to_list (t : t) = List.rev !t
+
+  let rule_of_commands ?(deps=[]) t commands =
+    let commands, deps', targets = Cmd.concat' commands in
+    let deps = deps @ deps' in
+    add t (Build_file_format.Rule {
+      targets = Array.of_list targets;
+      deps = Array.of_list deps;
+      commands = Array.of_list commands;
+    })
+
+  let rule t ~targets ~deps commands =
+    add t (Build_file_format.Rule {
+      targets;
+      deps = Array.of_list deps;
+      commands = Array.of_list commands;
+    })
+
+  let rule_dyndep t ~target ~deps commands =
+    add t (Build_file_format.Rule_dyndep {
+      target;
+      deps = Array.of_list deps;
+      commands = Array.of_list commands;
+    })
+end

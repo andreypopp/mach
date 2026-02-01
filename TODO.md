@@ -17,6 +17,52 @@ incremental builds but adds complexity.
 
 ## PPX: libraries as ppxes
 
+## [DONE] PPX for describing build rules
+
+Let's develop a ppx to describe build rules. We want to use it to express
+`Mach_build.Rules` api and use it in `Mach_ocaml_rules`.
+
+The idea:
+
+    [%rule "ocamlc -o >{exe} <{ml} -args <{args}"]
+
+expands into:
+
+    Mach_build.Rules.rule
+      ~deps:[ml; args]
+      ~targets:[exe]
+      [Printf.sprintf "ocamlc -o %s %s -args %s" exe ml args]
+
+It's also possible to define implicit targets:
+
+    [%rule "ocamlc -o >{exe,cmt} <{ml} -args <{args}"]
+
+expands into:
+
+    Mach_build.Rules.rule
+      ~deps:[ml; args]
+      ~targets:[exe; cmt]
+      [Printf.sprintf "ocamlc -o %s %s -args %s" exe ml args]
+
+multiple commands supported as well:
+
+    [%rule
+      "ocamlc -c -o >{cmo|cmi} <{ml} -args <{args}";
+      "ocamlc -o >{exe} <{cmo}"]
+
+expands into a single rule with two commands:
+
+    Mach_build.Rules.rule
+      ~deps:[ml; args]
+      ~targets:[cmo; cmi; exe]
+      [
+        Printf.sprintf "ocamlc -c -o %s %s -args %s" cmo ml args;
+        Printf.sprintf "ocamlc -o %s %s" exe cmo;
+      ]
+
+note how `cmo` is both a target of first command and a dependency of second
+command, but we consider it a target since it is produced by a command in the rule.
+
 ## [DONE] Implement ppx support
 
 We need to add support for ppx preprocessors.
