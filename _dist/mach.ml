@@ -14661,6 +14661,7 @@ let link_ocaml_executable rules _cfg ~build_dir ~objs:(objs : string list)
             (((Printf.sprintf "ocamlopt -o %s -args %s") exe_path) objs_args)]
    | libs ->
        let lib_objs_args = let open Filename in build_dir / "lib_objs.args" in
+       let cclib_args = let open Filename in build_dir / "cclib.args" in
        let libs = List.map Cmd.v libs in
        (Mach_build.Rule.rule_of_commands rules
           [Mach_build.Cmd.v
@@ -14674,10 +14675,21 @@ let link_ocaml_executable rules _cfg ~build_dir ~objs:(objs : string list)
                  (Mach_build.Cmd.concat libs).Mach_build.Cmd.command)
                 lib_objs_args)];
         Mach_build.Rule.rule_of_commands rules
+          [Mach_build.Cmd.v
+             ~targets:(List.flatten
+                         [[cclib_args];
+                         (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
+             ~deps:(List.flatten
+                      [(Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
+             (((Printf.sprintf
+                  "ocamlfind query -l-format -recursive -predicates native %s | tr ' ' '\n' > %s")
+                 (Mach_build.Cmd.concat libs).Mach_build.Cmd.command)
+                cclib_args)];
+        Mach_build.Rule.rule_of_commands rules
           [Mach_build.Cmd.v ~targets:[exe_path]
-             ~deps:[lib_objs_args; objs_args]
-             ((((Printf.sprintf "ocamlopt -o %s -args %s -args %s") exe_path)
-                 lib_objs_args) objs_args)]))
+             ~deps:[lib_objs_args; cclib_args; objs_args]
+             (((((Printf.sprintf "ocamlopt -o %s -args %s -args %s -args %s")
+                   exe_path) lib_objs_args) cclib_args) objs_args)]))
 let link_ocaml_library rules cfg ~build_dir ~cmxs:(cmxs : string list) ~deps
   ~lib_name =
   let mach = Cmd.v cfg.Mach_config.mach_executable_path in

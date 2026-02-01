@@ -121,9 +121,11 @@ let link_ocaml_executable rules _cfg ~build_dir ~(objs : string list) ~(extlibs 
     [%rule "ocamlopt -o >{exe_path} -args <{objs_args}"]
   | libs ->
     let lib_objs_args = Filename.(build_dir / "lib_objs.args") in
+    let cclib_args = Filename.(build_dir / "cclib.args") in
     let libs = List.map Cmd.v libs in
     [%rule "ocamlfind query -a-format -recursive -predicates native %{libs...} > >{lib_objs_args}"];
-    [%rule "ocamlopt -o >{exe_path} -args <{lib_objs_args} -args <{objs_args}"]
+    [%rule "ocamlfind query -l-format -recursive -predicates native %{libs...} | tr ' ' '\n' > >{cclib_args}"];
+    [%rule "ocamlopt -o >{exe_path} -args <{lib_objs_args} -args <{cclib_args} -args <{objs_args}"]
 
 let link_ocaml_library rules cfg ~build_dir ~(cmxs : string list) ~deps ~lib_name =
   let mach = Cmd.v cfg.Mach_config.mach_executable_path in

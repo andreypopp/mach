@@ -18,6 +18,7 @@ depends: [
   "parsexp" {with-test | with-dev-setup}
   "ppx_sexp_conv" {with-test | with-dev-setup}
   "ocamlfind" {with-test}
+  "lwt" {with-test}
 ]
 build: [ ["ocamlopt.opt" "-I" "+unix" "unix.cmxa" "_dist/mach.ml" "-o" "_dist/mach" ] ]
 install: [ ["opam-installer" "--prefix" prefix "mach.install"] ]
