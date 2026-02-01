@@ -366,7 +366,7 @@ module Rule = struct
 
   let rule t ~targets ~deps commands =
     add t (Build_file_format.Rule {
-      targets;
+      targets = Array.of_list targets;
       deps = Array.of_list deps;
       commands = Array.of_list commands;
     })

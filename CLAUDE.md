@@ -95,7 +95,7 @@ let ml = "foo.ml" in
 let cmi = "foo.cmi" in
 let cmx = "foo.cmx" in
 [%rule "ocamlopt -c -o >{cmx|cmi} <{ml}"]
-(* Generates: Rule.rule rules ~targets:[|cmx; cmi|] ~deps:[ml] ["ocamlopt -c -o %s %s" cmx ml] *)
+(* Generates: Rule.rule rules ~targets:[cmx; cmi] ~deps:[ml] ["ocamlopt -c -o %s %s" cmx ml] *)
 ```
 
 ### Mach_std Module

@@ -194,11 +194,9 @@ let build_sprintf ~loc cmd =
       [%expr [%e acc] [%e arg]]
     ) [%expr Printf.sprintf [%e template_expr]] args
 
-type target_format = As_list | As_array
-
 (** Build targets and deps expressions from analyzed command data.
     Returns (targets_expr, deps_expr, commands_expr) *)
-let build_rule_exprs ~loc ~target_format ~targets ~deps ~dep_lists ~cmd_fragments ~cmd_fragment_lists parsed_commands =
+let build_rule_exprs ~loc ~targets ~deps ~dep_lists ~cmd_fragments ~cmd_fragment_lists parsed_commands =
   let open Ast_builder.Default in
 
   let has_cmd_parts = cmd_fragments <> [] || cmd_fragment_lists <> [] in
@@ -207,10 +205,7 @@ let build_rule_exprs ~loc ~target_format ~targets ~deps ~dep_lists ~cmd_fragment
   let targets_expr =
     if not has_cmd_parts then
       (* Simple case: just static targets *)
-      let items = List.map (evar ~loc) targets in
-      match target_format with
-      | As_list -> elist ~loc items
-      | As_array -> pexp_array ~loc items
+      elist ~loc (List.map (evar ~loc) targets)
     else begin
       (* Complex case: merge static targets with Cmd.t targets *)
       let static_parts = List.map (fun name ->
@@ -222,10 +217,7 @@ let build_rule_exprs ~loc ~target_format ~targets ~deps ~dep_lists ~cmd_fragment
       let cmd_list_target_parts = List.map (fun name ->
         [%expr (Mach_build.Cmd.concat [%e evar ~loc name]).Mach_build.Cmd.targets]
       ) cmd_fragment_lists in
-      let flattened = [%expr List.flatten [%e elist ~loc (static_parts @ cmd_target_parts @ cmd_list_target_parts)]] in
-      match target_format with
-      | As_list -> flattened
-      | As_array -> [%expr Array.of_list [%e flattened]]
+      [%expr List.flatten [%e elist ~loc (static_parts @ cmd_target_parts @ cmd_list_target_parts)]]
     end
   in
 
@@ -264,7 +256,7 @@ let expand_cmd ~ctxt str =
   validate_command ~loc cmd;
   let targets, deps, dep_lists, cmd_fragments, cmd_fragment_lists = analyze_commands ~loc [cmd] in
   let targets_expr, deps_expr, commands_expr =
-    build_rule_exprs ~loc ~target_format:As_list
+    build_rule_exprs ~loc
       ~targets ~deps ~dep_lists ~cmd_fragments ~cmd_fragment_lists [cmd]
   in
 
@@ -314,7 +306,7 @@ let expand_rule ~ctxt payload =
   let targets, deps, dep_lists, cmd_fragments, cmd_fragment_lists = analyze_commands ~loc parsed_commands in
 
   let targets_expr, deps_expr, commands_expr =
-    build_rule_exprs ~loc ~target_format:As_array
+    build_rule_exprs ~loc
       ~targets ~deps ~dep_lists ~cmd_fragments ~cmd_fragment_lists parsed_commands
   in
 

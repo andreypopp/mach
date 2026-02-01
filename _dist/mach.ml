@@ -13452,7 +13452,7 @@ sig
   val to_list : t -> Build_file_format.t[@@ocaml.doc
                                           " Convert the rule builder to a list of build rules "]
   val rule :
-    t -> targets:string array -> deps:string list -> string list -> unit
+    t -> targets:string list -> deps:string list -> string list -> unit
   val rule_dyndep :
     t -> target:string -> deps:string list -> string list -> unit
   val rule_of_commands : ?deps:string list -> t -> Cmd.t list -> unit
@@ -14063,7 +14063,7 @@ module Rule =
       add t
         (Build_file_format.Rule
            {
-             targets;
+             targets = (Array.of_list targets);
              deps = (Array.of_list deps);
              commands = (Array.of_list commands)
            })
@@ -14400,46 +14400,43 @@ let compile_ppx_driver rules _cfg ~build_dir ~ppxes =
      let libs =
        List.map (fun (Mach_module.Ppx_extlib lib) -> Cmd.v (lib.v).name)
          ppxes in
-     Mach_build.Rule.rule rules ~targets:[|ppx_dir|] ~deps:[]
+     Mach_build.Rule.rule rules ~targets:[ppx_dir] ~deps:[]
        [(Printf.sprintf "mkdir -p %s") ppx_dir];
-     Mach_build.Rule.rule rules ~targets:[|driver_ml|] ~deps:[ppx_dir]
+     Mach_build.Rule.rule rules ~targets:[driver_ml] ~deps:[ppx_dir]
        [(Printf.sprintf "echo 'let () = Ppxlib.Driver.standalone ()' > %s ")
           driver_ml];
      Mach_build.Rule.rule rules
-       ~targets:(Array.of_list
-                   (List.flatten
-                      [[compile_args];
-                      (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets]))
+       ~targets:(List.flatten
+                   [[compile_args];
+                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
        ~deps:(List.flatten
                 [[ppx_dir]; (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
        [((Printf.sprintf
             "ocamlfind query -predicates ppx_driver,native -format '-I=%%d' -recursive %s >> %s ")
            (Mach_build.Cmd.concat libs).Mach_build.Cmd.command) compile_args];
      Mach_build.Rule.rule rules
-       ~targets:(Array.of_list
-                   (List.flatten
-                      [[lib_objs_args];
-                      (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets]))
+       ~targets:(List.flatten
+                   [[lib_objs_args];
+                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
        ~deps:(List.flatten
                 [[ppx_dir]; (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
        [((Printf.sprintf
             "ocamlfind query -a-format -recursive -predicates ppx_driver,native %s > %s ")
            (Mach_build.Cmd.concat libs).Mach_build.Cmd.command) lib_objs_args];
      Mach_build.Rule.rule rules
-       ~targets:(Array.of_list
-                   (List.flatten
-                      [[cclib_args];
-                      (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets]))
+       ~targets:(List.flatten
+                   [[cclib_args];
+                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
        ~deps:(List.flatten
                 [[ppx_dir]; (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
        [((Printf.sprintf
             "ocamlfind query -l-format -recursive -predicates ppx_driver,native %s | tr ' ' '\n' > %s ")
            (Mach_build.Cmd.concat libs).Mach_build.Cmd.command) cclib_args];
-     Mach_build.Rule.rule rules ~targets:[|driver_cmx;driver_cmi|]
+     Mach_build.Rule.rule rules ~targets:[driver_cmx; driver_cmi]
        ~deps:[compile_args; driver_ml]
        [(((Printf.sprintf "ocamlopt -c -args %s -o %s %s") compile_args)
            driver_cmx) driver_ml];
-     Mach_build.Rule.rule rules ~targets:[|driver_exe|]
+     Mach_build.Rule.rule rules ~targets:[driver_exe]
        ~deps:[lib_objs_args; cclib_args; driver_cmx]
        [((((Printf.sprintf "ocamlopt -linkall -o %s -args %s -args %s %s")
              driver_exe) lib_objs_args) cclib_args) driver_cmx];
@@ -14461,12 +14458,11 @@ let preprocess_ocaml_module rules cfg ~build_dir ~path_ml ~path_mli ~kind
         Mach_build.Cmd.v ~targets:[] ~deps:[exe]
           ((Printf.sprintf " --pp %s") exe) in
   Mach_build.Rule.rule rules
-    ~targets:(Array.of_list
-                (List.flatten
-                   [[ml];
-                   mach.Mach_build.Cmd.targets;
-                   pp_mlx.Mach_build.Cmd.targets;
-                   pp_ppx.Mach_build.Cmd.targets]))
+    ~targets:(List.flatten
+                [[ml];
+                mach.Mach_build.Cmd.targets;
+                pp_mlx.Mach_build.Cmd.targets;
+                pp_ppx.Mach_build.Cmd.targets])
     ~deps:(List.flatten
              [[path_ml];
              mach.Mach_build.Cmd.deps;
@@ -14480,11 +14476,10 @@ let preprocess_ocaml_module rules cfg ~build_dir ~path_ml ~path_mli ~kind
        (fun path_mli ->
           let mli = let open Filename in (build_dir / modname) ^ ".mli" in
           Mach_build.Rule.rule rules
-            ~targets:(Array.of_list
-                        (List.flatten
-                           [[mli];
-                           mach.Mach_build.Cmd.targets;
-                           pp_ppx.Mach_build.Cmd.targets]))
+            ~targets:(List.flatten
+                        [[mli];
+                        mach.Mach_build.Cmd.targets;
+                        pp_ppx.Mach_build.Cmd.targets])
             ~deps:(List.flatten
                      [[path_mli];
                      mach.Mach_build.Cmd.deps;
@@ -14601,17 +14596,17 @@ let compile_ocaml_module ?dyndep rules cfg ~build_dir ~path_ml ~path_mli
   let dyndep = Option.to_list dyndep in
   (match path_mli with
    | Some _ ->
-       (Mach_build.Rule.rule rules ~targets:[|cmi;cmti|]
+       (Mach_build.Rule.rule rules ~targets:[cmi; cmti]
           ~deps:(List.flatten [[includes_args]; [mli]; deps])
           [(((Printf.sprintf "ocamlc -bin-annot -c -opaque -args %s -o %s %s")
                includes_args) cmi) mli];
-        Mach_build.Rule.rule rules ~targets:[|cmx;cmt;o|]
+        Mach_build.Rule.rule rules ~targets:[cmx; cmt; o]
           ~deps:(List.flatten [[includes_args]; [cmi]; [ml]; dyndep])
           [((((Printf.sprintf
                  "ocamlopt -bin-annot -c -args %s -cmi-file %s -o %s -impl %s")
                 includes_args) cmi) cmx) ml])
    | None ->
-       Mach_build.Rule.rule rules ~targets:[|cmx;cmi;cmt;o|]
+       Mach_build.Rule.rule rules ~targets:[cmx; cmi; cmt; o]
          ~deps:(List.flatten [[includes_args]; [ml]; deps; dyndep])
          [(((Printf.sprintf "ocamlopt -bin-annot -c -args %s -o %s -impl %s")
               includes_args) cmx) ml]);
@@ -14619,29 +14614,27 @@ let compile_ocaml_module ?dyndep rules cfg ~build_dir ~path_ml ~path_mli
 let link_ocaml_executable rules _cfg ~build_dir ~objs:(objs : string list)
   ~extlibs:(extlibs : string list) ~exe_path =
   let objs_args = let open Filename in build_dir / "objs.args" in
-  Mach_build.Rule.rule rules ~targets:[|objs_args|]
-    ~deps:(List.flatten [objs])
+  Mach_build.Rule.rule rules ~targets:[objs_args] ~deps:(List.flatten [objs])
     [((Printf.sprintf "printf '%%s\n' %s > %s") (String.concat " " objs))
        objs_args];
   (match extlibs with
    | [] ->
-       Mach_build.Rule.rule rules ~targets:[|exe_path|] ~deps:[objs_args]
+       Mach_build.Rule.rule rules ~targets:[exe_path] ~deps:[objs_args]
          [((Printf.sprintf "ocamlopt -o %s -args %s") exe_path) objs_args]
    | libs ->
        let lib_objs_args = let open Filename in build_dir / "lib_objs.args" in
        let libs = List.map Cmd.v libs in
        (Mach_build.Rule.rule rules
-          ~targets:(Array.of_list
-                      (List.flatten
-                         [[lib_objs_args];
-                         (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets]))
+          ~targets:(List.flatten
+                      [[lib_objs_args];
+                      (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
           ~deps:(List.flatten
                    [(Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
           [((Printf.sprintf
                "ocamlfind query -a-format -recursive -predicates native %s > %s")
               (Mach_build.Cmd.concat libs).Mach_build.Cmd.command)
              lib_objs_args];
-        Mach_build.Rule.rule rules ~targets:[|exe_path|]
+        Mach_build.Rule.rule rules ~targets:[exe_path]
           ~deps:[lib_objs_args; objs_args]
           [(((Printf.sprintf "ocamlopt -o %s -args %s -args %s") exe_path)
               lib_objs_args) objs_args]))
@@ -14652,12 +14645,11 @@ let link_ocaml_library rules cfg ~build_dir ~cmxs:(cmxs : string list) ~deps
   let cmxa = let open Filename in (build_dir / lib_name) ^ ".cmxa" in
   let cmxa_a = let open Filename in (build_dir / lib_name) ^ ".a" in
   Mach_build.Rule.rule rules
-    ~targets:(Array.of_list
-                (List.flatten [[link_deps]; mach.Mach_build.Cmd.targets]))
+    ~targets:(List.flatten [[link_deps]; mach.Mach_build.Cmd.targets])
     ~deps:(List.flatten [deps; mach.Mach_build.Cmd.deps])
     [(((Printf.sprintf "%s link-deps %s > %s") mach.Mach_build.Cmd.command)
         (String.concat " " deps)) link_deps];
-  Mach_build.Rule.rule rules ~targets:[|cmxa;cmxa_a|]
+  Mach_build.Rule.rule rules ~targets:[cmxa; cmxa_a]
     ~deps:(List.flatten [[link_deps]; cmxs])
     [((Printf.sprintf "ocamlopt -a -o %s -args %s") cmxa) link_deps]
 end

@@ -46,7 +46,7 @@ module Rule : sig
 
   val rule :
     t ->
-    targets:string array ->
+    targets:string list ->
     deps:string list ->
     string list ->
     unit
