@@ -33,6 +33,6 @@ rule token = parse
   | "<{" (dep_names as names) "}"     { DEP (Non_empty_list.of_list (List.map parse_concat (split_on_pipe names))) }
   | "%{" (cmd_name as name) "}"       { CMD_FRAGMENT (parse_concat (String.trim name)) }
   | '%'                           { PERCENT }
-  | [^'>' '<' '{' '%']+ as s      { LITERAL s }
+  | [^'>' '<' '%']+ as s          { LITERAL s }
   | '>' | '<'                     { LITERAL (Lexing.lexeme lexbuf) }
   | eof                           { EOF }

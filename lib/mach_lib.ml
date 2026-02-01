@@ -36,7 +36,7 @@ let configure_module ~build_dir rules config (m : Mach_module.t) =
       ~build_dir
       ~ppxes:!!(m.ppxes)
   in
-  let _ocamldep_args, _compile_args =
+  let _ocamldep_args, compile_args =
     let ml, _mli =
       Mach_ocaml_rules.preprocess_ocaml_module rules config
         ~build_dir
@@ -52,6 +52,7 @@ let configure_module ~build_dir rules config (m : Mach_module.t) =
       ~deps:[ml]
   in
   Mach_ocaml_rules.compile_ocaml_module rules config
+    ~args:compile_args
     ~path_ml:m.path_ml
     ~path_mli:m.path_mli
     ~requires:!!(m.requires)
@@ -64,7 +65,7 @@ let configure_library ~build_dir rules config (lib : Mach_library.t) =
       ~build_dir
       ~ppxes:!!(lib.ppxes)
   in
-  let ocamldep_args, _compile_args =
+  let ocamldep_args, compile_args =
     Mach_ocaml_rules.compile_ocaml_args ~include_self:true rules config
       ~requires:!!(lib.requires)
       ~build_dir
@@ -90,6 +91,7 @@ let configure_library ~build_dir rules config (lib : Mach_library.t) =
       in
       let _cmi, cmx =
         Mach_ocaml_rules.compile_ocaml_module rules config
+          ~args:compile_args
           ~dyndep:path_dep
           ~build_dir
           ~path_ml:ml

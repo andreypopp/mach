@@ -324,7 +324,10 @@ let flatten_uniq_list xss =
 
 module Cmd = struct
   type t = { command: string; deps: string list; targets: string list; }
+
   let v ?(deps=[]) ?(targets=[]) command = { command; deps; targets }
+
+  let empty = v ""
 
   let concat' cmds =
     let all_deps = ref [] in

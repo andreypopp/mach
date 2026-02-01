@@ -19,12 +19,13 @@ type parsed_command = {
 }
 
 (** Parse a single command string, extracting variables and building template *)
-let parse_command ~loc:_ str =
+let parse_command ~loc str =
   let lexbuf = Lexing.from_string str in
   let buf = Buffer.create (String.length str) in
   let vars = ref [] in
   let rec loop () =
     match Rule_lexer.token lexbuf with
+    | exception exn -> Location.raise_errorf ~loc "Error parsing rule command: %s" (Printexc.to_string exn)
     | Rule_lexer.EOF -> ()
     | Rule_lexer.TARGET names ->
       (* First target appears in command, rest are silent *)

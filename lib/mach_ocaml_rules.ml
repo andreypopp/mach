@@ -66,7 +66,7 @@ let compile_ocaml_args ?(include_self=false) rules cfg ~requires ~build_dir ~dep
   in
   ocamldep_args, includes_args
 
-let compile_ocaml_module ?dyndep rules cfg ~build_dir ~path_ml ~path_mli ~requires =
+let compile_ocaml_module ?dyndep ?args rules cfg ~build_dir ~path_ml ~path_mli ~requires =
   let build_dir_of = Mach_config.build_dir_of cfg in
   let modname = modname_of path_ml in
   let ml    = Filename.(build_dir / modname ^ ".ml") in
@@ -76,19 +76,19 @@ let compile_ocaml_module ?dyndep rules cfg ~build_dir ~path_ml ~path_mli ~requir
   let cmt   = Filename.(build_dir / modname ^ ".cmt") in
   let cmti  = Filename.(build_dir / modname ^ ".cmti") in
   let o     = Filename.(build_dir / modname ^ ".o") in
-  let includes_args = Filename.(build_dir / "includes.args") in
   let deps = List.filter_map (function
     | Mach_module.Require r -> Some Filename.(build_dir_of r.v / modname_of r.v ^ ".cmi")
     | Mach_module.Require_lib r -> Some Filename.(build_dir_of r.v / Filename.basename r.v ^ ".cmxa")
     | Mach_module.Require_extlib _ -> None
   ) requires in
   let dyndep = Option.to_list dyndep in
+  let args = match args with | Some args -> [%cmd "-args <{args}"] | None -> Cmd.empty in
   begin match path_mli with
   | Some _ -> (* With .mli: compile .mli to .cmi/.cmti first (using ocamlc for speed), then .ml to .cmx *)
-    [%rule "ocamlc -bin-annot -c -opaque -args <{includes_args} -o >{cmi|cmti} <{mli|deps...}"];
-    [%rule "ocamlopt -bin-annot -c -args <{includes_args} -cmi-file <{cmi} -o >{cmx|cmt|o} -impl <{ml|dyndep...}"];
+    [%rule "ocamlc -bin-annot -c -opaque %{args} -o >{cmi|cmti} <{mli|deps...}"];
+    [%rule "ocamlopt -bin-annot -c %{args} -cmi-file <{cmi} -o >{cmx|cmt|o} -impl <{ml|dyndep...}"];
   | None -> (* Without .mli: ocamlopt produces both .cmi and .cmx *)
-    [%rule "ocamlopt -bin-annot -c -args <{includes_args} -o >{cmx|cmi|cmt|o} -impl <{ml|deps...|dyndep...}"]
+    [%rule "ocamlopt -bin-annot -c %{args} -o >{cmx|cmi|cmt|o} -impl <{ml|deps...|dyndep...}"]
   end;
   cmi, cmx
 
@@ -126,11 +126,12 @@ let compile_ppx_driver rules _cfg ~build_dir ~ppxes =
   let lib_objs_args       = Filename.(ppx_dir / "lib_objs.args") in
   let cclib_args          = Filename.(ppx_dir / "cclib.args") in
   let libs = List.map (fun (Mach_module.Ppx_extlib lib) -> Cmd.v lib.v.name) ppxes in
-  [%rule "mkdir -p >{ppx_dir}"];
-  [%rule "echo 'let () = Ppxlib.Driver.standalone ()' > >{driver_ml} <{|ppx_dir}"];
-  [%rule "ocamlfind query -predicates ppx_driver,native -format '-I=%d' -recursive %{libs...} >> >{includes_args} <{|ppx_dir}"];
-  [%rule "ocamlfind query -a-format -recursive -predicates ppx_driver,native %{libs...} > >{lib_objs_args} <{|ppx_dir}"];
-  [%rule "ocamlfind query -l-format -recursive -predicates ppx_driver,native %{libs...} | tr ' ' '\n' > >{cclib_args} <{|ppx_dir}"];
+  [%rule 
+    "mkdir -p >{ppx_dir}";
+    "echo 'let () = Ppxlib.Driver.standalone ()' > >{driver_ml}"];
+  [%rule "ocamlfind query -predicates ppx_driver,native -format '-I=%d' -recursive %{libs...} >> >{includes_args} <{|driver_ml}"];
+  [%rule "ocamlfind query -a-format -recursive -predicates ppx_driver,native %{libs...} > >{lib_objs_args} <{|driver_ml}"];
+  [%rule "ocamlfind query -l-format -recursive -predicates ppx_driver,native %{libs...} | tr ' ' '\n' > >{cclib_args} <{|driver_ml}"];
   [%rule "ocamlopt -c -args <{includes_args} -o >{driver_cmx|driver_cmi} <{driver_ml}"];
   [%rule "ocamlopt -linkall -o >{driver_exe} -args <{lib_objs_args} -args <{cclib_args} <{driver_cmx}"];
   Some driver_exe

@@ -24,6 +24,9 @@ end
 module Cmd : sig
   type t = { command : string; deps : string list; targets : string list }
 
+  val empty : t
+  (** An empty command *)
+
   val v : ?deps:string list -> ?targets:string list -> string -> t
   (** Create a command line fragment *)
 
