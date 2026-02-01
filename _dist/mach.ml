@@ -14056,6 +14056,9 @@ module Mach_module : sig
 [@@@ocaml.text
   " Modules which are build with mach are .ml files with mach directives. "]
 open! Mach_std
+type extlib = {
+  name: string ;
+  version: string }
 type require =
   | Require of string with_loc [@ocaml.doc " path to .ml/.mlx file "]
   | Require_lib of string with_loc
@@ -14063,15 +14066,20 @@ type require =
     " path to a library directory (a directory with Machlib file) "]
   | Require_extlib of extlib with_loc [@ocaml.doc " ocamlfind library name "]
 [@@ocaml.doc " Result of resolving a require directive "]
-and extlib = {
-  name: string ;
-  version: string }
+type ppx =
+  | Ppx_extlib of extlib with_loc [@@ocaml.doc
+                                    " Result of resolving a ppx directive "]
 val equal_require : require -> require -> bool[@@ocaml.doc
                                                 " Compare two requires for equality, ignoring source location "]
+val equal_ppx : ppx -> ppx -> bool[@@ocaml.doc
+                                    " Compare two ppxes for equality, ignoring source location "]
 val resolve_require :
   Mach_config.t -> source_path:string -> line:int -> string -> require
 [@@ocaml.doc
   " Resolve a require.\n    Handles both module files (.ml/.mlx) and library directories (with Machlib). "]
+val resolve_ppx :
+  Mach_config.t -> source_path:string -> line:int -> string -> ppx[@@ocaml.doc
+                                                                    " Resolve a ppx package name against ocamlfind. "]
 type t =
   {
   path_ml: string [@ocaml.doc " path to .ml/.mlx file "];
@@ -14079,6 +14087,7 @@ type t =
   path_mli: string option [@ocaml.doc " path to .mli/.mli file, if any "];
   path_mli_stat: file_stat option ;
   requires: require list lazy_t [@ocaml.doc " resolved requires "];
+  ppxes: ppx list lazy_t [@ocaml.doc " resolved ppx packages "];
   kind: kind [@ocaml.doc " kind of source file "]}
 and kind =
   | ML 
@@ -14094,6 +14103,8 @@ val path_mli : string -> string option[@@ocaml.doc
 val cmx : Mach_config.t -> t -> string
 val extlibs : t -> SS.t[@@ocaml.doc
                          " List of external libraries required by this module. "]
+val ppx_extlibs : t -> string list[@@ocaml.doc
+                                    " List of ppx packages required by this module. "]
 end = struct
 [@@@ocaml.ppx.context
   {
@@ -14138,6 +14149,8 @@ type require =
 and extlib = {
   name: string ;
   version: string }
+type ppx =
+  | Ppx_extlib of extlib with_loc 
 let is_require_path s = String.contains s '/'
 let resolve_require_path ~source_path ~line req =
   let base_path =
@@ -14212,22 +14225,52 @@ let equal_require a b =
   | (Require_extlib a, Require_extlib b) ->
       ((a.v).name = (b.v).name) && ((a.v).version = (b.v).version)
   | _ -> false
-let extract_requires_exn config source_path =
-  let rec parse line_num acc ic =
+let equal_ppx (Ppx_extlib a) (Ppx_extlib b) =
+  ((a.v).name = (b.v).name) && ((a.v).version = (b.v).version)
+let resolve_ppx config ~source_path ~line name =
+  let info = Lazy.force (config.Mach_config.toolchain).ocamlfind in
+  if info.ocamlfind_version = None
+  then
+    Mach_error.user_errorf
+      "%s:%d: ppx %S requires ocamlfind but ocamlfind is not installed"
+      source_path line name
+  else
+    (match SM.find_opt name info.ocamlfind_libs with
+     | None ->
+         Mach_error.user_errorf "%s:%d: ppx %S not found" source_path line
+           name
+     | Some version ->
+         Ppx_extlib { v = { name; version }; filename = source_path; line })
+type directive =
+  | Dir_require of string 
+  | Dir_ppx of string 
+  | Dir_unknown 
+let parse_directive line =
+  try Dir_require (Scanf.sscanf line "#require %S%_s" Fun.id)
+  with
+  | Scanf.Scan_failure _ | End_of_file ->
+      (try Dir_ppx (Scanf.sscanf line "#ppx %S%_s" Fun.id)
+       with | Scanf.Scan_failure _ | End_of_file -> Dir_unknown)
+let extract_directives_exn config source_path =
+  let rec parse line_num requires ppxes ic =
     match In_channel.input_line ic with
-    | Some line when is_shebang line -> parse (line_num + 1) acc ic
+    | Some line when is_shebang line ->
+        parse (line_num + 1) requires ppxes ic
     | Some line when is_directive line ->
-        let req =
-          try Scanf.sscanf line "#require %S%_s" Fun.id
-          with
-          | Scanf.Scan_failure _ | End_of_file ->
-              Mach_error.user_errorf "%s:%d: invalid #require directive"
-                source_path line_num in
-        let r = resolve_require config ~source_path ~line:line_num req in
-        parse (line_num + 1) (r :: acc) ic
-    | Some line when is_empty_line line -> parse (line_num + 1) acc ic
-    | None | Some _ -> List.rev acc in
-  In_channel.with_open_text source_path (parse 1 [])
+        (match parse_directive line with
+         | Dir_require req ->
+             let r = resolve_require config ~source_path ~line:line_num req in
+             parse (line_num + 1) (r :: requires) ppxes ic
+         | Dir_ppx name ->
+             let p = resolve_ppx config ~source_path ~line:line_num name in
+             parse (line_num + 1) requires (p :: ppxes) ic
+         | Dir_unknown ->
+             Mach_error.user_errorf "%s:%d: unknown directive" source_path
+               line_num)
+    | Some line when is_empty_line line ->
+        parse (line_num + 1) requires ppxes ic
+    | None | Some _ -> ((List.rev requires), (List.rev ppxes)) in
+  In_channel.with_open_text source_path (parse 1 [] [])
 type t =
   {
   path_ml: string ;
@@ -14235,6 +14278,7 @@ type t =
   path_mli: string option ;
   path_mli_stat: file_stat option ;
   requires: require list lazy_t ;
+  ppxes: ppx list lazy_t ;
   kind: kind }
 and kind =
   | ML 
@@ -14251,8 +14295,10 @@ let of_path_exn config path_ml =
   let path_ml_stat = file_stat_exn path_ml in
   let (path_mli, path_mli_stat) = path_mli path_ml in
   let kind = kind_of_path_ml path_ml in
-  let requires = lazy (extract_requires_exn config path_ml) in
-  { path_ml; path_ml_stat; path_mli; path_mli_stat; requires; kind }
+  let directives = lazy (extract_directives_exn config path_ml) in
+  let requires = lazy (fst (Lazy.force directives)) in
+  let ppxes = lazy (snd (Lazy.force directives)) in
+  { path_ml; path_ml_stat; path_mli; path_mli_stat; requires; ppxes; kind }
 let of_path config path_ml =
   try Ok (of_path_exn config path_ml)
   with | Mach_error.Mach_user_error msg -> Error (`User_error msg)
@@ -14268,6 +14314,8 @@ let extlibs lib =
      (function | Require_extlib r -> Some ((r.v).name) | _ -> None)
      (!! (lib.requires)))
     |> SS.of_list
+let ppx_extlibs lib =
+  List.map (fun (Ppx_extlib r) -> (r.v).name) (!! (lib.ppxes))
 end
 module Mach_ocaml_rules = struct
 [@@@ocaml.ppx.context
@@ -14293,20 +14341,70 @@ open! Mach_std
 let modname_of path =
   let open Filename in (basename path) |> remove_extension
 let cmdf fmt = ksprintf Fun.id fmt
-let preprocess_ocaml_module rules cfg ~build_dir ~path_ml ~path_mli ~kind =
+let compile_ppx_driver rules _cfg ~build_dir ~ppxes =
+  if ppxes = []
+  then None
+  else
+    (let ppx_dir = let open Filename in build_dir / "_ppx" in
+     let ppx_dir_stamp = let open Filename in ppx_dir / ".stamp" in
+     let driver_ml = let open Filename in ppx_dir / "mach_ppx_driver.ml" in
+     let driver_exe = let open Filename in ppx_dir / "mach_ppx_driver" in
+     let driver_cmi = let open Filename in ppx_dir / "mach_ppx_driver.cmi" in
+     let driver_cmx = let open Filename in ppx_dir / "mach_ppx_driver.cmx" in
+     let compile_args = let open Filename in ppx_dir / "includes.args" in
+     let lib_objs_args = let open Filename in ppx_dir / "lib_objs.args" in
+     let cclib_args = let open Filename in ppx_dir / "cclib.args" in
+     let libs =
+       String.concat " "
+         (List.map (fun (Mach_module.Ppx_extlib lib) -> (lib.v).name) ppxes) in
+     Mach_build.Rules.rule rules ~targets:[|ppx_dir_stamp|] ~deps:[]
+       [cmdf "mkdir -p %s && touch %s" ppx_dir ppx_dir_stamp];
+     Mach_build.Rules.rule rules ~targets:[|driver_ml|] ~deps:[ppx_dir_stamp]
+       [cmdf "echo 'let () = Ppxlib.Driver.standalone ()' > %s" driver_ml];
+     Mach_build.Rules.rule rules ~targets:[|compile_args|]
+       ~deps:[ppx_dir_stamp]
+       [cmdf
+          "ocamlfind query -predicates ppx_driver,native -format '-I=%%d' -recursive %s >> %s"
+          libs compile_args];
+     Mach_build.Rules.rule rules ~targets:[|lib_objs_args|]
+       ~deps:[ppx_dir_stamp]
+       [cmdf
+          "ocamlfind query -a-format -recursive -predicates ppx_driver,native %s > %s"
+          libs lib_objs_args];
+     Mach_build.Rules.rule rules ~targets:[|cclib_args|]
+       ~deps:[ppx_dir_stamp]
+       [cmdf
+          "ocamlfind query -l-format -recursive -predicates ppx_driver,native %s | tr ' ' '\n' > %s"
+          libs cclib_args];
+     Mach_build.Rules.rule rules ~targets:[|driver_cmx;driver_cmi|]
+       ~deps:[driver_ml; compile_args; cclib_args]
+       [cmdf "ocamlopt -c -args %s -o %s %s" compile_args driver_cmx
+          driver_ml];
+     Mach_build.Rules.rule rules ~targets:[|driver_exe|]
+       ~deps:[driver_cmx; lib_objs_args]
+       [cmdf "ocamlopt -linkall -o %s -args %s -args %s %s" driver_exe
+          lib_objs_args cclib_args driver_cmx];
+     Some driver_exe)[@@ocaml.doc
+                       " Compile a ppx driver executable in build_dir/_ppx. "]
+let preprocess_ocaml_module rules cfg ~build_dir ~path_ml ~path_mli ~kind
+  ?ppx_driver () =
   let mach = cfg.Mach_config.mach_executable_path in
   let modname = modname_of path_ml in
   let ml = let open Filename in (build_dir / modname) ^ ".ml" in
-  let pp_flag =
+  let mlx_pp_flag =
     match kind with | Mach_module.ML -> "" | MLX -> " --pp mlx-pp" in
-  Mach_build.Rules.rulef rules ~targets:[|ml|] ~deps:[path_ml]
-    "%s pp%s -o %s %s" mach pp_flag ml path_ml;
+  let ppx_pp_flag =
+    match ppx_driver with | None -> "" | Some exe -> " --pp " ^ exe in
+  let deps = path_ml :: (Option.to_list ppx_driver) in
+  Mach_build.Rules.rulef rules ~targets:[|ml|] ~deps "%s pp%s%s -o %s %s"
+    mach mlx_pp_flag ppx_pp_flag ml path_ml;
   (let mli =
      Option.map
-       (fun mli_path ->
+       (fun path_mli ->
           let mli = let open Filename in (build_dir / modname) ^ ".mli" in
-          Mach_build.Rules.rulef rules ~targets:[|mli|] ~deps:[mli_path]
-            "%s pp -o %s %s" mach mli mli_path;
+          let deps = path_mli :: (Option.to_list ppx_driver) in
+          Mach_build.Rules.rulef rules ~targets:[|mli|] ~deps
+            "%s pp%s -o %s %s" mach ppx_pp_flag mli path_mli;
           mli) path_mli in
    (ml, mli))
 let ocamldep rules cfg ~build_dir ~path_ml ~includes_args =
@@ -14474,7 +14572,8 @@ type t =
   path_stat: file_stat ;
   machlib_stat: file_stat ;
   modules: lib_module list Lazy.t ;
-  requires: Mach_module.require list Lazy.t }
+  requires: Mach_module.require list Lazy.t ;
+  ppxes: Mach_module.ppx list Lazy.t }
 and lib_module =
   {
   file_ml: string [@ocaml.doc " relative filename "];
@@ -14486,6 +14585,8 @@ val cmxa : Mach_config.t -> t -> string[@@ocaml.doc
 val equal_lib_module : lib_module -> lib_module -> bool
 val extlibs : t -> SS.t[@@ocaml.doc
                          " List of external libraries required by this mach library. "]
+val ppx_extlibs : t -> string list[@@ocaml.doc
+                                    " List of ppx packages required by this mach library. "]
 end = struct
 [@@@ocaml.ppx.context
   {
@@ -14560,11 +14661,13 @@ type t =
   path_stat: file_stat ;
   machlib_stat: file_stat ;
   modules: lib_module list lazy_t ;
-  requires: Mach_module.require list lazy_t }
+  requires: Mach_module.require list lazy_t ;
+  ppxes: Mach_module.ppx list lazy_t }
 let equal_lib_module a b =
   (a.file_ml = b.file_ml) && (a.file_mli = b.file_mli)
 type machlib =
-  | Require of string list [@sexp.list ][@@deriving sexp]
+  | Require of string list [@sexp.list ]
+  | Ppx of string list [@sexp.list ][@@deriving sexp]
 include
   struct
     let _ = fun (_ : machlib) -> ()
@@ -14576,7 +14679,13 @@ include
            _sexp__013_ ->
            Require
              (Sexplib0.Sexp_conv.list_map string_of_sexp sexp_args__015_)
+       | Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom
+           ("ppx" | "Ppx" as _tag__017_))::sexp_args__018_) as _sexp__016_ ->
+           Ppx (Sexplib0.Sexp_conv.list_map string_of_sexp sexp_args__018_)
        | Sexplib0.Sexp.Atom ("require" | "Require") as sexp__012_ ->
+           Sexplib0.Sexp_conv_error.stag_takes_args error_source__011_
+             sexp__012_
+       | Sexplib0.Sexp.Atom ("ppx" | "Ppx") as sexp__012_ ->
            Sexplib0.Sexp_conv_error.stag_takes_args error_source__011_
              sexp__012_
        | Sexplib0.Sexp.List ((Sexplib0.Sexp.List _)::_) as sexp__010_ ->
@@ -14590,35 +14699,52 @@ include
              sexp__010_ : Sexplib0.Sexp.t -> machlib)
     let _ = machlib_of_sexp
     let sexp_of_machlib =
-      (fun (Require l__016_) ->
-         Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom "Require") ::
-           (Sexplib0.Sexp_conv.list_map sexp_of_string l__016_)) : machlib ->
-                                                                    Sexplib0.Sexp.t)
+      (function
+       | Require l__019_ ->
+           Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom "Require") ::
+             (Sexplib0.Sexp_conv.list_map sexp_of_string l__019_))
+       | Ppx l__020_ ->
+           Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom "Ppx") ::
+             (Sexplib0.Sexp_conv.list_map sexp_of_string l__020_)) : 
+      machlib -> Sexplib0.Sexp.t)
     let _ = sexp_of_machlib
   end[@@ocaml.doc "@inline"][@@merlin.hide ]
 let of_path config path =
   let machlib_path = Filename.concat path "Machlib" in
+  let parse_machlib () =
+    let content =
+      let open In_channel in with_open_text machlib_path input_all in
+    try
+      let sexp = Parsexp.Many.parse_string_exn content in
+      List.map machlib_of_sexp sexp
+    with
+    | Parsexp.Parse_error e ->
+        Mach_error.user_errorf "%s: parse error: %s" machlib_path
+          (Parsexp.Parse_error.message e)
+    | Sexplib0.Sexp_conv_error.Of_sexp_error (exn, _) ->
+        Mach_error.user_errorf "%s: invalid format: %s" machlib_path
+          (Printexc.to_string exn) in
+  let machlib = lazy (parse_machlib ()) in
   let requires =
     lazy
-      (let content =
-         let open In_channel in with_open_text machlib_path input_all in
-       let machlib =
-         try
-           let sexp = Parsexp.Many.parse_string_exn content in
-           List.map machlib_of_sexp sexp
-         with
-         | Parsexp.Parse_error e ->
-             Mach_error.user_errorf "%s: parse error: %s" machlib_path
-               (Parsexp.Parse_error.message e)
-         | Sexplib0.Sexp_conv_error.Of_sexp_error (exn, _) ->
-             Mach_error.user_errorf "%s: invalid format: %s" machlib_path
-               (Printexc.to_string exn) in
-       let line = 1 in
+      (let line = 1 in
        List.concat_map
-         (fun (Require reqs) ->
-            List.map
-              (Mach_module.resolve_require config ~source_path:machlib_path
-                 ~line) reqs) machlib) in
+         (function
+          | Require reqs ->
+              List.map
+                (Mach_module.resolve_require config ~source_path:machlib_path
+                   ~line) reqs
+          | Ppx _ -> []) (Lazy.force machlib)) in
+  let ppxes =
+    lazy
+      (let line = 1 in
+       List.concat_map
+         (function
+          | Ppx names ->
+              List.map
+                (Mach_module.resolve_ppx config ~source_path:machlib_path
+                   ~line) names
+          | Require _ -> []) (Lazy.force machlib)) in
   let modules =
     lazy
       ((((Sys.readdir path) |> Array.to_list) |>
@@ -14636,7 +14762,7 @@ let of_path config path =
          |> (List.sort (fun a b -> String.compare a.file_ml b.file_ml))) in
   let path_stat = file_stat_exn path in
   let machlib_stat = file_stat_exn machlib_path in
-  { path; path_stat; machlib_stat; modules; requires }
+  { path; path_stat; machlib_stat; modules; requires; ppxes }
 let cmxa config lib =
   let build_dir = Mach_config.build_dir_of config lib.path in
   let open Filename in (build_dir / (Filename.basename lib.path)) ^ ".cmxa"
@@ -14646,6 +14772,8 @@ let extlibs lib =
       | Mach_module.Require_extlib r -> Some ((r.v).name)
       | _ -> None) (!! (lib.requires)))
     |> SS.of_list
+let ppx_extlibs lib =
+  List.map (fun (Mach_module.Ppx_extlib r) -> (r.v).name) (!! (lib.ppxes))
 end
 module Mach_state : sig
 [@@@ocaml.ppx.context
@@ -14870,22 +14998,59 @@ include
                                                                    Sexplib0.Sexp.t)
     let _ = sexp_of_require
   end[@@ocaml.doc "@inline"][@@merlin.hide ]
+type ppx = Mach_module.ppx =
+  | Ppx_extlib of extlib with_loc [@@deriving sexp]
+include
+  struct
+    let _ = fun (_ : ppx) -> ()
+    let ppx_of_sexp =
+      (let error_source__044_ = "lib/mach_state.ml.ppx" in
+       function
+       | Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom
+           ("ppx_extlib" | "Ppx_extlib" as _tag__047_))::sexp_args__048_) as
+           _sexp__046_ ->
+           (match sexp_args__048_ with
+            | arg0__049_::[] ->
+                let res0__050_ = with_loc_of_sexp extlib_of_sexp arg0__049_ in
+                Ppx_extlib res0__050_
+            | _ ->
+                Sexplib0.Sexp_conv_error.stag_incorrect_n_args
+                  error_source__044_ _tag__047_ _sexp__046_)
+       | Sexplib0.Sexp.Atom ("ppx_extlib" | "Ppx_extlib") as sexp__045_ ->
+           Sexplib0.Sexp_conv_error.stag_takes_args error_source__044_
+             sexp__045_
+       | Sexplib0.Sexp.List ((Sexplib0.Sexp.List _)::_) as sexp__043_ ->
+           Sexplib0.Sexp_conv_error.nested_list_invalid_sum
+             error_source__044_ sexp__043_
+       | Sexplib0.Sexp.List [] as sexp__043_ ->
+           Sexplib0.Sexp_conv_error.empty_list_invalid_sum error_source__044_
+             sexp__043_
+       | sexp__043_ ->
+           Sexplib0.Sexp_conv_error.unexpected_stag error_source__044_
+             sexp__043_ : Sexplib0.Sexp.t -> ppx)
+    let _ = ppx_of_sexp
+    let sexp_of_ppx =
+      (fun (Ppx_extlib arg0__051_) ->
+         let res0__052_ = sexp_of_with_loc sexp_of_extlib arg0__051_ in
+         Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "Ppx_extlib"; res0__052_] : 
+      ppx -> Sexplib0.Sexp.t)
+    let _ = sexp_of_ppx
+  end[@@ocaml.doc "@inline"][@@merlin.hide ]
 type requires = require list[@@deriving sexp]
 include
   struct
     let _ = fun (_ : requires) -> ()
     let requires_of_sexp =
-      (fun x__043_ -> list_of_sexp require_of_sexp x__043_ : Sexplib0.Sexp.t
+      (fun x__054_ -> list_of_sexp require_of_sexp x__054_ : Sexplib0.Sexp.t
                                                                -> requires)
     let _ = requires_of_sexp
     let sexp_of_requires =
-      (fun x__044_ -> sexp_of_list sexp_of_require x__044_ : requires ->
+      (fun x__055_ -> sexp_of_list sexp_of_require x__055_ : requires ->
                                                                Sexplib0.Sexp.t)
     let _ = sexp_of_requires
   end[@@ocaml.doc "@inline"][@@merlin.hide ]
-let equal_requires x y =
-  try List.for_all2 Mach_module.equal_require x y
-  with | Invalid_argument _ -> false
+let equal_requires = List.equal Mach_module.equal_require
+let equal_ppxes = List.equal Mach_module.equal_ppx
 type mach_module = Mach_module.t =
   {
   path_ml: string ;
@@ -14893,6 +15058,7 @@ type mach_module = Mach_module.t =
   path_mli: string option ;
   path_mli_stat: file_stat option ;
   requires: require list lazy_t ;
+  ppxes: ppx list lazy_t ;
   kind: module_kind }[@@deriving sexp]
 and module_kind = Mach_module.kind =
   | ML 
@@ -14902,9 +15068,9 @@ include
     let _ = fun (_ : mach_module) -> ()
     let _ = fun (_ : module_kind) -> ()
     let rec mach_module_of_sexp =
-      (let error_source__046_ = "lib/mach_state.ml.mach_module" in
-       fun x__047_ ->
-         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__046_
+      (let error_source__057_ = "lib/mach_state.ml.mach_module" in
+       fun x__058_ ->
+         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__057_
            ~fields:(Field
                       {
                         name = "path_ml";
@@ -14942,11 +15108,24 @@ include
                                                     rest =
                                                       (Field
                                                          {
-                                                           name = "kind";
+                                                           name = "ppxes";
                                                            kind = Required;
                                                            conv =
-                                                             module_kind_of_sexp;
-                                                           rest = Empty
+                                                             (lazy_t_of_sexp
+                                                                (list_of_sexp
+                                                                   ppx_of_sexp));
+                                                           rest =
+                                                             (Field
+                                                                {
+                                                                  name =
+                                                                    "kind";
+                                                                  kind =
+                                                                    Required;
+                                                                  conv =
+                                                                    module_kind_of_sexp;
+                                                                  rest =
+                                                                    Empty
+                                                                })
                                                          })
                                                   })
                                            })
@@ -14959,12 +15138,14 @@ include
                             | "path_mli" -> 2
                             | "path_mli_stat" -> 3
                             | "requires" -> 4
-                            | "kind" -> 5
+                            | "ppxes" -> 5
+                            | "kind" -> 6
                             | _ -> (-1)) ~allow_extra_fields:false
            ~create:(fun
                       (path_ml,
                        (path_ml_stat,
-                        (path_mli, (path_mli_stat, (requires, (kind, ()))))))
+                        (path_mli,
+                         (path_mli_stat, (requires, (ppxes, (kind, ())))))))
                       ->
                       ({
                          path_ml;
@@ -14972,69 +15153,76 @@ include
                          path_mli;
                          path_mli_stat;
                          requires;
+                         ppxes;
                          kind
-                       } : mach_module)) x__047_ : Sexplib0.Sexp.t ->
+                       } : mach_module)) x__058_ : Sexplib0.Sexp.t ->
                                                      mach_module)
     and module_kind_of_sexp =
-      (let error_source__050_ = "lib/mach_state.ml.module_kind" in
+      (let error_source__061_ = "lib/mach_state.ml.module_kind" in
        function
        | Sexplib0.Sexp.Atom ("mL" | "ML") -> ML
        | Sexplib0.Sexp.Atom ("mLX" | "MLX") -> MLX
        | Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom ("mL" | "ML"))::_) as
-           sexp__051_ ->
-           Sexplib0.Sexp_conv_error.stag_no_args error_source__050_
-             sexp__051_
+           sexp__062_ ->
+           Sexplib0.Sexp_conv_error.stag_no_args error_source__061_
+             sexp__062_
        | Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom ("mLX" | "MLX"))::_) as
-           sexp__051_ ->
-           Sexplib0.Sexp_conv_error.stag_no_args error_source__050_
-             sexp__051_
-       | Sexplib0.Sexp.List ((Sexplib0.Sexp.List _)::_) as sexp__049_ ->
+           sexp__062_ ->
+           Sexplib0.Sexp_conv_error.stag_no_args error_source__061_
+             sexp__062_
+       | Sexplib0.Sexp.List ((Sexplib0.Sexp.List _)::_) as sexp__060_ ->
            Sexplib0.Sexp_conv_error.nested_list_invalid_sum
-             error_source__050_ sexp__049_
-       | Sexplib0.Sexp.List [] as sexp__049_ ->
-           Sexplib0.Sexp_conv_error.empty_list_invalid_sum error_source__050_
-             sexp__049_
-       | sexp__049_ ->
-           Sexplib0.Sexp_conv_error.unexpected_stag error_source__050_
-             sexp__049_ : Sexplib0.Sexp.t -> module_kind)
+             error_source__061_ sexp__060_
+       | Sexplib0.Sexp.List [] as sexp__060_ ->
+           Sexplib0.Sexp_conv_error.empty_list_invalid_sum error_source__061_
+             sexp__060_
+       | sexp__060_ ->
+           Sexplib0.Sexp_conv_error.unexpected_stag error_source__061_
+             sexp__060_ : Sexplib0.Sexp.t -> module_kind)
     let _ = mach_module_of_sexp
     and _ = module_kind_of_sexp
     let rec sexp_of_mach_module =
       (fun
-         { path_ml = path_ml__053_; path_ml_stat = path_ml_stat__055_;
-           path_mli = path_mli__057_; path_mli_stat = path_mli_stat__059_;
-           requires = requires__061_; kind = kind__063_ }
+         { path_ml = path_ml__064_; path_ml_stat = path_ml_stat__066_;
+           path_mli = path_mli__068_; path_mli_stat = path_mli_stat__070_;
+           requires = requires__072_; ppxes = ppxes__074_; kind = kind__076_
+           }
          ->
-         let bnds__052_ = ([] : _ Stdlib.List.t) in
-         let bnds__052_ =
-           let arg__064_ = sexp_of_module_kind kind__063_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "kind"; arg__064_]) ::
-             bnds__052_ : _ Stdlib.List.t) in
-         let bnds__052_ =
-           let arg__062_ =
-             sexp_of_lazy_t (sexp_of_list sexp_of_require) requires__061_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "requires"; arg__062_])
-             :: bnds__052_ : _ Stdlib.List.t) in
-         let bnds__052_ =
-           let arg__060_ =
-             sexp_of_option sexp_of_file_stat path_mli_stat__059_ in
+         let bnds__063_ = ([] : _ Stdlib.List.t) in
+         let bnds__063_ =
+           let arg__077_ = sexp_of_module_kind kind__076_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "kind"; arg__077_]) ::
+             bnds__063_ : _ Stdlib.List.t) in
+         let bnds__063_ =
+           let arg__075_ =
+             sexp_of_lazy_t (sexp_of_list sexp_of_ppx) ppxes__074_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "ppxes"; arg__075_]) ::
+             bnds__063_ : _ Stdlib.List.t) in
+         let bnds__063_ =
+           let arg__073_ =
+             sexp_of_lazy_t (sexp_of_list sexp_of_require) requires__072_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "requires"; arg__073_])
+             :: bnds__063_ : _ Stdlib.List.t) in
+         let bnds__063_ =
+           let arg__071_ =
+             sexp_of_option sexp_of_file_stat path_mli_stat__070_ in
            ((Sexplib0.Sexp.List
-               [Sexplib0.Sexp.Atom "path_mli_stat"; arg__060_])
-             :: bnds__052_ : _ Stdlib.List.t) in
-         let bnds__052_ =
-           let arg__058_ = sexp_of_option sexp_of_string path_mli__057_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "path_mli"; arg__058_])
-             :: bnds__052_ : _ Stdlib.List.t) in
-         let bnds__052_ =
-           let arg__056_ = sexp_of_file_stat path_ml_stat__055_ in
+               [Sexplib0.Sexp.Atom "path_mli_stat"; arg__071_])
+             :: bnds__063_ : _ Stdlib.List.t) in
+         let bnds__063_ =
+           let arg__069_ = sexp_of_option sexp_of_string path_mli__068_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "path_mli"; arg__069_])
+             :: bnds__063_ : _ Stdlib.List.t) in
+         let bnds__063_ =
+           let arg__067_ = sexp_of_file_stat path_ml_stat__066_ in
            ((Sexplib0.Sexp.List
-               [Sexplib0.Sexp.Atom "path_ml_stat"; arg__056_])
-             :: bnds__052_ : _ Stdlib.List.t) in
-         let bnds__052_ =
-           let arg__054_ = sexp_of_string path_ml__053_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "path_ml"; arg__054_]) ::
-             bnds__052_ : _ Stdlib.List.t) in
-         Sexplib0.Sexp.List bnds__052_ : mach_module -> Sexplib0.Sexp.t)
+               [Sexplib0.Sexp.Atom "path_ml_stat"; arg__067_])
+             :: bnds__063_ : _ Stdlib.List.t) in
+         let bnds__063_ =
+           let arg__065_ = sexp_of_string path_ml__064_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "path_ml"; arg__065_]) ::
+             bnds__063_ : _ Stdlib.List.t) in
+         Sexplib0.Sexp.List bnds__063_ : mach_module -> Sexplib0.Sexp.t)
     and sexp_of_module_kind =
       (function
        | ML -> Sexplib0.Sexp.Atom "ML"
@@ -15042,9 +15230,9 @@ include
     let _ = sexp_of_mach_module
     and _ = sexp_of_module_kind
     let rec mach_module_of_sexp =
-      (let error_source__066_ = "lib/mach_state.ml.mach_module" in
-       fun x__067_ ->
-         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__066_
+      (let error_source__079_ = "lib/mach_state.ml.mach_module" in
+       fun x__080_ ->
+         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__079_
            ~fields:(Field
                       {
                         name = "path_ml";
@@ -15082,11 +15270,24 @@ include
                                                     rest =
                                                       (Field
                                                          {
-                                                           name = "kind";
+                                                           name = "ppxes";
                                                            kind = Required;
                                                            conv =
-                                                             module_kind_of_sexp;
-                                                           rest = Empty
+                                                             (lazy_t_of_sexp
+                                                                (list_of_sexp
+                                                                   ppx_of_sexp));
+                                                           rest =
+                                                             (Field
+                                                                {
+                                                                  name =
+                                                                    "kind";
+                                                                  kind =
+                                                                    Required;
+                                                                  conv =
+                                                                    module_kind_of_sexp;
+                                                                  rest =
+                                                                    Empty
+                                                                })
                                                          })
                                                   })
                                            })
@@ -15099,12 +15300,14 @@ include
                             | "path_mli" -> 2
                             | "path_mli_stat" -> 3
                             | "requires" -> 4
-                            | "kind" -> 5
+                            | "ppxes" -> 5
+                            | "kind" -> 6
                             | _ -> (-1)) ~allow_extra_fields:false
            ~create:(fun
                       (path_ml,
                        (path_ml_stat,
-                        (path_mli, (path_mli_stat, (requires, (kind, ()))))))
+                        (path_mli,
+                         (path_mli_stat, (requires, (ppxes, (kind, ())))))))
                       ->
                       ({
                          path_ml;
@@ -15112,69 +15315,76 @@ include
                          path_mli;
                          path_mli_stat;
                          requires;
+                         ppxes;
                          kind
-                       } : mach_module)) x__067_ : Sexplib0.Sexp.t ->
+                       } : mach_module)) x__080_ : Sexplib0.Sexp.t ->
                                                      mach_module)
     and module_kind_of_sexp =
-      (let error_source__070_ = "lib/mach_state.ml.module_kind" in
+      (let error_source__083_ = "lib/mach_state.ml.module_kind" in
        function
        | Sexplib0.Sexp.Atom ("mL" | "ML") -> ML
        | Sexplib0.Sexp.Atom ("mLX" | "MLX") -> MLX
        | Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom ("mL" | "ML"))::_) as
-           sexp__071_ ->
-           Sexplib0.Sexp_conv_error.stag_no_args error_source__070_
-             sexp__071_
+           sexp__084_ ->
+           Sexplib0.Sexp_conv_error.stag_no_args error_source__083_
+             sexp__084_
        | Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom ("mLX" | "MLX"))::_) as
-           sexp__071_ ->
-           Sexplib0.Sexp_conv_error.stag_no_args error_source__070_
-             sexp__071_
-       | Sexplib0.Sexp.List ((Sexplib0.Sexp.List _)::_) as sexp__069_ ->
+           sexp__084_ ->
+           Sexplib0.Sexp_conv_error.stag_no_args error_source__083_
+             sexp__084_
+       | Sexplib0.Sexp.List ((Sexplib0.Sexp.List _)::_) as sexp__082_ ->
            Sexplib0.Sexp_conv_error.nested_list_invalid_sum
-             error_source__070_ sexp__069_
-       | Sexplib0.Sexp.List [] as sexp__069_ ->
-           Sexplib0.Sexp_conv_error.empty_list_invalid_sum error_source__070_
-             sexp__069_
-       | sexp__069_ ->
-           Sexplib0.Sexp_conv_error.unexpected_stag error_source__070_
-             sexp__069_ : Sexplib0.Sexp.t -> module_kind)
+             error_source__083_ sexp__082_
+       | Sexplib0.Sexp.List [] as sexp__082_ ->
+           Sexplib0.Sexp_conv_error.empty_list_invalid_sum error_source__083_
+             sexp__082_
+       | sexp__082_ ->
+           Sexplib0.Sexp_conv_error.unexpected_stag error_source__083_
+             sexp__082_ : Sexplib0.Sexp.t -> module_kind)
     let _ = mach_module_of_sexp
     and _ = module_kind_of_sexp
     let rec sexp_of_mach_module =
       (fun
-         { path_ml = path_ml__073_; path_ml_stat = path_ml_stat__075_;
-           path_mli = path_mli__077_; path_mli_stat = path_mli_stat__079_;
-           requires = requires__081_; kind = kind__083_ }
+         { path_ml = path_ml__086_; path_ml_stat = path_ml_stat__088_;
+           path_mli = path_mli__090_; path_mli_stat = path_mli_stat__092_;
+           requires = requires__094_; ppxes = ppxes__096_; kind = kind__098_
+           }
          ->
-         let bnds__072_ = ([] : _ Stdlib.List.t) in
-         let bnds__072_ =
-           let arg__084_ = sexp_of_module_kind kind__083_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "kind"; arg__084_]) ::
-             bnds__072_ : _ Stdlib.List.t) in
-         let bnds__072_ =
-           let arg__082_ =
-             sexp_of_lazy_t (sexp_of_list sexp_of_require) requires__081_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "requires"; arg__082_])
-             :: bnds__072_ : _ Stdlib.List.t) in
-         let bnds__072_ =
-           let arg__080_ =
-             sexp_of_option sexp_of_file_stat path_mli_stat__079_ in
+         let bnds__085_ = ([] : _ Stdlib.List.t) in
+         let bnds__085_ =
+           let arg__099_ = sexp_of_module_kind kind__098_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "kind"; arg__099_]) ::
+             bnds__085_ : _ Stdlib.List.t) in
+         let bnds__085_ =
+           let arg__097_ =
+             sexp_of_lazy_t (sexp_of_list sexp_of_ppx) ppxes__096_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "ppxes"; arg__097_]) ::
+             bnds__085_ : _ Stdlib.List.t) in
+         let bnds__085_ =
+           let arg__095_ =
+             sexp_of_lazy_t (sexp_of_list sexp_of_require) requires__094_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "requires"; arg__095_])
+             :: bnds__085_ : _ Stdlib.List.t) in
+         let bnds__085_ =
+           let arg__093_ =
+             sexp_of_option sexp_of_file_stat path_mli_stat__092_ in
            ((Sexplib0.Sexp.List
-               [Sexplib0.Sexp.Atom "path_mli_stat"; arg__080_])
-             :: bnds__072_ : _ Stdlib.List.t) in
-         let bnds__072_ =
-           let arg__078_ = sexp_of_option sexp_of_string path_mli__077_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "path_mli"; arg__078_])
-             :: bnds__072_ : _ Stdlib.List.t) in
-         let bnds__072_ =
-           let arg__076_ = sexp_of_file_stat path_ml_stat__075_ in
+               [Sexplib0.Sexp.Atom "path_mli_stat"; arg__093_])
+             :: bnds__085_ : _ Stdlib.List.t) in
+         let bnds__085_ =
+           let arg__091_ = sexp_of_option sexp_of_string path_mli__090_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "path_mli"; arg__091_])
+             :: bnds__085_ : _ Stdlib.List.t) in
+         let bnds__085_ =
+           let arg__089_ = sexp_of_file_stat path_ml_stat__088_ in
            ((Sexplib0.Sexp.List
-               [Sexplib0.Sexp.Atom "path_ml_stat"; arg__076_])
-             :: bnds__072_ : _ Stdlib.List.t) in
-         let bnds__072_ =
-           let arg__074_ = sexp_of_string path_ml__073_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "path_ml"; arg__074_]) ::
-             bnds__072_ : _ Stdlib.List.t) in
-         Sexplib0.Sexp.List bnds__072_ : mach_module -> Sexplib0.Sexp.t)
+               [Sexplib0.Sexp.Atom "path_ml_stat"; arg__089_])
+             :: bnds__085_ : _ Stdlib.List.t) in
+         let bnds__085_ =
+           let arg__087_ = sexp_of_string path_ml__086_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "path_ml"; arg__087_]) ::
+             bnds__085_ : _ Stdlib.List.t) in
+         Sexplib0.Sexp.List bnds__085_ : mach_module -> Sexplib0.Sexp.t)
     and sexp_of_module_kind =
       (function
        | ML -> Sexplib0.Sexp.Atom "ML"
@@ -15188,14 +15398,15 @@ type mach_library = Mach_library.t =
   path_stat: file_stat ;
   machlib_stat: file_stat ;
   modules: mach_lib_mod list lazy_t ;
-  requires: require list lazy_t }[@@deriving sexp]
+  requires: require list lazy_t ;
+  ppxes: ppx list lazy_t }[@@deriving sexp]
 include
   struct
     let _ = fun (_ : mach_library) -> ()
     let mach_library_of_sexp =
-      (let error_source__086_ = "lib/mach_state.ml.mach_library" in
-       fun x__087_ ->
-         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__086_
+      (let error_source__101_ = "lib/mach_state.ml.mach_library" in
+       fun x__102_ ->
+         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__101_
            ~fields:(Field
                       {
                         name = "path";
@@ -15231,7 +15442,17 @@ include
                                                       (lazy_t_of_sexp
                                                          (list_of_sexp
                                                             require_of_sexp));
-                                                    rest = Empty
+                                                    rest =
+                                                      (Field
+                                                         {
+                                                           name = "ppxes";
+                                                           kind = Required;
+                                                           conv =
+                                                             (lazy_t_of_sexp
+                                                                (list_of_sexp
+                                                                   ppx_of_sexp));
+                                                           rest = Empty
+                                                         })
                                                   })
                                            })
                                     })
@@ -15243,46 +15464,59 @@ include
                             | "machlib_stat" -> 2
                             | "modules" -> 3
                             | "requires" -> 4
+                            | "ppxes" -> 5
                             | _ -> (-1)) ~allow_extra_fields:false
            ~create:(fun
                       (path,
-                       (path_stat, (machlib_stat, (modules, (requires, ())))))
+                       (path_stat,
+                        (machlib_stat, (modules, (requires, (ppxes, ()))))))
                       ->
-                      ({ path; path_stat; machlib_stat; modules; requires } : 
-                      mach_library)) x__087_ : Sexplib0.Sexp.t ->
-                                                 mach_library)
+                      ({
+                         path;
+                         path_stat;
+                         machlib_stat;
+                         modules;
+                         requires;
+                         ppxes
+                       } : mach_library)) x__102_ : Sexplib0.Sexp.t ->
+                                                      mach_library)
     let _ = mach_library_of_sexp
     let sexp_of_mach_library =
       (fun
-         { path = path__089_; path_stat = path_stat__091_;
-           machlib_stat = machlib_stat__093_; modules = modules__095_;
-           requires = requires__097_ }
+         { path = path__104_; path_stat = path_stat__106_;
+           machlib_stat = machlib_stat__108_; modules = modules__110_;
+           requires = requires__112_; ppxes = ppxes__114_ }
          ->
-         let bnds__088_ = ([] : _ Stdlib.List.t) in
-         let bnds__088_ =
-           let arg__098_ =
-             sexp_of_lazy_t (sexp_of_list sexp_of_require) requires__097_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "requires"; arg__098_])
-             :: bnds__088_ : _ Stdlib.List.t) in
-         let bnds__088_ =
-           let arg__096_ =
-             sexp_of_lazy_t (sexp_of_list sexp_of_mach_lib_mod) modules__095_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "modules"; arg__096_]) ::
-             bnds__088_ : _ Stdlib.List.t) in
-         let bnds__088_ =
-           let arg__094_ = sexp_of_file_stat machlib_stat__093_ in
+         let bnds__103_ = ([] : _ Stdlib.List.t) in
+         let bnds__103_ =
+           let arg__115_ =
+             sexp_of_lazy_t (sexp_of_list sexp_of_ppx) ppxes__114_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "ppxes"; arg__115_]) ::
+             bnds__103_ : _ Stdlib.List.t) in
+         let bnds__103_ =
+           let arg__113_ =
+             sexp_of_lazy_t (sexp_of_list sexp_of_require) requires__112_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "requires"; arg__113_])
+             :: bnds__103_ : _ Stdlib.List.t) in
+         let bnds__103_ =
+           let arg__111_ =
+             sexp_of_lazy_t (sexp_of_list sexp_of_mach_lib_mod) modules__110_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "modules"; arg__111_]) ::
+             bnds__103_ : _ Stdlib.List.t) in
+         let bnds__103_ =
+           let arg__109_ = sexp_of_file_stat machlib_stat__108_ in
            ((Sexplib0.Sexp.List
-               [Sexplib0.Sexp.Atom "machlib_stat"; arg__094_])
-             :: bnds__088_ : _ Stdlib.List.t) in
-         let bnds__088_ =
-           let arg__092_ = sexp_of_file_stat path_stat__091_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "path_stat"; arg__092_])
-             :: bnds__088_ : _ Stdlib.List.t) in
-         let bnds__088_ =
-           let arg__090_ = sexp_of_string path__089_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "path"; arg__090_]) ::
-             bnds__088_ : _ Stdlib.List.t) in
-         Sexplib0.Sexp.List bnds__088_ : mach_library -> Sexplib0.Sexp.t)
+               [Sexplib0.Sexp.Atom "machlib_stat"; arg__109_])
+             :: bnds__103_ : _ Stdlib.List.t) in
+         let bnds__103_ =
+           let arg__107_ = sexp_of_file_stat path_stat__106_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "path_stat"; arg__107_])
+             :: bnds__103_ : _ Stdlib.List.t) in
+         let bnds__103_ =
+           let arg__105_ = sexp_of_string path__104_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "path"; arg__105_]) ::
+             bnds__103_ : _ Stdlib.List.t) in
+         Sexplib0.Sexp.List bnds__103_ : mach_library -> Sexplib0.Sexp.t)
     let _ = sexp_of_mach_library
   end[@@ocaml.doc "@inline"][@@merlin.hide ]
 type mach_unit =
@@ -15292,52 +15526,52 @@ include
   struct
     let _ = fun (_ : mach_unit) -> ()
     let mach_unit_of_sexp =
-      (let error_source__101_ = "lib/mach_state.ml.mach_unit" in
+      (let error_source__118_ = "lib/mach_state.ml.mach_unit" in
        function
        | Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom
-           ("unit_module" | "Unit_module" as _tag__104_))::sexp_args__105_)
-           as _sexp__103_ ->
-           (match sexp_args__105_ with
-            | arg0__106_::[] ->
-                let res0__107_ = mach_module_of_sexp arg0__106_ in
-                Unit_module res0__107_
+           ("unit_module" | "Unit_module" as _tag__121_))::sexp_args__122_)
+           as _sexp__120_ ->
+           (match sexp_args__122_ with
+            | arg0__123_::[] ->
+                let res0__124_ = mach_module_of_sexp arg0__123_ in
+                Unit_module res0__124_
             | _ ->
                 Sexplib0.Sexp_conv_error.stag_incorrect_n_args
-                  error_source__101_ _tag__104_ _sexp__103_)
+                  error_source__118_ _tag__121_ _sexp__120_)
        | Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom
-           ("unit_lib" | "Unit_lib" as _tag__109_))::sexp_args__110_) as
-           _sexp__108_ ->
-           (match sexp_args__110_ with
-            | arg0__111_::[] ->
-                let res0__112_ = mach_library_of_sexp arg0__111_ in
-                Unit_lib res0__112_
+           ("unit_lib" | "Unit_lib" as _tag__126_))::sexp_args__127_) as
+           _sexp__125_ ->
+           (match sexp_args__127_ with
+            | arg0__128_::[] ->
+                let res0__129_ = mach_library_of_sexp arg0__128_ in
+                Unit_lib res0__129_
             | _ ->
                 Sexplib0.Sexp_conv_error.stag_incorrect_n_args
-                  error_source__101_ _tag__109_ _sexp__108_)
-       | Sexplib0.Sexp.Atom ("unit_module" | "Unit_module") as sexp__102_ ->
-           Sexplib0.Sexp_conv_error.stag_takes_args error_source__101_
-             sexp__102_
-       | Sexplib0.Sexp.Atom ("unit_lib" | "Unit_lib") as sexp__102_ ->
-           Sexplib0.Sexp_conv_error.stag_takes_args error_source__101_
-             sexp__102_
-       | Sexplib0.Sexp.List ((Sexplib0.Sexp.List _)::_) as sexp__100_ ->
+                  error_source__118_ _tag__126_ _sexp__125_)
+       | Sexplib0.Sexp.Atom ("unit_module" | "Unit_module") as sexp__119_ ->
+           Sexplib0.Sexp_conv_error.stag_takes_args error_source__118_
+             sexp__119_
+       | Sexplib0.Sexp.Atom ("unit_lib" | "Unit_lib") as sexp__119_ ->
+           Sexplib0.Sexp_conv_error.stag_takes_args error_source__118_
+             sexp__119_
+       | Sexplib0.Sexp.List ((Sexplib0.Sexp.List _)::_) as sexp__117_ ->
            Sexplib0.Sexp_conv_error.nested_list_invalid_sum
-             error_source__101_ sexp__100_
-       | Sexplib0.Sexp.List [] as sexp__100_ ->
-           Sexplib0.Sexp_conv_error.empty_list_invalid_sum error_source__101_
-             sexp__100_
-       | sexp__100_ ->
-           Sexplib0.Sexp_conv_error.unexpected_stag error_source__101_
-             sexp__100_ : Sexplib0.Sexp.t -> mach_unit)
+             error_source__118_ sexp__117_
+       | Sexplib0.Sexp.List [] as sexp__117_ ->
+           Sexplib0.Sexp_conv_error.empty_list_invalid_sum error_source__118_
+             sexp__117_
+       | sexp__117_ ->
+           Sexplib0.Sexp_conv_error.unexpected_stag error_source__118_
+             sexp__117_ : Sexplib0.Sexp.t -> mach_unit)
     let _ = mach_unit_of_sexp
     let sexp_of_mach_unit =
       (function
-       | Unit_module arg0__113_ ->
-           let res0__114_ = sexp_of_mach_module arg0__113_ in
-           Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "Unit_module"; res0__114_]
-       | Unit_lib arg0__115_ ->
-           let res0__116_ = sexp_of_mach_library arg0__115_ in
-           Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "Unit_lib"; res0__116_] : 
+       | Unit_module arg0__130_ ->
+           let res0__131_ = sexp_of_mach_module arg0__130_ in
+           Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "Unit_module"; res0__131_]
+       | Unit_lib arg0__132_ ->
+           let res0__133_ = sexp_of_mach_library arg0__132_ in
+           Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "Unit_lib"; res0__133_] : 
       mach_unit -> Sexplib0.Sexp.t)
     let _ = sexp_of_mach_unit
   end[@@ocaml.doc "@inline"][@@merlin.hide ]
@@ -15350,9 +15584,9 @@ include
   struct
     let _ = fun (_ : toolchain) -> ()
     let toolchain_of_sexp =
-      (let error_source__118_ = "lib/mach_state.ml.toolchain" in
-       fun x__119_ ->
-         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__118_
+      (let error_source__135_ = "lib/mach_state.ml.toolchain" in
+       fun x__136_ ->
+         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__135_
            ~fields:(Field
                       {
                         name = "mach_executable_path";
@@ -15387,32 +15621,32 @@ include
                          mach_executable_path;
                          ocaml_version;
                          ocamlfind_version
-                       } : toolchain)) x__119_ : Sexplib0.Sexp.t -> toolchain)
+                       } : toolchain)) x__136_ : Sexplib0.Sexp.t -> toolchain)
     let _ = toolchain_of_sexp
     let sexp_of_toolchain =
       (fun
-         { mach_executable_path = mach_executable_path__121_;
-           ocaml_version = ocaml_version__123_;
-           ocamlfind_version = ocamlfind_version__125_ }
+         { mach_executable_path = mach_executable_path__138_;
+           ocaml_version = ocaml_version__140_;
+           ocamlfind_version = ocamlfind_version__142_ }
          ->
-         let bnds__120_ = ([] : _ Stdlib.List.t) in
-         let bnds__120_ =
-           let arg__126_ =
-             sexp_of_option sexp_of_string ocamlfind_version__125_ in
+         let bnds__137_ = ([] : _ Stdlib.List.t) in
+         let bnds__137_ =
+           let arg__143_ =
+             sexp_of_option sexp_of_string ocamlfind_version__142_ in
            ((Sexplib0.Sexp.List
-               [Sexplib0.Sexp.Atom "ocamlfind_version"; arg__126_])
-             :: bnds__120_ : _ Stdlib.List.t) in
-         let bnds__120_ =
-           let arg__124_ = sexp_of_string ocaml_version__123_ in
+               [Sexplib0.Sexp.Atom "ocamlfind_version"; arg__143_])
+             :: bnds__137_ : _ Stdlib.List.t) in
+         let bnds__137_ =
+           let arg__141_ = sexp_of_string ocaml_version__140_ in
            ((Sexplib0.Sexp.List
-               [Sexplib0.Sexp.Atom "ocaml_version"; arg__124_])
-             :: bnds__120_ : _ Stdlib.List.t) in
-         let bnds__120_ =
-           let arg__122_ = sexp_of_string mach_executable_path__121_ in
+               [Sexplib0.Sexp.Atom "ocaml_version"; arg__141_])
+             :: bnds__137_ : _ Stdlib.List.t) in
+         let bnds__137_ =
+           let arg__139_ = sexp_of_string mach_executable_path__138_ in
            ((Sexplib0.Sexp.List
-               [Sexplib0.Sexp.Atom "mach_executable_path"; arg__122_])
-             :: bnds__120_ : _ Stdlib.List.t) in
-         Sexplib0.Sexp.List bnds__120_ : toolchain -> Sexplib0.Sexp.t)
+               [Sexplib0.Sexp.Atom "mach_executable_path"; arg__139_])
+             :: bnds__137_ : _ Stdlib.List.t) in
+         Sexplib0.Sexp.List bnds__137_ : toolchain -> Sexplib0.Sexp.t)
     let _ = sexp_of_toolchain
   end[@@ocaml.doc "@inline"][@@merlin.hide ]
 type t = {
@@ -15422,9 +15656,9 @@ include
   struct
     let _ = fun (_ : t) -> ()
     let t_of_sexp =
-      (let error_source__128_ = "lib/mach_state.ml.t" in
-       fun x__129_ ->
-         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__128_
+      (let error_source__145_ = "lib/mach_state.ml.t" in
+       fun x__146_ ->
+         Sexplib0.Sexp_conv_record.record_of_sexp ~caller:error_source__145_
            ~fields:(Field
                       {
                         name = "toolchain";
@@ -15444,20 +15678,20 @@ include
                             | "unit" -> 1
                             | _ -> (-1)) ~allow_extra_fields:false
            ~create:(fun (toolchain, (unit, ())) -> ({ toolchain; unit } : t))
-           x__129_ : Sexplib0.Sexp.t -> t)
+           x__146_ : Sexplib0.Sexp.t -> t)
     let _ = t_of_sexp
     let sexp_of_t =
-      (fun { toolchain = toolchain__131_; unit = unit__133_ } ->
-         let bnds__130_ = ([] : _ Stdlib.List.t) in
-         let bnds__130_ =
-           let arg__134_ = sexp_of_mach_unit unit__133_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "unit"; arg__134_]) ::
-             bnds__130_ : _ Stdlib.List.t) in
-         let bnds__130_ =
-           let arg__132_ = sexp_of_toolchain toolchain__131_ in
-           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "toolchain"; arg__132_])
-             :: bnds__130_ : _ Stdlib.List.t) in
-         Sexplib0.Sexp.List bnds__130_ : t -> Sexplib0.Sexp.t)
+      (fun { toolchain = toolchain__148_; unit = unit__150_ } ->
+         let bnds__147_ = ([] : _ Stdlib.List.t) in
+         let bnds__147_ =
+           let arg__151_ = sexp_of_mach_unit unit__150_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "unit"; arg__151_]) ::
+             bnds__147_ : _ Stdlib.List.t) in
+         let bnds__147_ =
+           let arg__149_ = sexp_of_toolchain toolchain__148_ in
+           ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "toolchain"; arg__149_])
+             :: bnds__147_ : _ Stdlib.List.t) in
+         Sexplib0.Sexp.List bnds__147_ : t -> Sexplib0.Sexp.t)
     let _ = sexp_of_t
   end[@@ocaml.doc "@inline"][@@merlin.hide ]
 let mli_path_of_ml_if_exists path =
@@ -15500,7 +15734,9 @@ let validate_module config unit : Mach_module.t unit_validation=
              if not (equal_file_stat path_ml_stat m.path_ml_stat)
              then
                (let m' = Mach_module.of_path_exn config m.path_ml in
-                if not (equal_requires (!! (m'.requires)) (!! (m.requires)))
+                if
+                  (not (equal_requires (!! (m'.requires)) (!! (m.requires))))
+                    || (not (equal_ppxes (!! (m'.ppxes)) (!! (m.ppxes))))
                 then Changed m'
                 else Fresh_but_update_state m')
              else Fresh m)
@@ -15768,16 +16004,23 @@ let resolve_target config path =
 let target_path = function | Target_executable p | Target_library p -> p
 let pp ~source_path ic oc = Mach_module.preprocess_source ~source_path oc ic
 let configure_module ~build_dir rules config (m : Mach_module.t) =
+  let ppx_driver =
+    Mach_ocaml_rules.compile_ppx_driver rules config ~build_dir
+      ~ppxes:(!! (m.ppxes)) in
   let (_ocamldep_args, _compile_args) =
     let (ml, _mli) =
       Mach_ocaml_rules.preprocess_ocaml_module rules config ~build_dir
-        ~path_ml:(m.path_ml) ~path_mli:(m.path_mli) ~kind:(m.kind) in
+        ~path_ml:(m.path_ml) ~path_mli:(m.path_mli) ~kind:(m.kind)
+        ?ppx_driver () in
     Mach_ocaml_rules.compile_ocaml_args rules config
       ~requires:(!! (m.requires)) ~build_dir ~deps:[ml] in
   Mach_ocaml_rules.compile_ocaml_module rules config ~path_ml:(m.path_ml)
     ~path_mli:(m.path_mli) ~requires:(!! (m.requires)) ~build_dir
 let configure_library ~build_dir rules config (lib : Mach_library.t) =
   let lib_name = Filename.basename lib.path in
+  let ppx_driver =
+    Mach_ocaml_rules.compile_ppx_driver rules config ~build_dir
+      ~ppxes:(!! (lib.ppxes)) in
   let (ocamldep_args, _compile_args) =
     Mach_ocaml_rules.compile_ocaml_args ~include_self:true rules config
       ~requires:(!! (lib.requires)) ~build_dir
@@ -15793,7 +16036,7 @@ let configure_library ~build_dir rules config (lib : Mach_library.t) =
           let (ml, mli) =
             Mach_ocaml_rules.preprocess_ocaml_module rules config ~build_dir
               ~path_ml:src_ml ~path_mli:src_mli
-              ~kind:(Mach_module.kind_of_path_ml src_ml) in
+              ~kind:(Mach_module.kind_of_path_ml src_ml) ?ppx_driver () in
           let path_dep =
             Mach_ocaml_rules.ocamldep rules config ~build_dir ~path_ml:ml
               ~includes_args:ocamldep_args in
@@ -21829,7 +22072,7 @@ let configure_cmd =
 
 let pp_cmd =
   let doc = "Preprocess source file to stdout (for use with merlin -pp)" in
-  let f source output pp_cmd =
+  let f source output pp_cmds =
     let with_output f =
       match output with
       | Some o -> atomic_write_file o f
@@ -21838,9 +22081,9 @@ let pp_cmd =
     let mach_pp oc =
       In_channel.with_open_text source (fun ic -> pp ~source_path:source ic oc)
     in
-    let ext_pp input_file cmd =
+    let ext_pp input_file output_file cmd =
       let cmd = Printf.sprintf "%s %s" cmd (Filename.quote input_file) in
-      let full_cmd = match output with
+      let full_cmd = match output_file with
         | None -> cmd
         | Some out ->
           let temp = temp_path_for_atomic_write out in
@@ -21852,13 +22095,23 @@ let pp_cmd =
         exit 1
       end
     in
-    match pp_cmd with
-    | None ->
+    match pp_cmds with
+    | [] ->
       with_output mach_pp
-    | Some cmd ->
-      let temp = temp_file "mach-pp" ".ml" in
-      Out_channel.with_open_text temp mach_pp;
-      ext_pp temp cmd
+    | cmds ->
+      (* Chain preprocessors: mach_pp -> cmd1 -> cmd2 -> ... -> output *)
+      let temp1 = temp_file "mach-pp" ".ml" in
+      Out_channel.with_open_text temp1 mach_pp;
+      let rec chain input_file = function
+        | [] -> ()
+        | [cmd] ->
+          ext_pp input_file output cmd
+        | cmd :: rest ->
+          let next_temp = temp_file "mach-pp" ".ml" in
+          ext_pp input_file (Some next_temp) cmd;
+          chain next_temp rest
+      in
+      chain temp1 cmds
   in
   Cmd.v
     Cmd.(info "pp" ~doc ~docs:Manpage.s_none)
@@ -21866,7 +22119,7 @@ let pp_cmd =
       const f
       $ source_arg
       $ Arg.(value & opt (some string) None & info ["o"; "output"] ~docv:"FILE" ~doc:"Write output to FILE instead of stdout")
-      $ Arg.(value & opt (some string) None & info ["pp"] ~docv:"COMMAND" ~doc:"External preprocessor to run after mach preprocessing"))
+      $ Arg.(value & opt_all string [] & info ["pp"] ~docv:"COMMAND" ~doc:"External preprocessor(s) to run after mach preprocessing. Can be specified multiple times; preprocessors are chained in order."))
 
 let dep_cmd =
   let doc = "Run ocamldep and output dyndep format" in

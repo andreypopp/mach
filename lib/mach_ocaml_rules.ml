@@ -5,16 +5,48 @@ let modname_of path = Filename.(basename path |> remove_extension)
 
 let cmdf fmt = ksprintf Fun.id fmt
 
-let preprocess_ocaml_module rules cfg ~build_dir ~path_ml ~path_mli ~kind =
+(** Compile a ppx driver executable in build_dir/_ppx. *)
+let compile_ppx_driver rules _cfg ~build_dir ~ppxes =
+  if ppxes = [] then None else
+  let ppx_dir = Filename.(build_dir / "_ppx") in
+  let ppx_dir_stamp = Filename.(ppx_dir / ".stamp") in
+  let driver_ml = Filename.(ppx_dir / "mach_ppx_driver.ml") in
+  let driver_exe = Filename.(ppx_dir / "mach_ppx_driver") in
+  let driver_cmi = Filename.(ppx_dir / "mach_ppx_driver.cmi") in
+  let driver_cmx = Filename.(ppx_dir / "mach_ppx_driver.cmx") in
+  let compile_args = Filename.(ppx_dir / "includes.args") in
+  let lib_objs_args = Filename.(ppx_dir / "lib_objs.args") in
+  let cclib_args = Filename.(ppx_dir / "cclib.args") in
+  let libs = String.concat " " (List.map (fun (Mach_module.Ppx_extlib lib) -> lib.v.name) ppxes) in
+  Mach_build.Rules.rule rules ~targets:[|ppx_dir_stamp|] ~deps:[]
+    [cmdf "mkdir -p %s && touch %s" ppx_dir ppx_dir_stamp];
+  Mach_build.Rules.rule rules ~targets:[|driver_ml|] ~deps:[ppx_dir_stamp]
+    [cmdf "echo 'let () = Ppxlib.Driver.standalone ()' > %s" driver_ml];
+  Mach_build.Rules.rule rules ~targets:[|compile_args|] ~deps:[ppx_dir_stamp]
+    [cmdf "ocamlfind query -predicates ppx_driver,native -format '-I=%%d' -recursive %s >> %s" libs compile_args];
+  Mach_build.Rules.rule rules ~targets:[|lib_objs_args|] ~deps:[ppx_dir_stamp]
+    [cmdf "ocamlfind query -a-format -recursive -predicates ppx_driver,native %s > %s" libs lib_objs_args];
+  Mach_build.Rules.rule rules ~targets:[|cclib_args|] ~deps:[ppx_dir_stamp]
+    [cmdf "ocamlfind query -l-format -recursive -predicates ppx_driver,native %s | tr ' ' '\n' > %s" libs cclib_args];
+  Mach_build.Rules.rule rules ~targets:[|driver_cmx; driver_cmi|] ~deps:[driver_ml; compile_args; cclib_args]
+    [cmdf "ocamlopt -c -args %s -o %s %s" compile_args driver_cmx driver_ml];
+  Mach_build.Rules.rule rules ~targets:[|driver_exe|] ~deps:[driver_cmx; lib_objs_args]
+    [cmdf "ocamlopt -linkall -o %s -args %s -args %s %s" driver_exe lib_objs_args cclib_args driver_cmx];
+  Some driver_exe
+
+let preprocess_ocaml_module rules cfg ~build_dir ~path_ml ~path_mli ~kind ?ppx_driver () =
   let mach = cfg.Mach_config.mach_executable_path in
   let modname = modname_of path_ml in
   let ml = Filename.(build_dir / modname ^ ".ml") in
-  let pp_flag = match kind with Mach_module.ML -> "" | MLX -> " --pp mlx-pp" in
-  Mach_build.Rules.rulef rules ~targets:[|ml|] ~deps:[path_ml] "%s pp%s -o %s %s" mach pp_flag ml path_ml;
+  let mlx_pp_flag = match kind with Mach_module.ML -> "" | MLX -> " --pp mlx-pp" in
+  let ppx_pp_flag = match ppx_driver with None -> "" | Some exe -> " --pp " ^ exe in
+  let deps = path_ml::Option.to_list ppx_driver in
+  Mach_build.Rules.rulef rules ~targets:[|ml|] ~deps "%s pp%s%s -o %s %s" mach mlx_pp_flag ppx_pp_flag ml path_ml;
   let mli =
-    Option.map (fun mli_path ->
+    Option.map (fun path_mli ->
       let mli = Filename.(build_dir / modname ^ ".mli") in
-      Mach_build.Rules.rulef rules ~targets:[|mli|] ~deps:[mli_path] "%s pp -o %s %s" mach mli mli_path;
+      let deps = path_mli::Option.to_list ppx_driver in
+      Mach_build.Rules.rulef rules ~targets:[|mli|] ~deps "%s pp%s -o %s %s" mach ppx_pp_flag mli path_mli;
       mli) path_mli
   in
   ml, mli

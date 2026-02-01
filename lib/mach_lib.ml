@@ -31,6 +31,11 @@ let pp ~source_path ic oc =
 (* --- Configure --- *)
 
 let configure_module ~build_dir rules config (m : Mach_module.t) =
+  let ppx_driver =
+    Mach_ocaml_rules.compile_ppx_driver rules config
+      ~build_dir
+      ~ppxes:!!(m.ppxes)
+  in
   let _ocamldep_args, _compile_args =
     let ml, _mli =
       Mach_ocaml_rules.preprocess_ocaml_module rules config
@@ -38,6 +43,8 @@ let configure_module ~build_dir rules config (m : Mach_module.t) =
         ~path_ml:m.path_ml
         ~path_mli:m.path_mli
         ~kind:m.kind
+        ?ppx_driver
+        ()
     in
     Mach_ocaml_rules.compile_ocaml_args rules config
       ~requires:!!(m.requires)
@@ -52,6 +59,11 @@ let configure_module ~build_dir rules config (m : Mach_module.t) =
 
 let configure_library ~build_dir rules config (lib : Mach_library.t) =
   let lib_name = Filename.basename lib.path in
+  let ppx_driver =
+    Mach_ocaml_rules.compile_ppx_driver rules config
+      ~build_dir
+      ~ppxes:!!(lib.ppxes)
+  in
   let ocamldep_args, _compile_args =
     Mach_ocaml_rules.compile_ocaml_args ~include_self:true rules config
       ~requires:!!(lib.requires)
@@ -67,7 +79,9 @@ let configure_library ~build_dir rules config (lib : Mach_library.t) =
           ~build_dir
           ~path_ml:src_ml
           ~path_mli:src_mli
-          ~kind:(Mach_module.kind_of_path_ml src_ml);
+          ~kind:(Mach_module.kind_of_path_ml src_ml)
+          ?ppx_driver
+          ();
       in
       let path_dep = Mach_ocaml_rules.ocamldep rules config
         ~build_dir

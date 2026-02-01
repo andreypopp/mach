@@ -8,17 +8,20 @@ type mach_lib_mod = Mach_library.lib_module = {
 
 type extlib = Mach_module.extlib = { name : string; version : string } [@@deriving sexp]
 
-type require = Mach_module.require = 
+type require = Mach_module.require =
   | Require of string with_loc
   | Require_lib of string with_loc
   | Require_extlib of extlib with_loc
   [@@deriving sexp]
 
+type ppx = Mach_module.ppx =
+  | Ppx_extlib of extlib with_loc
+  [@@deriving sexp]
+
 type requires = require list [@@deriving sexp]
 
-let equal_requires x y =
-  try List.for_all2 Mach_module.equal_require x y
-  with Invalid_argument _ -> false
+let equal_requires  = List.equal Mach_module.equal_require
+let equal_ppxes = List.equal Mach_module.equal_ppx
 
 type mach_module = Mach_module.t = {
   path_ml : string;
@@ -26,6 +29,7 @@ type mach_module = Mach_module.t = {
   path_mli : string option;
   path_mli_stat : file_stat option;
   requires : require list lazy_t;
+  ppxes : ppx list lazy_t;
   kind : module_kind;
 } [@@deriving sexp]
 
@@ -37,6 +41,7 @@ type mach_library = Mach_library.t = {
   machlib_stat : file_stat;
   modules : mach_lib_mod list lazy_t;
   requires : require list lazy_t;
+  ppxes : ppx list lazy_t;
 } [@@deriving sexp]
 
 type mach_unit =
@@ -92,6 +97,7 @@ let validate_module config unit : Mach_module.t unit_validation =
     then
       let m' = Mach_module.of_path_exn config m.path_ml in
       if not (equal_requires !!(m'.requires) !!(m.requires))
+         || not (equal_ppxes !!(m'.ppxes) !!(m.ppxes))
       then Changed m'
       else Fresh_but_update_state m'
     else Fresh m

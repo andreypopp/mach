@@ -8,7 +8,42 @@ Let's implement an I/O abstraction:
 - we replace all `Sys`,`In_channel`,`Out_channel` and `Unix` calls in the codebase with calls to `Mach_io` functions
 - we add `Mach_ctx` which will host a handler for I/O effects and translate them to actual I/O operations
 
-## Implement ppx support
+## PPX: driver caching
+
+Cache ppx drivers across builds with the same ppx set. This could speed up
+incremental builds but adds complexity.
+
+## PPX: modules as ppxes
+
+## PPX: libraries as ppxes
+
+## [DONE] Implement ppx support
+
+We need to add support for ppx preprocessors.
+
+As we have modules/scripts and libraries, we need to support ppx for both.
+
+For modules we add `#ppx ...` syntax, similar to `#require ...`
+    
+    #ppx "ppx_sexp_conv"
+    #ppx ...
+
+We collect all such ppx directives.
+
+For libraries we add `ppx` field to `Machlib` file:
+
+    (ppx
+      "ppx_sexp_conv"
+      ...)
+
+When a compilation unit has ppx, we compile a single executable `mach-ppx` out of this source file:
+
+    let () = Ppxlib.Driver.standalone ()
+
+linking all the ppx'es requested.
+
+Then we fix `mach pp` subcommand to allow multiple `--pp` arguments and pass
+this executable as `--pp` argument when preprocessing.
 
 ## Support passing -H hidden includes args when compiling
 

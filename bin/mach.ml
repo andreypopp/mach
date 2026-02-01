@@ -270,7 +270,7 @@ let configure_cmd =
 
 let pp_cmd =
   let doc = "Preprocess source file to stdout (for use with merlin -pp)" in
-  let f source output pp_cmd =
+  let f source output pp_cmds =
     let with_output f =
       match output with
       | Some o -> atomic_write_file o f
@@ -279,9 +279,9 @@ let pp_cmd =
     let mach_pp oc =
       In_channel.with_open_text source (fun ic -> pp ~source_path:source ic oc)
     in
-    let ext_pp input_file cmd =
+    let ext_pp input_file output_file cmd =
       let cmd = Printf.sprintf "%s %s" cmd (Filename.quote input_file) in
-      let full_cmd = match output with
+      let full_cmd = match output_file with
         | None -> cmd
         | Some out ->
           let temp = temp_path_for_atomic_write out in
@@ -293,13 +293,23 @@ let pp_cmd =
         exit 1
       end
     in
-    match pp_cmd with
-    | None ->
+    match pp_cmds with
+    | [] ->
       with_output mach_pp
-    | Some cmd ->
-      let temp = temp_file "mach-pp" ".ml" in
-      Out_channel.with_open_text temp mach_pp;
-      ext_pp temp cmd
+    | cmds ->
+      (* Chain preprocessors: mach_pp -> cmd1 -> cmd2 -> ... -> output *)
+      let temp1 = temp_file "mach-pp" ".ml" in
+      Out_channel.with_open_text temp1 mach_pp;
+      let rec chain input_file = function
+        | [] -> ()
+        | [cmd] ->
+          ext_pp input_file output cmd
+        | cmd :: rest ->
+          let next_temp = temp_file "mach-pp" ".ml" in
+          ext_pp input_file (Some next_temp) cmd;
+          chain next_temp rest
+      in
+      chain temp1 cmds
   in
   Cmd.v
     Cmd.(info "pp" ~doc ~docs:Manpage.s_none)
@@ -307,7 +317,7 @@ let pp_cmd =
       const f
       $ source_arg
       $ Arg.(value & opt (some string) None & info ["o"; "output"] ~docv:"FILE" ~doc:"Write output to FILE instead of stdout")
-      $ Arg.(value & opt (some string) None & info ["pp"] ~docv:"COMMAND" ~doc:"External preprocessor to run after mach preprocessing"))
+      $ Arg.(value & opt_all string [] & info ["pp"] ~docv:"COMMAND" ~doc:"External preprocessor(s) to run after mach preprocessing. Can be specified multiple times; preprocessors are chained in order."))
 
 let dep_cmd =
   let doc = "Run ocamldep and output dyndep format" in

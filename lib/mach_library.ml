@@ -15,30 +15,44 @@ type t = {
   machlib_stat : file_stat;
   modules : lib_module list lazy_t;
   requires : Mach_module.require list lazy_t;
+  ppxes : Mach_module.ppx list lazy_t;
 }
 
 let equal_lib_module a b =
   a.file_ml = b.file_ml && a.file_mli = b.file_mli
 
-type machlib = Require of string list [@sexp.list] [@@deriving sexp]
+type machlib =
+  | Require of string list [@sexp.list]
+  | Ppx of string list [@sexp.list]
+[@@deriving sexp]
 
 let of_path config path =
   let machlib_path = Filename.concat path "Machlib" in
-  let requires = lazy begin 
+  let parse_machlib () =
     let content = In_channel.(with_open_text machlib_path input_all) in
-    let machlib =
-      try 
-        let sexp = Parsexp.Many.parse_string_exn content in
-        List.map machlib_of_sexp sexp
-      with
-      | Parsexp.Parse_error e ->
-        Mach_error.user_errorf "%s: parse error: %s" machlib_path (Parsexp.Parse_error.message e)
-      | Sexplib0.Sexp_conv_error.Of_sexp_error (exn, _) ->
-        Mach_error.user_errorf "%s: invalid format: %s" machlib_path (Printexc.to_string exn)
-    in
+    try
+      let sexp = Parsexp.Many.parse_string_exn content in
+      List.map machlib_of_sexp sexp
+    with
+    | Parsexp.Parse_error e ->
+      Mach_error.user_errorf "%s: parse error: %s" machlib_path (Parsexp.Parse_error.message e)
+    | Sexplib0.Sexp_conv_error.Of_sexp_error (exn, _) ->
+      Mach_error.user_errorf "%s: invalid format: %s" machlib_path (Printexc.to_string exn)
+  in
+  let machlib = lazy (parse_machlib ()) in
+  let requires = lazy begin
     let line = 1 in (* TODO: get actual line numbers from sexp *)
-    List.concat_map (fun (Require reqs) ->
-      List.map (Mach_module.resolve_require config ~source_path:machlib_path ~line) reqs) machlib
+    List.concat_map (function
+      | Require reqs ->
+        List.map (Mach_module.resolve_require config ~source_path:machlib_path ~line) reqs
+      | Ppx _ -> []) (Lazy.force machlib)
+  end in
+  let ppxes = lazy begin
+    let line = 1 in (* TODO: get actual line numbers from sexp *)
+    List.concat_map (function
+      | Ppx names ->
+        List.map (Mach_module.resolve_ppx config ~source_path:machlib_path ~line) names
+      | Require _ -> []) (Lazy.force machlib)
   end in
   let modules = lazy (
     Sys.readdir path
@@ -52,7 +66,7 @@ let of_path config path =
     |> List.sort (fun a b -> String.compare a.file_ml b.file_ml)) in
   let path_stat = file_stat_exn path in
   let machlib_stat = file_stat_exn machlib_path in
-  { path; path_stat; machlib_stat; modules; requires }
+  { path; path_stat; machlib_stat; modules; requires; ppxes }
 
 let cmxa config lib =
   let build_dir = Mach_config.build_dir_of config lib.path in
@@ -62,3 +76,6 @@ let extlibs lib =
   List.filter_map (function
     | Mach_module.Require_extlib r -> Some r.v.name
     | _ -> None) !!(lib.requires) |> SS.of_list
+
+let ppx_extlibs lib =
+  List.map (fun (Mach_module.Ppx_extlib r) -> r.v.name) !!(lib.ppxes)

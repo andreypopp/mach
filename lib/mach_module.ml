@@ -24,6 +24,8 @@ type require =
   | Require_extlib of extlib with_loc
 and extlib = { name : string; version : string }
 
+type ppx = Ppx_extlib of extlib with_loc
+
 let is_require_path s = String.contains s '/'
 
 let resolve_require_path ~source_path ~line req =
@@ -80,21 +82,50 @@ let equal_require a b =
     a.v.name = b.v.name && a.v.version = b.v.version
   | _ -> false
 
-let extract_requires_exn config source_path =
-  let rec parse line_num acc ic =
+let equal_ppx (Ppx_extlib a) (Ppx_extlib b) =
+  a.v.name = b.v.name && a.v.version = b.v.version
+
+let resolve_ppx config ~source_path ~line name =
+  let info = Lazy.force config.Mach_config.toolchain.ocamlfind in
+  if info.ocamlfind_version = None then
+    Mach_error.user_errorf "%s:%d: ppx %S requires ocamlfind but ocamlfind is not installed" source_path line name
+  else match SM.find_opt name info.ocamlfind_libs with
+  | None ->
+    Mach_error.user_errorf "%s:%d: ppx %S not found" source_path line name
+  | Some version ->
+    Ppx_extlib { v = { name; version }; filename = source_path; line }
+
+type directive =
+  | Dir_require of string
+  | Dir_ppx of string
+  | Dir_unknown
+
+let parse_directive line =
+  try Dir_require (Scanf.sscanf line "#require %S%_s" Fun.id)
+  with Scanf.Scan_failure _ | End_of_file ->
+  try Dir_ppx (Scanf.sscanf line "#ppx %S%_s" Fun.id)
+  with Scanf.Scan_failure _ | End_of_file ->
+  Dir_unknown
+
+let extract_directives_exn config source_path =
+  let rec parse line_num requires ppxes ic =
     match In_channel.input_line ic with
-    | Some line when is_shebang line -> parse (line_num + 1) acc ic
+    | Some line when is_shebang line -> parse (line_num + 1) requires ppxes ic
     | Some line when is_directive line ->
-      let req =
-        try Scanf.sscanf line "#require %S%_s" Fun.id
-        with Scanf.Scan_failure _ | End_of_file -> Mach_error.user_errorf "%s:%d: invalid #require directive" source_path line_num
-      in
-      let r = resolve_require config ~source_path ~line:line_num req in
-      parse (line_num + 1) (r :: acc) ic
-    | Some line when is_empty_line line -> parse (line_num + 1) acc ic
-    | None | Some _ -> List.rev acc
+      begin match parse_directive line with
+      | Dir_require req ->
+        let r = resolve_require config ~source_path ~line:line_num req in
+        parse (line_num + 1) (r :: requires) ppxes ic
+      | Dir_ppx name ->
+        let p = resolve_ppx config ~source_path ~line:line_num name in
+        parse (line_num + 1) requires (p :: ppxes) ic
+      | Dir_unknown ->
+        Mach_error.user_errorf "%s:%d: unknown directive" source_path line_num
+      end
+    | Some line when is_empty_line line -> parse (line_num + 1) requires ppxes ic
+    | None | Some _ -> (List.rev requires, List.rev ppxes)
   in
-  In_channel.with_open_text source_path (parse 1 [])
+  In_channel.with_open_text source_path (parse 1 [] [])
 
 type t = {
   path_ml : string;
@@ -102,6 +133,7 @@ type t = {
   path_mli : string option;
   path_mli_stat : file_stat option;
   requires : require list lazy_t;
+  ppxes : ppx list lazy_t;
   kind : kind;
 }
 
@@ -121,8 +153,10 @@ let of_path_exn config path_ml =
   let path_ml_stat = file_stat_exn path_ml in
   let path_mli, path_mli_stat = path_mli path_ml in
   let kind = kind_of_path_ml path_ml in
-  let requires = lazy (extract_requires_exn config path_ml) in
-  { path_ml; path_ml_stat; path_mli; path_mli_stat; requires; kind }
+  let directives = lazy (extract_directives_exn config path_ml) in
+  let requires = lazy (fst (Lazy.force directives)) in
+  let ppxes = lazy (snd (Lazy.force directives)) in
+  { path_ml; path_ml_stat; path_mli; path_mli_stat; requires; ppxes; kind }
 
 let of_path config path_ml =
   try Ok (of_path_exn config path_ml)
@@ -139,3 +173,6 @@ let extlibs lib =
   List.filter_map (function
     | Require_extlib r -> Some r.v.name
     | _ -> None) !!(lib.requires) |> SS.of_list
+
+let ppx_extlibs lib =
+  List.map (fun (Ppx_extlib r) -> r.v.name) !!(lib.ppxes)

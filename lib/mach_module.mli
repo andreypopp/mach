@@ -2,20 +2,29 @@
 
 open! Mach_std
 
+type extlib = { name : string; version : string }
+
 (** Result of resolving a require directive *)
 type require =
   | Require of string with_loc        (** path to .ml/.mlx file *)
   | Require_lib of string with_loc    (** path to a library directory (a directory with Machlib file) *)
   | Require_extlib of extlib with_loc (** ocamlfind library name *)
 
-and extlib = { name : string; version : string }
+(** Result of resolving a ppx directive *)
+type ppx = Ppx_extlib of extlib with_loc
 
 val equal_require : require -> require -> bool
 (** Compare two requires for equality, ignoring source location *)
 
+val equal_ppx : ppx -> ppx -> bool
+(** Compare two ppxes for equality, ignoring source location *)
+
 val resolve_require : Mach_config.t -> source_path:string -> line:int -> string -> require
 (** Resolve a require.
     Handles both module files (.ml/.mlx) and library directories (with Machlib). *)
+
+val resolve_ppx : Mach_config.t -> source_path:string -> line:int -> string -> ppx
+(** Resolve a ppx package name against ocamlfind. *)
 
 type t = {
   path_ml : string;                   (** path to .ml/.mlx file *)
@@ -23,6 +32,7 @@ type t = {
   path_mli : string option;           (** path to .mli/.mli file, if any *)
   path_mli_stat : file_stat option;
   requires : require list lazy_t;     (** resolved requires *)
+  ppxes : ppx list lazy_t;            (** resolved ppx packages *)
   kind : kind;                        (** kind of source file *)
 }
 
@@ -44,3 +54,6 @@ val cmx : Mach_config.t -> t -> string
 
 val extlibs : t -> SS.t
 (** List of external libraries required by this module. *)
+
+val ppx_extlibs : t -> string list
+(** List of ppx packages required by this module. *)
