@@ -1,33 +1,35 @@
 {
 type token =
   | TARGET of string list
-  | DEP of string list
-  | CMD_FRAGMENT of string
-  | CMD_FRAGMENT_LIST of string
+  | DEP of concat list
+  | CMD_FRAGMENT of concat
   | LITERAL of string
   | PERCENT
   | EOF
+and concat =
+  | CONCAT of string
+  | ONE of string
 
 let split_on_pipe s =
   String.split_on_char '|' s |> List.map String.trim
 
-let ends_with_ellipsis s =
-  String.length s >= 3 && String.sub s (String.length s - 3) 3 = "..."
-
-let strip_ellipsis s =
-  String.sub s 0 (String.length s - 3)
+let parse_concat s =
+  if String.ends_with s ~suffix:"..."
+  then CONCAT (String.sub s 0 (String.length s - 3))
+  else ONE s
 }
 
+let ws = [' ' '\t']*
+let ident = ['a'-'z' 'A'-'Z' '_']['a'-'z' 'A'-'Z' '0'-'9' '_' '\'']*
+let ident_or_list = ident "..."?
+let target_names = ws ident (ws '|' ws ident)* ws
+let dep_names = ws '|'? ws ident_or_list (ws '|' ws ident_or_list)* ws
+let cmd_name = ws ident_or_list ws
+
 rule token = parse
-  | ">{" ([^'}']+ as names) "}"  { TARGET (split_on_pipe names) }
-  | "<{" ([^'}']+ as names) "}"  { DEP (split_on_pipe names) }
-  | "%{" ([^'}']+ as name) "}"   {
-      let name = String.trim name in
-      if ends_with_ellipsis name then
-        CMD_FRAGMENT_LIST (strip_ellipsis name)
-      else
-        CMD_FRAGMENT name
-    }
+  | ">{" (target_names as names) "}"  { TARGET (split_on_pipe names) }
+  | "<{" (dep_names as names) "}"     { DEP (List.map parse_concat (split_on_pipe names)) }
+  | "%{" (cmd_name as name) "}"       { CMD_FRAGMENT (parse_concat (String.trim name)) }
   | '%'                           { PERCENT }
   | [^'>' '<' '{' '%']+ as s      { LITERAL s }
   | '>' | '<'                     { LITERAL (Lexing.lexeme lexbuf) }

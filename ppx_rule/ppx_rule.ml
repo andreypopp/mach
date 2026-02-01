@@ -11,12 +11,6 @@ type var_kind =
   | Cmd_fragment   (** command fragment variable (Cmd.t) *)
   | Cmd_fragment_list (** command fragment list variable (Cmd.t list), uses Cmd.concat *)
 
-let ends_with_ellipsis s =
-  String.length s >= 3 && String.sub s (String.length s - 3) 3 = "..."
-
-let strip_ellipsis s =
-  String.sub s 0 (String.length s - 3)
-
 type var = { name: string; kind: var_kind }
 
 type parsed_command = {
@@ -44,34 +38,32 @@ let parse_command ~loc:_ str =
       loop ()
     | Rule_lexer.DEP names ->
       (* First dep appears in command, rest are silent.
-         If first element is empty, all deps are silent.
-         If a name ends with ..., it's a list of deps. *)
-      let add_silent_dep name =
-        if name <> "" then
-          if ends_with_ellipsis name then
-            vars := { name = strip_ellipsis name; kind = Dep_silent_list } :: !vars
-          else
-            vars := { name; kind = Dep_silent } :: !vars
+         If first element is ONE "", all deps are silent.
+         CONCAT means it's a list of deps, ONE means single dep. *)
+      let add_silent_dep = function
+        | Rule_lexer.ONE "" -> ()
+        | Rule_lexer.ONE name -> vars := { name; kind = Dep_silent } :: !vars
+        | Rule_lexer.CONCAT name -> vars := { name; kind = Dep_silent_list } :: !vars
       in
       begin match names with
       | [] -> ()
-      | first :: rest when first = "" ->
+      | Rule_lexer.ONE "" :: rest ->
         List.iter add_silent_dep rest
-      | first :: rest when ends_with_ellipsis first ->
-        vars := { name = strip_ellipsis first; kind = Dep_list } :: !vars;
+      | Rule_lexer.CONCAT name :: rest ->
+        vars := { name; kind = Dep_list } :: !vars;
         Buffer.add_string buf "%s";
         List.iter add_silent_dep rest
-      | first :: rest ->
-        vars := { name = first; kind = Dep } :: !vars;
+      | Rule_lexer.ONE name :: rest ->
+        vars := { name; kind = Dep } :: !vars;
         Buffer.add_string buf "%s";
         List.iter add_silent_dep rest
       end;
       loop ()
-    | Rule_lexer.CMD_FRAGMENT name ->
+    | Rule_lexer.CMD_FRAGMENT (Rule_lexer.ONE name) ->
       vars := { name; kind = Cmd_fragment } :: !vars;
       Buffer.add_string buf "%s";
       loop ()
-    | Rule_lexer.CMD_FRAGMENT_LIST name ->
+    | Rule_lexer.CMD_FRAGMENT (Rule_lexer.CONCAT name) ->
       vars := { name; kind = Cmd_fragment_list } :: !vars;
       Buffer.add_string buf "%s";
       loop ()
