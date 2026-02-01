@@ -188,7 +188,7 @@ let expand_rule ~ctxt exprs =
     | Pexp_constant (Pconst_string _) -> [%expr [%cmd [%e e]]]
     | _ -> e) exprs
   in
-  [%expr Mach_build.Rule.rule_of_commands rules [%e elist ~loc cmds]]
+  [%expr Mach_build.Rule.add rules [%e elist ~loc cmds]]
 
 let expand_rule_dyndep ~ctxt exprs =
   let loc = Expansion_context.Extension.extension_point_loc ctxt in
@@ -199,7 +199,7 @@ let expand_rule_dyndep ~ctxt exprs =
     | Pexp_constant (Pconst_string _) -> [%expr [%cmd [%e e]]]
     | _ -> e) exprs
   in
-  [%expr Mach_build.Rule.rule_dyndep_of_commands rules [%e elist ~loc cmds]]
+  [%expr Mach_build.Rule.add_dyndep rules [%e elist ~loc cmds]]
 
 (* Extension for [%cmd "..."] *)
 let cmd_extension =

@@ -22,13 +22,10 @@ end
 
 (** A command line fragment, along with its dependencies and targets. *)
 module Cmd : sig
-  type t = {
-    command : string;
-    deps : string list;
-    targets : string list;
-  }
+  type t = { command : string; deps : string list; targets : string list }
 
   val v : ?deps:string list -> ?targets:string list -> string -> t
+  (** Create a command line fragment *)
 
   val concat : t list -> t
   (** Concatenate commands by joining them with " " *)
@@ -44,22 +41,11 @@ module Rule : sig
   val to_list : t -> Build_file_format.t
   (** Convert the rule builder to a list of build rules *)
 
-  val rule :
-    t ->
-    targets:string list ->
-    deps:string list ->
-    string list ->
-    unit
+  val add : ?deps:string list -> t -> Cmd.t list -> unit
+  (** Add a new rule from a list of commands. *)
 
-  val rule_dyndep :
-    t ->
-    targets:string list ->
-    deps:string list ->
-    string list ->
-    unit
-
-  val rule_of_commands : ?deps:string list -> t -> Cmd.t list -> unit
-  val rule_dyndep_of_commands : ?deps:string list -> t -> Cmd.t list -> unit
+  val add_dyndep : ?deps:string list -> t -> Cmd.t list -> unit
+  (** Add a new dyndep rule from a list of commands. *)
 end
 
 type t

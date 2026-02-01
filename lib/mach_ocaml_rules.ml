@@ -46,8 +46,8 @@ let compile_ocaml_args ?(include_self=false) rules cfg ~requires ~build_dir ~dep
       | [] -> [[%cmd "touch >{target}"]]
       | _ -> List.map (fun dir -> [%cmd "echo '-I=%{dir}' >> >{target}"]) dirs
     in
-    let cmds = [%cmd "rm -f >{target}"] :: cmds in
-    Rule.rule_of_commands rules cmds ~deps;
+    let cmds = [%cmd "rm -f >{target} <{|deps...}"] :: cmds in
+    Rule.add rules cmds;
     target
   in
   let includes_args =
@@ -60,8 +60,8 @@ let compile_ocaml_args ?(include_self=false) rules cfg ~requires ~build_dir ~dep
         if libs = [] then of_path else
         [%cmd "ocamlfind query -format '-I=%d' -recursive %{libs...} >> >{target}"]::of_path
     in
-    let cmds = [%cmd "rm -f >{target}"] :: cmds in
-    Rule.rule_of_commands rules cmds ~deps;
+    let cmds = [%cmd "rm -f >{target} <{|deps...}"] :: cmds in
+    Rule.add rules cmds;
     target
   in
   ocamldep_args, includes_args

@@ -346,36 +346,23 @@ module Rule = struct
   type t = Build_file_format.stanza list ref
 
   let create () : t = ref []
-  let add (t : t) stanza = t := stanza :: !t
   let to_list (t : t) = List.rev !t
 
-  let rule_of_commands ?(deps=[]) t commands =
+  let add' (t : t) stanza = t := stanza :: !t
+
+  let add ?(deps=[]) t commands =
     let commands, deps', targets = Cmd.concat' commands in
     let deps = deps @ deps' in
-    add t (Build_file_format.Rule {
+    add' t (Build_file_format.Rule {
       targets = Array.of_list targets;
       deps = Array.of_list deps;
       commands = Array.of_list commands;
     })
 
-  let rule_dyndep_of_commands ?(deps=[]) t commands =
+  let add_dyndep ?(deps=[]) t commands =
     let commands, deps', targets = Cmd.concat' commands in
     let deps = deps @ deps' in
-    add t (Build_file_format.Rule_dyndep {
-      targets = Array.of_list targets;
-      deps = Array.of_list deps;
-      commands = Array.of_list commands;
-    })
-
-  let rule t ~targets ~deps commands =
-    add t (Build_file_format.Rule {
-      targets = Array.of_list targets;
-      deps = Array.of_list deps;
-      commands = Array.of_list commands;
-    })
-
-  let rule_dyndep t ~targets ~deps commands =
-    add t (Build_file_format.Rule_dyndep {
+    add' t (Build_file_format.Rule_dyndep {
       targets = Array.of_list targets;
       deps = Array.of_list deps;
       commands = Array.of_list commands;
