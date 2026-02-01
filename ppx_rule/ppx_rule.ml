@@ -77,90 +77,6 @@ let parse_command ~loc:_ str =
   loop ();
   { vars = List.rev !vars; template = Buffer.contents buf }
 
-(** Validate that no variable is both target and dep in the same command *)
-let validate_command ~loc cmd =
-  let targets = Hashtbl.create 8 in
-  let deps = Hashtbl.create 8 in
-  List.iter (fun var ->
-    match var.kind with
-    | Target | Target_silent -> Hashtbl.replace targets var.name ()
-    | Dep | Dep_list | Dep_silent | Dep_silent_list -> Hashtbl.replace deps var.name ()
-    | Cmd_fragment | Cmd_fragment_list -> ()
-  ) cmd.vars;
-  Hashtbl.iter (fun name () ->
-    if Hashtbl.mem deps name then
-      Location.raise_errorf ~loc
-        "Variable '%s' cannot be both target and dependency in the same command" name
-  ) targets
-
-(** Analyze multiple commands to determine overall targets, deps, and cmd fragments.
-    A variable marked as dep in one command but as target in another is a target.
-    Returns (targets, deps, cmd_fragments) - each list in order of first appearance. *)
-let analyze_commands ~loc parsed_commands =
-  (* First validate each command *)
-  List.iter (validate_command ~loc) parsed_commands;
-
-  (* Collect all targets first (from all commands) *)
-  let all_targets = Hashtbl.create 16 in
-  List.iter (fun cmd ->
-    List.iter (fun var ->
-      match var.kind with
-      | Target | Target_silent -> Hashtbl.replace all_targets var.name ()
-      | _ -> ()
-    ) cmd.vars
-  ) parsed_commands;
-
-  (* Collect targets in order of first appearance *)
-  let targets = ref [] in
-  let seen_targets = Hashtbl.create 16 in
-  List.iter (fun cmd ->
-    List.iter (fun var ->
-      match var.kind with
-      | (Target | Target_silent) when not (Hashtbl.mem seen_targets var.name) ->
-        Hashtbl.add seen_targets var.name ();
-        targets := var.name :: !targets
-      | _ -> ()
-    ) cmd.vars
-  ) parsed_commands;
-
-  (* Collect deps: variables marked as Dep or Dep_silent that aren't targets *)
-  let deps = ref [] in
-  let dep_lists = ref [] in
-  let seen_deps = Hashtbl.create 16 in
-  List.iter (fun cmd ->
-    List.iter (fun var ->
-      match var.kind with
-      | (Dep | Dep_silent) when not (Hashtbl.mem all_targets var.name)
-                             && not (Hashtbl.mem seen_deps var.name) ->
-        Hashtbl.add seen_deps var.name ();
-        deps := var.name :: !deps
-      | (Dep_list | Dep_silent_list) when not (Hashtbl.mem all_targets var.name)
-                          && not (Hashtbl.mem seen_deps var.name) ->
-        Hashtbl.add seen_deps var.name ();
-        dep_lists := var.name :: !dep_lists
-      | _ -> ()
-    ) cmd.vars
-  ) parsed_commands;
-
-  (* Collect plain vars (Cmd.t) in order *)
-  let cmd_fragments = ref [] in
-  let cmd_fragment_lists = ref [] in
-  let seen_fragments = Hashtbl.create 16 in
-  List.iter (fun cmd ->
-    List.iter (fun var ->
-      match var.kind with
-      | Cmd_fragment when not (Hashtbl.mem seen_fragments var.name) ->
-        Hashtbl.add seen_fragments var.name ();
-        cmd_fragments := var.name :: !cmd_fragments
-      | Cmd_fragment_list when not (Hashtbl.mem seen_fragments var.name) ->
-        Hashtbl.add seen_fragments var.name ();
-        cmd_fragment_lists := var.name :: !cmd_fragment_lists
-      | _ -> ()
-    ) cmd.vars
-  ) parsed_commands;
-
-  (List.rev !targets, List.rev !deps, List.rev !dep_lists, List.rev !cmd_fragments, List.rev !cmd_fragment_lists)
-
 (** Build a Printf.sprintf call for a command template *)
 let build_sprintf ~loc cmd =
   let open Ast_builder.Default in
@@ -194,23 +110,39 @@ let build_sprintf ~loc cmd =
       [%expr [%e acc] [%e arg]]
     ) [%expr Printf.sprintf [%e template_expr]] args
 
-(** Build targets and deps expressions from analyzed command data.
-    Returns (targets_expr, deps_expr, commands_expr) *)
-let build_rule_exprs ~loc ~targets ~deps ~dep_lists ~cmd_fragments ~cmd_fragment_lists parsed_commands =
+(** Build a Cmd.v expression from a parsed command.
+    For a single command, targets/deps don't overlap (validated), so we just categorize vars. *)
+let build_cmd_expr ~loc cmd =
   let open Ast_builder.Default in
-
+  let targets = ref [] in
+  let deps = ref [] in
+  let dep_lists = ref [] in
+  let cmd_fragments = ref [] in
+  let cmd_fragment_lists = ref [] in
+  let seen = Hashtbl.create 16 in
+  List.iter (fun var ->
+    if not (Hashtbl.mem seen var.name) then begin
+      Hashtbl.add seen var.name ();
+      match var.kind with
+      | Target | Target_silent -> targets := var.name :: !targets
+      | Dep | Dep_silent -> deps := var.name :: !deps
+      | Dep_list | Dep_silent_list -> dep_lists := var.name :: !dep_lists
+      | Cmd_fragment -> cmd_fragments := var.name :: !cmd_fragments
+      | Cmd_fragment_list -> cmd_fragment_lists := var.name :: !cmd_fragment_lists
+    end
+  ) cmd.vars;
+  let targets = List.rev !targets in
+  let deps = List.rev !deps in
+  let dep_lists = List.rev !dep_lists in
+  let cmd_fragments = List.rev !cmd_fragments in
+  let cmd_fragment_lists = List.rev !cmd_fragment_lists in
   let has_cmd_parts = cmd_fragments <> [] || cmd_fragment_lists <> [] in
-
   (* Build targets expression *)
   let targets_expr =
     if not has_cmd_parts then
-      (* Simple case: just static targets *)
       elist ~loc (List.map (evar ~loc) targets)
     else begin
-      (* Complex case: merge static targets with Cmd.t targets *)
-      let static_parts = List.map (fun name ->
-        [%expr [[%e evar ~loc name]]]
-      ) targets in
+      let static_parts = List.map (fun name -> [%expr [[%e evar ~loc name]]]) targets in
       let cmd_target_parts = List.map (fun name ->
         [%expr [%e evar ~loc name].Mach_build.Cmd.targets]
       ) cmd_fragments in
@@ -220,20 +152,13 @@ let build_rule_exprs ~loc ~targets ~deps ~dep_lists ~cmd_fragments ~cmd_fragment
       [%expr List.flatten [%e elist ~loc (static_parts @ cmd_target_parts @ cmd_list_target_parts)]]
     end
   in
-
   (* Build deps expression *)
   let deps_expr =
     if not has_cmd_parts && dep_lists = [] then
-      (* Simple case: just static deps as list *)
       elist ~loc (List.map (evar ~loc) deps)
     else begin
-      (* Complex case: merge static deps with Cmd.t deps and list deps *)
-      let static_parts = List.map (fun name ->
-        [%expr [[%e evar ~loc name]]]
-      ) deps in
-      let list_parts = List.map (fun name ->
-        evar ~loc name
-      ) dep_lists in
+      let static_parts = List.map (fun name -> [%expr [[%e evar ~loc name]]]) deps in
+      let list_parts = List.map (evar ~loc) dep_lists in
       let cmd_dep_parts = List.map (fun name ->
         [%expr [%e evar ~loc name].Mach_build.Cmd.deps]
       ) cmd_fragments in
@@ -243,120 +168,38 @@ let build_rule_exprs ~loc ~targets ~deps ~dep_lists ~cmd_fragments ~cmd_fragment
       [%expr List.flatten [%e elist ~loc (static_parts @ list_parts @ cmd_dep_parts @ cmd_list_dep_parts)]]
     end
   in
-
-  (* Build commands list *)
-  let commands_expr = elist ~loc (List.map (build_sprintf ~loc) parsed_commands) in
-
-  (targets_expr, deps_expr, commands_expr)
-
-(** Expand [%cmd "..."] to Cmd.v expression *)
-let expand_cmd ~ctxt str =
-  let loc = Expansion_context.Extension.extension_point_loc ctxt in
-  let cmd = parse_command ~loc str in
-  validate_command ~loc cmd;
-  let targets, deps, dep_lists, cmd_fragments, cmd_fragment_lists = analyze_commands ~loc [cmd] in
-  let targets_expr, deps_expr, commands_expr =
-    build_rule_exprs ~loc
-      ~targets ~deps ~dep_lists ~cmd_fragments ~cmd_fragment_lists [cmd]
-  in
-
-  (* For [%cmd], we have a single command, extract it from the list *)
-  let command_expr = match commands_expr.pexp_desc with
-    | Pexp_construct (_, Some { pexp_desc = Pexp_tuple [hd; _]; _ }) -> hd
-    | _ -> commands_expr  (* fallback, shouldn't happen *)
-  in
-
+  let command_expr = build_sprintf ~loc cmd in
   [%expr Mach_build.Cmd.v
            ~targets:[%e targets_expr]
            ~deps:[%e deps_expr]
            [%e command_expr]]
 
-(** Expand [%rule "..."] or [%rule "..."; "..."] to Rule.rule call *)
-let expand_rule ~ctxt payload =
+(** Expand [%cmd "..."] to Cmd.v expression *)
+let expand_cmd ~ctxt str =
   let loc = Expansion_context.Extension.extension_point_loc ctxt in
-  (* Extract command strings from payload *)
-  let command_strings = match payload with
-    | PStr items ->
-      List.filter_map (fun item ->
-        match item.pstr_desc with
-        | Pstr_eval ({ pexp_desc = Pexp_constant (Pconst_string (s, _, _)); _ }, _) ->
-          Some s
-        | Pstr_eval ({ pexp_desc = Pexp_apply (
-            { pexp_desc = Pexp_constant (Pconst_string (s1, _, _)); _ },
-            args); _ }, _) ->
-          (* Handle semicolon-separated strings: "a"; "b" becomes apply *)
-          let strings = s1 :: List.filter_map (fun (_, e) ->
-            match e.pexp_desc with
-            | Pexp_constant (Pconst_string (s, _, _)) -> Some s
-            | _ -> None
-          ) args in
-          Some (String.concat "" strings)
-        | _ -> None
-      ) items
-    | _ -> Location.raise_errorf ~loc "[%%rule] expects string literal(s)"
-  in
+  build_cmd_expr ~loc (parse_command ~loc str)
 
-  if command_strings = [] then
-    Location.raise_errorf ~loc "[%%rule] requires at least one command string";
-
-  (* Parse all commands *)
-  let parsed_commands = List.map (parse_command ~loc) command_strings in
-
-  (* Analyze to get targets, deps, dep_lists, and cmd fragments *)
-  let targets, deps, dep_lists, cmd_fragments, cmd_fragment_lists = analyze_commands ~loc parsed_commands in
-
-  let targets_expr, deps_expr, commands_expr =
-    build_rule_exprs ~loc
-      ~targets ~deps ~dep_lists ~cmd_fragments ~cmd_fragment_lists parsed_commands
-  in
-
-  [%expr Mach_build.Rule.rule rules
-           ~targets:[%e targets_expr]
-           ~deps:[%e deps_expr]
-           [%e commands_expr]]
-
-(** Expand [%rule_dyndep "..."] to Rule.rule_dyndep call. *)
-let expand_rule_dyndep ~ctxt payload =
+let expand_rule ~ctxt exprs =
   let loc = Expansion_context.Extension.extension_point_loc ctxt in
-  (* Extract command strings from payload *)
-  let command_strings = match payload with
-    | PStr items ->
-      List.filter_map (fun item ->
-        match item.pstr_desc with
-        | Pstr_eval ({ pexp_desc = Pexp_constant (Pconst_string (s, _, _)); _ }, _) ->
-          Some s
-        | Pstr_eval ({ pexp_desc = Pexp_apply (
-            { pexp_desc = Pexp_constant (Pconst_string (s1, _, _)); _ },
-            args); _ }, _) ->
-          let strings = s1 :: List.filter_map (fun (_, e) ->
-            match e.pexp_desc with
-            | Pexp_constant (Pconst_string (s, _, _)) -> Some s
-            | _ -> None
-          ) args in
-          Some (String.concat "" strings)
-        | _ -> None
-      ) items
-    | _ -> Location.raise_errorf ~loc "[%%rule_dyndep] expects string literal(s)"
+  let open Ast_builder.Default in
+  if exprs = [] then Location.raise_errorf ~loc "[%%rule] requires at least a single command";
+  let cmds = List.map (fun (e : expression) ->
+    match e.pexp_desc with
+    | Pexp_constant (Pconst_string _) -> [%expr [%cmd [%e e]]]
+    | _ -> e) exprs
   in
+  [%expr Mach_build.Rule.rule_of_commands rules [%e elist ~loc cmds]]
 
-  if command_strings = [] then
-    Location.raise_errorf ~loc "[%%rule_dyndep] requires at least one command string";
-
-  (* Parse all commands *)
-  let parsed_commands = List.map (parse_command ~loc) command_strings in
-
-  (* Analyze to get targets, deps, dep_lists, and cmd fragments *)
-  let targets, deps, dep_lists, cmd_fragments, cmd_fragment_lists = analyze_commands ~loc parsed_commands in
-
-  let targets_expr, deps_expr, commands_expr =
-    build_rule_exprs ~loc
-      ~targets ~deps ~dep_lists ~cmd_fragments ~cmd_fragment_lists parsed_commands
+let expand_rule_dyndep ~ctxt exprs =
+  let loc = Expansion_context.Extension.extension_point_loc ctxt in
+  let open Ast_builder.Default in
+  if exprs = [] then Location.raise_errorf ~loc "[%%rule] requires at least a single command";
+  let cmds = List.map (fun (e : expression) ->
+    match e.pexp_desc with
+    | Pexp_constant (Pconst_string _) -> [%expr [%cmd [%e e]]]
+    | _ -> e) exprs
   in
-
-  [%expr Mach_build.Rule.rule_dyndep rules
-           ~targets:[%e targets_expr]
-           ~deps:[%e deps_expr]
-           [%e commands_expr]]
+  [%expr Mach_build.Rule.rule_dyndep_of_commands rules [%e elist ~loc cmds]]
 
 (* Extension for [%cmd "..."] *)
 let cmd_extension =
@@ -369,15 +212,15 @@ let cmd_extension =
 let rule_extension =
   Extension.V3.declare "rule"
     Extension.Context.expression
-    Ast_pattern.(__')
-    (fun ~ctxt payload -> expand_rule ~ctxt payload.txt)
+    Ast_pattern.(single_expr_payload (esequence __))
+    expand_rule
 
 (* Extension for [%rule_dyndep "..."] *)
 let rule_dyndep_extension =
   Extension.V3.declare "rule_dyndep"
     Extension.Context.expression
-    Ast_pattern.(__')
-    (fun ~ctxt payload -> expand_rule_dyndep ~ctxt payload.txt)
+    Ast_pattern.(single_expr_payload (esequence __))
+    expand_rule_dyndep
 
 let () =
   Driver.register_transformation

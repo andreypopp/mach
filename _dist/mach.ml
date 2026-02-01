@@ -13454,8 +13454,9 @@ sig
   val rule :
     t -> targets:string list -> deps:string list -> string list -> unit
   val rule_dyndep :
-    t -> target:string -> deps:string list -> string list -> unit
+    t -> targets:string list -> deps:string list -> string list -> unit
   val rule_of_commands : ?deps:string list -> t -> Cmd.t list -> unit
+  val rule_dyndep_of_commands : ?deps:string list -> t -> Cmd.t list -> unit
 end[@@ocaml.doc " A rule builder "]
 type t
 val create : unit -> t
@@ -13501,8 +13502,9 @@ module Build_file_format =
       
       | Rule_dyndep of
       {
-      target: string
-        [@ocaml.doc " absolute path of a target containing dyndep "];
+      targets: string array
+        [@sexp.array ][@ocaml.doc
+                        " absolute path of a target containing dyndep "];
       deps: string array
         [@sexp.array ][@ocaml.doc
                         " absolute paths of dependencies rule requires "];
@@ -13557,8 +13559,8 @@ module Build_file_format =
                  ~caller:error_source__003_
                  ~fields:(Field
                             {
-                              name = "target";
-                              kind = Required;
+                              name = "targets";
+                              kind = Sexp_array;
                               conv = string_of_sexp;
                               rest =
                                 (Field
@@ -13577,12 +13579,12 @@ module Build_file_format =
                                    })
                             })
                  ~index_of_field:(function
-                                  | "target" -> 0
+                                  | "targets" -> 0
                                   | "deps" -> 1
                                   | "commands" -> 2
                                   | _ -> (-1)) ~allow_extra_fields:false
-                 ~create:(fun (target, (deps, (commands, ()))) ->
-                            (Rule_dyndep { target; deps; commands } : 
+                 ~create:(fun (targets, (deps, (commands, ()))) ->
+                            (Rule_dyndep { targets; deps; commands } : 
                             stanza)) sexps__008_
            | Sexplib0.Sexp.Atom ("rule" | "Rule") as sexp__004_ ->
                Sexplib0.Sexp_conv_error.stag_takes_args error_source__003_
@@ -13639,34 +13641,39 @@ module Build_file_format =
                     (bnd__012_ :: bnds__009_ : _ Stdlib.List.t)) in
                Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom "Rule") :: bnds__009_)
            | Rule_dyndep
-               { target = target__023_; deps = deps__026_;
-                 commands = commands__030_ }
+               { targets = targets__024_; deps = deps__028_;
+                 commands = commands__032_ }
                ->
                let bnds__022_ = ([] : _ Stdlib.List.t) in
                let bnds__022_ =
-                 if match commands__030_ with | [||] -> true | _ -> false
+                 if match commands__032_ with | [||] -> true | _ -> false
                  then bnds__022_
                  else
-                   (let arg__032_ =
-                      (sexp_of_array sexp_of_string) commands__030_ in
-                    let bnd__031_ =
+                   (let arg__034_ =
+                      (sexp_of_array sexp_of_string) commands__032_ in
+                    let bnd__033_ =
                       Sexplib0.Sexp.List
-                        [Sexplib0.Sexp.Atom "commands"; arg__032_] in
-                    (bnd__031_ :: bnds__022_ : _ Stdlib.List.t)) in
+                        [Sexplib0.Sexp.Atom "commands"; arg__034_] in
+                    (bnd__033_ :: bnds__022_ : _ Stdlib.List.t)) in
                let bnds__022_ =
-                 if match deps__026_ with | [||] -> true | _ -> false
+                 if match deps__028_ with | [||] -> true | _ -> false
                  then bnds__022_
                  else
-                   (let arg__028_ = (sexp_of_array sexp_of_string) deps__026_ in
-                    let bnd__027_ =
+                   (let arg__030_ = (sexp_of_array sexp_of_string) deps__028_ in
+                    let bnd__029_ =
                       Sexplib0.Sexp.List
-                        [Sexplib0.Sexp.Atom "deps"; arg__028_] in
-                    (bnd__027_ :: bnds__022_ : _ Stdlib.List.t)) in
+                        [Sexplib0.Sexp.Atom "deps"; arg__030_] in
+                    (bnd__029_ :: bnds__022_ : _ Stdlib.List.t)) in
                let bnds__022_ =
-                 let arg__024_ = sexp_of_string target__023_ in
-                 ((Sexplib0.Sexp.List
-                     [Sexplib0.Sexp.Atom "target"; arg__024_])
-                   :: bnds__022_ : _ Stdlib.List.t) in
+                 if match targets__024_ with | [||] -> true | _ -> false
+                 then bnds__022_
+                 else
+                   (let arg__026_ =
+                      (sexp_of_array sexp_of_string) targets__024_ in
+                    let bnd__025_ =
+                      Sexplib0.Sexp.List
+                        [Sexplib0.Sexp.Atom "targets"; arg__026_] in
+                    (bnd__025_ :: bnds__022_ : _ Stdlib.List.t)) in
                Sexplib0.Sexp.List ((Sexplib0.Sexp.Atom "Rule_dyndep") ::
                  bnds__022_) : stanza -> Sexplib0.Sexp.t)
         let _ = sexp_of_stanza
@@ -13699,11 +13706,11 @@ module Dyndep_file_format =
       struct
         let _ = fun (_ : dyndep) -> ()
         let dyndep_of_sexp =
-          (let error_source__034_ =
+          (let error_source__036_ =
              "lib/mach_build.ml.Dyndep_file_format.dyndep" in
-           fun x__035_ ->
+           fun x__037_ ->
              Sexplib0.Sexp_conv_record.record_of_sexp
-               ~caller:error_source__034_
+               ~caller:error_source__036_
                ~fields:(Field
                           {
                             name = "target";
@@ -13723,26 +13730,26 @@ module Dyndep_file_format =
                                 | "deps" -> 1
                                 | _ -> (-1)) ~allow_extra_fields:false
                ~create:(fun (target, (deps, ())) ->
-                          ({ target; deps } : dyndep)) x__035_ : Sexplib0.Sexp.t
+                          ({ target; deps } : dyndep)) x__037_ : Sexplib0.Sexp.t
                                                                    -> 
                                                                    dyndep)
         let _ = dyndep_of_sexp
         let sexp_of_dyndep =
-          (fun { target = target__037_; deps = deps__040_ } ->
-             let bnds__036_ = ([] : _ Stdlib.List.t) in
-             let bnds__036_ =
-               if match deps__040_ with | [||] -> true | _ -> false
-               then bnds__036_
+          (fun { target = target__039_; deps = deps__042_ } ->
+             let bnds__038_ = ([] : _ Stdlib.List.t) in
+             let bnds__038_ =
+               if match deps__042_ with | [||] -> true | _ -> false
+               then bnds__038_
                else
-                 (let arg__042_ = (sexp_of_array sexp_of_string) deps__040_ in
-                  let bnd__041_ =
-                    Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "deps"; arg__042_] in
-                  (bnd__041_ :: bnds__036_ : _ Stdlib.List.t)) in
-             let bnds__036_ =
-               let arg__038_ = sexp_of_string target__037_ in
-               ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "target"; arg__038_])
-                 :: bnds__036_ : _ Stdlib.List.t) in
-             Sexplib0.Sexp.List bnds__036_ : dyndep -> Sexplib0.Sexp.t)
+                 (let arg__044_ = (sexp_of_array sexp_of_string) deps__042_ in
+                  let bnd__043_ =
+                    Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "deps"; arg__044_] in
+                  (bnd__043_ :: bnds__038_ : _ Stdlib.List.t)) in
+             let bnds__038_ =
+               let arg__040_ = sexp_of_string target__039_ in
+               ((Sexplib0.Sexp.List [Sexplib0.Sexp.Atom "target"; arg__040_])
+                 :: bnds__038_ : _ Stdlib.List.t) in
+             Sexplib0.Sexp.List bnds__038_ : dyndep -> Sexplib0.Sexp.t)
         let _ = sexp_of_dyndep
       end[@@ocaml.doc "@inline"][@@merlin.hide ]
     type t = dyndep list
@@ -13766,18 +13773,13 @@ and rule =
   deps: string array ;
   mutable dyndeps: string array ;
   commands: string array ;
-  target: target ;
+  targets: string array ;
   mutable deps_pending: int ;
   mutable visited: bool ;
   mutable scheduled: bool ;
-  mutable built: bool }
-and target =
-  | Targets of string array 
-  | Target_dyndep of string 
-let rule_targets (rule : rule) =
-  match rule.target with
-  | Targets targets -> targets
-  | Target_dyndep target -> [|target|]
+  mutable built: bool ;
+  is_dyndep: bool }
+let rule_targets (rule : rule) = rule.targets
 let needs_rebuild (rule : rule) =
   let targets = rule_targets rule in
   let target_mtime =
@@ -13801,23 +13803,24 @@ let create () : t= { rules = (T.create 256) }
 let configure t (rules : Build_file_format.stanza list) : unit=
   List.iter rules
     ~f:(fun (rule : Build_file_format.stanza) ->
-          let (target, deps, commands) =
+          let (targets, deps, commands, is_dyndep) =
             match rule with
             | Build_file_format.Rule { targets; deps; commands } ->
-                ((Targets targets), deps, commands)
-            | Build_file_format.Rule_dyndep { target; deps; commands } ->
-                ((Target_dyndep target), deps, commands) in
+                (targets, deps, commands, false)
+            | Build_file_format.Rule_dyndep { targets; deps; commands } ->
+                (targets, deps, commands, true) in
           let deps_pending = Array.length deps in
           let rule =
             {
-              target;
+              targets;
               deps;
               dyndeps = [||];
               commands;
               deps_pending;
               visited = false;
               scheduled = false;
-              built = false
+              built = false;
+              is_dyndep
             } in
           Array.iter (rule_targets rule)
             ~f:(fun target -> T.replace t.rules target rule))
@@ -13950,33 +13953,35 @@ let build t ~target_path ~parallelism =
               else Array.iter rule.deps ~f:(schedule ~rev_dep:rule)));
     T.remove visiting target_path in
   let process_completed (rule : rule) =
-    (match rule.target with
-     | Targets _ -> ()
-     | Target_dyndep target ->
-         List.iter (Dyndep_file_format.of_file target)
-           ~f:(fun (dyndep : Dyndep_file_format.dyndep) ->
-                 match T.find_opt t.rules dyndep.target with
-                 | None ->
-                     error_occurred :=
-                       (Some
-                          (Printf.sprintf
-                             "dyndep references unknown target: %s"
-                             dyndep.target))
-                 | Some dep_rule ->
-                     if dep_rule.scheduled
-                     then
-                       error_occurred :=
-                         (Some
-                            (Printf.sprintf
-                               "dyndep references target that is already scheduled/built: %s"
-                               dyndep.target))
-                     else
-                       (dep_rule.dyndeps <-
-                          (Array.append dep_rule.dyndeps dyndep.deps);
-                        dep_rule.deps_pending <-
-                          (dep_rule.deps_pending + (Array.length dyndep.deps));
-                        Array.iter dyndep.deps
-                          ~f:(schedule ~rev_dep:dep_rule))));
+    if rule.is_dyndep
+    then
+      Array.iter rule.targets
+        ~f:(fun target ->
+              List.iter (Dyndep_file_format.of_file target)
+                ~f:(fun (dyndep : Dyndep_file_format.dyndep) ->
+                      match T.find_opt t.rules dyndep.target with
+                      | None ->
+                          error_occurred :=
+                            (Some
+                               (Printf.sprintf
+                                  "dyndep references unknown target: %s"
+                                  dyndep.target))
+                      | Some dep_rule ->
+                          if dep_rule.scheduled
+                          then
+                            error_occurred :=
+                              (Some
+                                 (Printf.sprintf
+                                    "dyndep references target that is already scheduled/built: %s"
+                                    dyndep.target))
+                          else
+                            (dep_rule.dyndeps <-
+                               (Array.append dep_rule.dyndeps dyndep.deps);
+                             dep_rule.deps_pending <-
+                               (dep_rule.deps_pending +
+                                  (Array.length dyndep.deps));
+                             Array.iter dyndep.deps
+                               ~f:(schedule ~rev_dep:dep_rule))));
     Rev_deps.iter rev_deps rule ~f:dep_ready in
   let start_pending_builds () =
     while
@@ -14059,6 +14064,16 @@ module Rule =
              deps = (Array.of_list deps);
              commands = (Array.of_list commands)
            })
+    let rule_dyndep_of_commands ?(deps= []) t commands =
+      let (commands, deps', targets) = Cmd.concat' commands in
+      let deps = deps @ deps' in
+      add t
+        (Build_file_format.Rule_dyndep
+           {
+             targets = (Array.of_list targets);
+             deps = (Array.of_list deps);
+             commands = (Array.of_list commands)
+           })
     let rule t ~targets ~deps commands =
       add t
         (Build_file_format.Rule
@@ -14067,11 +14082,11 @@ module Rule =
              deps = (Array.of_list deps);
              commands = (Array.of_list commands)
            })
-    let rule_dyndep t ~target ~deps commands =
+    let rule_dyndep t ~targets ~deps commands =
       add t
         (Build_file_format.Rule_dyndep
            {
-             target;
+             targets = (Array.of_list targets);
              deps = (Array.of_list deps);
              commands = (Array.of_list commands)
            })
@@ -14400,46 +14415,58 @@ let compile_ppx_driver rules _cfg ~build_dir ~ppxes =
      let libs =
        List.map (fun (Mach_module.Ppx_extlib lib) -> Cmd.v (lib.v).name)
          ppxes in
-     Mach_build.Rule.rule rules ~targets:[ppx_dir] ~deps:[]
-       [(Printf.sprintf "mkdir -p %s") ppx_dir];
-     Mach_build.Rule.rule rules ~targets:[driver_ml] ~deps:[ppx_dir]
-       [(Printf.sprintf "echo 'let () = Ppxlib.Driver.standalone ()' > %s ")
-          driver_ml];
-     Mach_build.Rule.rule rules
-       ~targets:(List.flatten
-                   [[compile_args];
-                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
-       ~deps:(List.flatten
-                [[ppx_dir]; (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
-       [((Printf.sprintf
-            "ocamlfind query -predicates ppx_driver,native -format '-I=%%d' -recursive %s >> %s ")
-           (Mach_build.Cmd.concat libs).Mach_build.Cmd.command) compile_args];
-     Mach_build.Rule.rule rules
-       ~targets:(List.flatten
-                   [[lib_objs_args];
-                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
-       ~deps:(List.flatten
-                [[ppx_dir]; (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
-       [((Printf.sprintf
-            "ocamlfind query -a-format -recursive -predicates ppx_driver,native %s > %s ")
-           (Mach_build.Cmd.concat libs).Mach_build.Cmd.command) lib_objs_args];
-     Mach_build.Rule.rule rules
-       ~targets:(List.flatten
-                   [[cclib_args];
-                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
-       ~deps:(List.flatten
-                [[ppx_dir]; (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
-       [((Printf.sprintf
-            "ocamlfind query -l-format -recursive -predicates ppx_driver,native %s | tr ' ' '\n' > %s ")
-           (Mach_build.Cmd.concat libs).Mach_build.Cmd.command) cclib_args];
-     Mach_build.Rule.rule rules ~targets:[driver_cmx; driver_cmi]
-       ~deps:[compile_args; driver_ml]
-       [(((Printf.sprintf "ocamlopt -c -args %s -o %s %s") compile_args)
-           driver_cmx) driver_ml];
-     Mach_build.Rule.rule rules ~targets:[driver_exe]
-       ~deps:[lib_objs_args; cclib_args; driver_cmx]
-       [((((Printf.sprintf "ocamlopt -linkall -o %s -args %s -args %s %s")
-             driver_exe) lib_objs_args) cclib_args) driver_cmx];
+     Mach_build.Rule.rule_of_commands rules
+       [Mach_build.Cmd.v ~targets:[ppx_dir] ~deps:[]
+          ((Printf.sprintf "mkdir -p %s") ppx_dir)];
+     Mach_build.Rule.rule_of_commands rules
+       [Mach_build.Cmd.v ~targets:[driver_ml] ~deps:[ppx_dir]
+          ((Printf.sprintf
+              "echo 'let () = Ppxlib.Driver.standalone ()' > %s ") driver_ml)];
+     Mach_build.Rule.rule_of_commands rules
+       [Mach_build.Cmd.v
+          ~targets:(List.flatten
+                      [[compile_args];
+                      (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
+          ~deps:(List.flatten
+                   [[ppx_dir];
+                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
+          (((Printf.sprintf
+               "ocamlfind query -predicates ppx_driver,native -format '-I=%%d' -recursive %s >> %s ")
+              (Mach_build.Cmd.concat libs).Mach_build.Cmd.command)
+             compile_args)];
+     Mach_build.Rule.rule_of_commands rules
+       [Mach_build.Cmd.v
+          ~targets:(List.flatten
+                      [[lib_objs_args];
+                      (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
+          ~deps:(List.flatten
+                   [[ppx_dir];
+                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
+          (((Printf.sprintf
+               "ocamlfind query -a-format -recursive -predicates ppx_driver,native %s > %s ")
+              (Mach_build.Cmd.concat libs).Mach_build.Cmd.command)
+             lib_objs_args)];
+     Mach_build.Rule.rule_of_commands rules
+       [Mach_build.Cmd.v
+          ~targets:(List.flatten
+                      [[cclib_args];
+                      (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
+          ~deps:(List.flatten
+                   [[ppx_dir];
+                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
+          (((Printf.sprintf
+               "ocamlfind query -l-format -recursive -predicates ppx_driver,native %s | tr ' ' '\n' > %s ")
+              (Mach_build.Cmd.concat libs).Mach_build.Cmd.command) cclib_args)];
+     Mach_build.Rule.rule_of_commands rules
+       [Mach_build.Cmd.v ~targets:[driver_cmx; driver_cmi]
+          ~deps:[compile_args; driver_ml]
+          ((((Printf.sprintf "ocamlopt -c -args %s -o %s %s") compile_args)
+              driver_cmx) driver_ml)];
+     Mach_build.Rule.rule_of_commands rules
+       [Mach_build.Cmd.v ~targets:[driver_exe]
+          ~deps:[lib_objs_args; cclib_args; driver_cmx]
+          (((((Printf.sprintf "ocamlopt -linkall -o %s -args %s -args %s %s")
+                driver_exe) lib_objs_args) cclib_args) driver_cmx)];
      Some driver_exe)[@@ocaml.doc
                        " Compile a ppx driver executable in build_dir/_ppx. "]
 let preprocess_ocaml_module rules cfg ~build_dir ~path_ml ~path_mli ~kind
@@ -14457,47 +14484,51 @@ let preprocess_ocaml_module rules cfg ~build_dir ~path_ml ~path_mli ~kind
     | Some exe ->
         Mach_build.Cmd.v ~targets:[] ~deps:[exe]
           ((Printf.sprintf " --pp %s") exe) in
-  Mach_build.Rule.rule rules
-    ~targets:(List.flatten
-                [[ml];
-                mach.Mach_build.Cmd.targets;
-                pp_mlx.Mach_build.Cmd.targets;
-                pp_ppx.Mach_build.Cmd.targets])
-    ~deps:(List.flatten
-             [[path_ml];
-             mach.Mach_build.Cmd.deps;
-             pp_mlx.Mach_build.Cmd.deps;
-             pp_ppx.Mach_build.Cmd.deps])
-    [(((((Printf.sprintf "%s pp %s %s -o %s %s") mach.Mach_build.Cmd.command)
-          pp_mlx.Mach_build.Cmd.command) pp_ppx.Mach_build.Cmd.command) ml)
-       path_ml];
+  Mach_build.Rule.rule_of_commands rules
+    [Mach_build.Cmd.v
+       ~targets:(List.flatten
+                   [[ml];
+                   mach.Mach_build.Cmd.targets;
+                   pp_mlx.Mach_build.Cmd.targets;
+                   pp_ppx.Mach_build.Cmd.targets])
+       ~deps:(List.flatten
+                [[path_ml];
+                mach.Mach_build.Cmd.deps;
+                pp_mlx.Mach_build.Cmd.deps;
+                pp_ppx.Mach_build.Cmd.deps])
+       ((((((Printf.sprintf "%s pp %s %s -o %s %s")
+              mach.Mach_build.Cmd.command) pp_mlx.Mach_build.Cmd.command)
+            pp_ppx.Mach_build.Cmd.command) ml) path_ml)];
   (let mli =
      Option.map
        (fun path_mli ->
           let mli = let open Filename in (build_dir / modname) ^ ".mli" in
-          Mach_build.Rule.rule rules
-            ~targets:(List.flatten
-                        [[mli];
-                        mach.Mach_build.Cmd.targets;
-                        pp_ppx.Mach_build.Cmd.targets])
-            ~deps:(List.flatten
-                     [[path_mli];
-                     mach.Mach_build.Cmd.deps;
-                     pp_ppx.Mach_build.Cmd.deps])
-            [((((Printf.sprintf "%s pp %s -o %s %s")
-                  mach.Mach_build.Cmd.command) pp_ppx.Mach_build.Cmd.command)
-                mli) path_mli];
+          Mach_build.Rule.rule_of_commands rules
+            [Mach_build.Cmd.v
+               ~targets:(List.flatten
+                           [[mli];
+                           mach.Mach_build.Cmd.targets;
+                           pp_ppx.Mach_build.Cmd.targets])
+               ~deps:(List.flatten
+                        [[path_mli];
+                        mach.Mach_build.Cmd.deps;
+                        pp_ppx.Mach_build.Cmd.deps])
+               (((((Printf.sprintf "%s pp %s -o %s %s")
+                     mach.Mach_build.Cmd.command)
+                    pp_ppx.Mach_build.Cmd.command) mli) path_mli)];
           mli) path_mli in
    (ml, mli))
 let ocamldep rules cfg ~build_dir ~path_ml ~includes_args =
   let mach = Cmd.v cfg.Mach_config.mach_executable_path in
   let path_dep =
     let open Filename in (build_dir / (modname_of path_ml)) ^ ".dep" in
-  Mach_build.Rule.rule_dyndep rules ~target:path_dep
-    ~deps:(List.flatten
-             [[path_ml]; [includes_args]; mach.Mach_build.Cmd.deps])
-    [((((Printf.sprintf "%s dep %s -o %s --args %s")
-          mach.Mach_build.Cmd.command) path_ml) path_dep) includes_args];
+  Mach_build.Rule.rule_dyndep_of_commands rules
+    [Mach_build.Cmd.v
+       ~targets:(List.flatten [[path_dep]; mach.Mach_build.Cmd.targets])
+       ~deps:(List.flatten
+                [[path_ml]; [includes_args]; mach.Mach_build.Cmd.deps])
+       (((((Printf.sprintf "%s dep %s -o %s --args %s")
+             mach.Mach_build.Cmd.command) path_ml) path_dep) includes_args)];
   path_dep
 let compile_ocaml_args ?(include_self= false) rules cfg ~requires ~build_dir
   ~deps =
@@ -14596,62 +14627,73 @@ let compile_ocaml_module ?dyndep rules cfg ~build_dir ~path_ml ~path_mli
   let dyndep = Option.to_list dyndep in
   (match path_mli with
    | Some _ ->
-       (Mach_build.Rule.rule rules ~targets:[cmi; cmti]
-          ~deps:(List.flatten [[includes_args]; [mli]; deps])
-          [(((Printf.sprintf "ocamlc -bin-annot -c -opaque -args %s -o %s %s")
-               includes_args) cmi) mli];
-        Mach_build.Rule.rule rules ~targets:[cmx; cmt; o]
-          ~deps:(List.flatten [[includes_args]; [cmi]; [ml]; dyndep])
-          [((((Printf.sprintf
-                 "ocamlopt -bin-annot -c -args %s -cmi-file %s -o %s -impl %s")
-                includes_args) cmi) cmx) ml])
+       (Mach_build.Rule.rule_of_commands rules
+          [Mach_build.Cmd.v ~targets:[cmi; cmti]
+             ~deps:(List.flatten [[includes_args]; [mli]; deps])
+             ((((Printf.sprintf
+                   "ocamlc -bin-annot -c -opaque -args %s -o %s %s")
+                  includes_args) cmi) mli)];
+        Mach_build.Rule.rule_of_commands rules
+          [Mach_build.Cmd.v ~targets:[cmx; cmt; o]
+             ~deps:(List.flatten [[includes_args]; [cmi]; [ml]; dyndep])
+             (((((Printf.sprintf
+                    "ocamlopt -bin-annot -c -args %s -cmi-file %s -o %s -impl %s")
+                   includes_args) cmi) cmx) ml)])
    | None ->
-       Mach_build.Rule.rule rules ~targets:[cmx; cmi; cmt; o]
-         ~deps:(List.flatten [[includes_args]; [ml]; deps; dyndep])
-         [(((Printf.sprintf "ocamlopt -bin-annot -c -args %s -o %s -impl %s")
-              includes_args) cmx) ml]);
+       Mach_build.Rule.rule_of_commands rules
+         [Mach_build.Cmd.v ~targets:[cmx; cmi; cmt; o]
+            ~deps:(List.flatten [[includes_args]; [ml]; deps; dyndep])
+            ((((Printf.sprintf
+                  "ocamlopt -bin-annot -c -args %s -o %s -impl %s")
+                 includes_args) cmx) ml)]);
   (cmi, cmx)
 let link_ocaml_executable rules _cfg ~build_dir ~objs:(objs : string list)
   ~extlibs:(extlibs : string list) ~exe_path =
   let objs_args = let open Filename in build_dir / "objs.args" in
-  Mach_build.Rule.rule rules ~targets:[objs_args] ~deps:(List.flatten [objs])
-    [((Printf.sprintf "printf '%%s\n' %s > %s") (String.concat " " objs))
-       objs_args];
+  Mach_build.Rule.rule_of_commands rules
+    [Mach_build.Cmd.v ~targets:[objs_args] ~deps:(List.flatten [objs])
+       (((Printf.sprintf "printf '%%s\n' %s > %s") (String.concat " " objs))
+          objs_args)];
   (match extlibs with
    | [] ->
-       Mach_build.Rule.rule rules ~targets:[exe_path] ~deps:[objs_args]
-         [((Printf.sprintf "ocamlopt -o %s -args %s") exe_path) objs_args]
+       Mach_build.Rule.rule_of_commands rules
+         [Mach_build.Cmd.v ~targets:[exe_path] ~deps:[objs_args]
+            (((Printf.sprintf "ocamlopt -o %s -args %s") exe_path) objs_args)]
    | libs ->
        let lib_objs_args = let open Filename in build_dir / "lib_objs.args" in
        let libs = List.map Cmd.v libs in
-       (Mach_build.Rule.rule rules
-          ~targets:(List.flatten
-                      [[lib_objs_args];
-                      (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
-          ~deps:(List.flatten
-                   [(Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
-          [((Printf.sprintf
-               "ocamlfind query -a-format -recursive -predicates native %s > %s")
-              (Mach_build.Cmd.concat libs).Mach_build.Cmd.command)
-             lib_objs_args];
-        Mach_build.Rule.rule rules ~targets:[exe_path]
-          ~deps:[lib_objs_args; objs_args]
-          [(((Printf.sprintf "ocamlopt -o %s -args %s -args %s") exe_path)
-              lib_objs_args) objs_args]))
+       (Mach_build.Rule.rule_of_commands rules
+          [Mach_build.Cmd.v
+             ~targets:(List.flatten
+                         [[lib_objs_args];
+                         (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
+             ~deps:(List.flatten
+                      [(Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
+             (((Printf.sprintf
+                  "ocamlfind query -a-format -recursive -predicates native %s > %s")
+                 (Mach_build.Cmd.concat libs).Mach_build.Cmd.command)
+                lib_objs_args)];
+        Mach_build.Rule.rule_of_commands rules
+          [Mach_build.Cmd.v ~targets:[exe_path]
+             ~deps:[lib_objs_args; objs_args]
+             ((((Printf.sprintf "ocamlopt -o %s -args %s -args %s") exe_path)
+                 lib_objs_args) objs_args)]))
 let link_ocaml_library rules cfg ~build_dir ~cmxs:(cmxs : string list) ~deps
   ~lib_name =
   let mach = Cmd.v cfg.Mach_config.mach_executable_path in
   let link_deps = let open Filename in (build_dir / lib_name) ^ ".link-deps" in
   let cmxa = let open Filename in (build_dir / lib_name) ^ ".cmxa" in
   let cmxa_a = let open Filename in (build_dir / lib_name) ^ ".a" in
-  Mach_build.Rule.rule rules
-    ~targets:(List.flatten [[link_deps]; mach.Mach_build.Cmd.targets])
-    ~deps:(List.flatten [deps; mach.Mach_build.Cmd.deps])
-    [(((Printf.sprintf "%s link-deps %s > %s") mach.Mach_build.Cmd.command)
-        (String.concat " " deps)) link_deps];
-  Mach_build.Rule.rule rules ~targets:[cmxa; cmxa_a]
-    ~deps:(List.flatten [[link_deps]; cmxs])
-    [((Printf.sprintf "ocamlopt -a -o %s -args %s") cmxa) link_deps]
+  Mach_build.Rule.rule_of_commands rules
+    [Mach_build.Cmd.v
+       ~targets:(List.flatten [[link_deps]; mach.Mach_build.Cmd.targets])
+       ~deps:(List.flatten [deps; mach.Mach_build.Cmd.deps])
+       ((((Printf.sprintf "%s link-deps %s > %s") mach.Mach_build.Cmd.command)
+           (String.concat " " deps)) link_deps)];
+  Mach_build.Rule.rule_of_commands rules
+    [Mach_build.Cmd.v ~targets:[cmxa; cmxa_a]
+       ~deps:(List.flatten [[link_deps]; cmxs])
+       (((Printf.sprintf "ocamlopt -a -o %s -args %s") cmxa) link_deps)]
 end
 module Mach_library : sig
 [@@@ocaml.ppx.context

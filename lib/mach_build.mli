@@ -59,6 +59,7 @@ module Rule : sig
     unit
 
   val rule_of_commands : ?deps:string list -> t -> Cmd.t list -> unit
+  val rule_dyndep_of_commands : ?deps:string list -> t -> Cmd.t list -> unit
 end
 
 type t

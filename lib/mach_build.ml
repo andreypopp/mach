@@ -358,6 +358,15 @@ module Rule = struct
       commands = Array.of_list commands;
     })
 
+  let rule_dyndep_of_commands ?(deps=[]) t commands =
+    let commands, deps', targets = Cmd.concat' commands in
+    let deps = deps @ deps' in
+    add t (Build_file_format.Rule_dyndep {
+      targets = Array.of_list targets;
+      deps = Array.of_list deps;
+      commands = Array.of_list commands;
+    })
+
   let rule t ~targets ~deps commands =
     add t (Build_file_format.Rule {
       targets = Array.of_list targets;
