@@ -6,27 +6,6 @@ let modname_of path = Filename.(basename path |> remove_extension)
 
 let cmdf fmt = ksprintf Fun.id fmt
 
-(** Compile a ppx driver executable in build_dir/_ppx. *)
-let compile_ppx_driver rules _cfg ~build_dir ~ppxes =
-  if ppxes = [] then None else
-  let ppx_dir             = Filename.(build_dir / "_ppx") in
-  let driver_ml           = Filename.(ppx_dir / "driver.ml") in
-  let driver_exe          = Filename.(ppx_dir / "driver.exe") in
-  let driver_cmi          = Filename.(ppx_dir / "driver.cmi") in
-  let driver_cmx          = Filename.(ppx_dir / "driver.cmx") in
-  let compile_args        = Filename.(ppx_dir / "includes.args") in
-  let lib_objs_args       = Filename.(ppx_dir / "lib_objs.args") in
-  let cclib_args          = Filename.(ppx_dir / "cclib.args") in
-  let libs = List.map (fun (Mach_module.Ppx_extlib lib) -> Cmd.v lib.v.name) ppxes in
-  [%rule "mkdir -p >{ppx_dir}"];
-  [%rule "echo 'let () = Ppxlib.Driver.standalone ()' > >{driver_ml} <{|ppx_dir}"];
-  [%rule "ocamlfind query -predicates ppx_driver,native -format '-I=%d' -recursive %{libs...} >> >{compile_args} <{|ppx_dir}"];
-  [%rule "ocamlfind query -a-format -recursive -predicates ppx_driver,native %{libs...} > >{lib_objs_args} <{|ppx_dir}"];
-  [%rule "ocamlfind query -l-format -recursive -predicates ppx_driver,native %{libs...} | tr ' ' '\n' > >{cclib_args} <{|ppx_dir}"];
-  [%rule "ocamlopt -c -args <{compile_args} -o >{driver_cmx|driver_cmi} <{driver_ml}"];
-  [%rule "ocamlopt -linkall -o >{driver_exe} -args <{lib_objs_args} -args <{cclib_args} <{driver_cmx}"];
-  Some driver_exe
-
 let preprocess_ocaml_module rules cfg ~build_dir ~path_ml ~path_mli ~kind ?ppx_driver () =
   let mach = Cmd.v cfg.Mach_config.mach_executable_path in
   let modname = modname_of path_ml in
@@ -134,3 +113,24 @@ let link_ocaml_library rules cfg ~build_dir ~(cmxs : string list) ~deps ~lib_nam
   let cmxa_a    = Filename.(build_dir / lib_name ^ ".a") in
   [%rule "%{mach} link-deps <{deps...} > >{link_deps}"];
   [%rule "ocamlopt -a -o >{cmxa|cmxa_a} -args <{link_deps|cmxs...}"]
+
+(** Compile a ppx driver executable in build_dir/_ppx. *)
+let compile_ppx_driver rules _cfg ~build_dir ~ppxes =
+  if ppxes = [] then None else
+  let ppx_dir             = Filename.(build_dir / "_ppx") in
+  let driver_ml           = Filename.(ppx_dir / "driver.ml") in
+  let driver_exe          = Filename.(ppx_dir / "driver.exe") in
+  let driver_cmi          = Filename.(ppx_dir / "driver.cmi") in
+  let driver_cmx          = Filename.(ppx_dir / "driver.cmx") in
+  let includes_args       = Filename.(ppx_dir / "includes.args") in
+  let lib_objs_args       = Filename.(ppx_dir / "lib_objs.args") in
+  let cclib_args          = Filename.(ppx_dir / "cclib.args") in
+  let libs = List.map (fun (Mach_module.Ppx_extlib lib) -> Cmd.v lib.v.name) ppxes in
+  [%rule "mkdir -p >{ppx_dir}"];
+  [%rule "echo 'let () = Ppxlib.Driver.standalone ()' > >{driver_ml} <{|ppx_dir}"];
+  [%rule "ocamlfind query -predicates ppx_driver,native -format '-I=%d' -recursive %{libs...} >> >{includes_args} <{|ppx_dir}"];
+  [%rule "ocamlfind query -a-format -recursive -predicates ppx_driver,native %{libs...} > >{lib_objs_args} <{|ppx_dir}"];
+  [%rule "ocamlfind query -l-format -recursive -predicates ppx_driver,native %{libs...} | tr ' ' '\n' > >{cclib_args} <{|ppx_dir}"];
+  [%rule "ocamlopt -c -args <{includes_args} -o >{driver_cmx|driver_cmi} <{driver_ml}"];
+  [%rule "ocamlopt -linkall -o >{driver_exe} -args <{lib_objs_args} -args <{cclib_args} <{driver_cmx}"];
+  Some driver_exe

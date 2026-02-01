@@ -14400,75 +14400,6 @@ open! Mach_build
 let modname_of path =
   let open Filename in (basename path) |> remove_extension
 let cmdf fmt = ksprintf Fun.id fmt
-let compile_ppx_driver rules _cfg ~build_dir ~ppxes =
-  if ppxes = []
-  then None
-  else
-    (let ppx_dir = let open Filename in build_dir / "_ppx" in
-     let driver_ml = let open Filename in ppx_dir / "driver.ml" in
-     let driver_exe = let open Filename in ppx_dir / "driver.exe" in
-     let driver_cmi = let open Filename in ppx_dir / "driver.cmi" in
-     let driver_cmx = let open Filename in ppx_dir / "driver.cmx" in
-     let compile_args = let open Filename in ppx_dir / "includes.args" in
-     let lib_objs_args = let open Filename in ppx_dir / "lib_objs.args" in
-     let cclib_args = let open Filename in ppx_dir / "cclib.args" in
-     let libs =
-       List.map (fun (Mach_module.Ppx_extlib lib) -> Cmd.v (lib.v).name)
-         ppxes in
-     Mach_build.Rule.rule_of_commands rules
-       [Mach_build.Cmd.v ~targets:[ppx_dir] ~deps:[]
-          ((Printf.sprintf "mkdir -p %s") ppx_dir)];
-     Mach_build.Rule.rule_of_commands rules
-       [Mach_build.Cmd.v ~targets:[driver_ml] ~deps:[ppx_dir]
-          ((Printf.sprintf
-              "echo 'let () = Ppxlib.Driver.standalone ()' > %s ") driver_ml)];
-     Mach_build.Rule.rule_of_commands rules
-       [Mach_build.Cmd.v
-          ~targets:(List.flatten
-                      [[compile_args];
-                      (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
-          ~deps:(List.flatten
-                   [[ppx_dir];
-                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
-          (((Printf.sprintf
-               "ocamlfind query -predicates ppx_driver,native -format '-I=%%d' -recursive %s >> %s ")
-              (Mach_build.Cmd.concat libs).Mach_build.Cmd.command)
-             compile_args)];
-     Mach_build.Rule.rule_of_commands rules
-       [Mach_build.Cmd.v
-          ~targets:(List.flatten
-                      [[lib_objs_args];
-                      (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
-          ~deps:(List.flatten
-                   [[ppx_dir];
-                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
-          (((Printf.sprintf
-               "ocamlfind query -a-format -recursive -predicates ppx_driver,native %s > %s ")
-              (Mach_build.Cmd.concat libs).Mach_build.Cmd.command)
-             lib_objs_args)];
-     Mach_build.Rule.rule_of_commands rules
-       [Mach_build.Cmd.v
-          ~targets:(List.flatten
-                      [[cclib_args];
-                      (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
-          ~deps:(List.flatten
-                   [[ppx_dir];
-                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
-          (((Printf.sprintf
-               "ocamlfind query -l-format -recursive -predicates ppx_driver,native %s | tr ' ' '\n' > %s ")
-              (Mach_build.Cmd.concat libs).Mach_build.Cmd.command) cclib_args)];
-     Mach_build.Rule.rule_of_commands rules
-       [Mach_build.Cmd.v ~targets:[driver_cmx; driver_cmi]
-          ~deps:[compile_args; driver_ml]
-          ((((Printf.sprintf "ocamlopt -c -args %s -o %s %s") compile_args)
-              driver_cmx) driver_ml)];
-     Mach_build.Rule.rule_of_commands rules
-       [Mach_build.Cmd.v ~targets:[driver_exe]
-          ~deps:[lib_objs_args; cclib_args; driver_cmx]
-          (((((Printf.sprintf "ocamlopt -linkall -o %s -args %s -args %s %s")
-                driver_exe) lib_objs_args) cclib_args) driver_cmx)];
-     Some driver_exe)[@@ocaml.doc
-                       " Compile a ppx driver executable in build_dir/_ppx. "]
 let preprocess_ocaml_module rules cfg ~build_dir ~path_ml ~path_mli ~kind
   ?ppx_driver () =
   let mach = Cmd.v cfg.Mach_config.mach_executable_path in
@@ -14706,6 +14637,75 @@ let link_ocaml_library rules cfg ~build_dir ~cmxs:(cmxs : string list) ~deps
     [Mach_build.Cmd.v ~targets:[cmxa; cmxa_a]
        ~deps:(List.flatten [[link_deps]; cmxs])
        (((Printf.sprintf "ocamlopt -a -o %s -args %s") cmxa) link_deps)]
+let compile_ppx_driver rules _cfg ~build_dir ~ppxes =
+  if ppxes = []
+  then None
+  else
+    (let ppx_dir = let open Filename in build_dir / "_ppx" in
+     let driver_ml = let open Filename in ppx_dir / "driver.ml" in
+     let driver_exe = let open Filename in ppx_dir / "driver.exe" in
+     let driver_cmi = let open Filename in ppx_dir / "driver.cmi" in
+     let driver_cmx = let open Filename in ppx_dir / "driver.cmx" in
+     let includes_args = let open Filename in ppx_dir / "includes.args" in
+     let lib_objs_args = let open Filename in ppx_dir / "lib_objs.args" in
+     let cclib_args = let open Filename in ppx_dir / "cclib.args" in
+     let libs =
+       List.map (fun (Mach_module.Ppx_extlib lib) -> Cmd.v (lib.v).name)
+         ppxes in
+     Mach_build.Rule.rule_of_commands rules
+       [Mach_build.Cmd.v ~targets:[ppx_dir] ~deps:[]
+          ((Printf.sprintf "mkdir -p %s") ppx_dir)];
+     Mach_build.Rule.rule_of_commands rules
+       [Mach_build.Cmd.v ~targets:[driver_ml] ~deps:[ppx_dir]
+          ((Printf.sprintf
+              "echo 'let () = Ppxlib.Driver.standalone ()' > %s ") driver_ml)];
+     Mach_build.Rule.rule_of_commands rules
+       [Mach_build.Cmd.v
+          ~targets:(List.flatten
+                      [[includes_args];
+                      (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
+          ~deps:(List.flatten
+                   [[ppx_dir];
+                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
+          (((Printf.sprintf
+               "ocamlfind query -predicates ppx_driver,native -format '-I=%%d' -recursive %s >> %s ")
+              (Mach_build.Cmd.concat libs).Mach_build.Cmd.command)
+             includes_args)];
+     Mach_build.Rule.rule_of_commands rules
+       [Mach_build.Cmd.v
+          ~targets:(List.flatten
+                      [[lib_objs_args];
+                      (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
+          ~deps:(List.flatten
+                   [[ppx_dir];
+                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
+          (((Printf.sprintf
+               "ocamlfind query -a-format -recursive -predicates ppx_driver,native %s > %s ")
+              (Mach_build.Cmd.concat libs).Mach_build.Cmd.command)
+             lib_objs_args)];
+     Mach_build.Rule.rule_of_commands rules
+       [Mach_build.Cmd.v
+          ~targets:(List.flatten
+                      [[cclib_args];
+                      (Mach_build.Cmd.concat libs).Mach_build.Cmd.targets])
+          ~deps:(List.flatten
+                   [[ppx_dir];
+                   (Mach_build.Cmd.concat libs).Mach_build.Cmd.deps])
+          (((Printf.sprintf
+               "ocamlfind query -l-format -recursive -predicates ppx_driver,native %s | tr ' ' '\n' > %s ")
+              (Mach_build.Cmd.concat libs).Mach_build.Cmd.command) cclib_args)];
+     Mach_build.Rule.rule_of_commands rules
+       [Mach_build.Cmd.v ~targets:[driver_cmx; driver_cmi]
+          ~deps:[includes_args; driver_ml]
+          ((((Printf.sprintf "ocamlopt -c -args %s -o %s %s") includes_args)
+              driver_cmx) driver_ml)];
+     Mach_build.Rule.rule_of_commands rules
+       [Mach_build.Cmd.v ~targets:[driver_exe]
+          ~deps:[lib_objs_args; cclib_args; driver_cmx]
+          (((((Printf.sprintf "ocamlopt -linkall -o %s -args %s -args %s %s")
+                driver_exe) lib_objs_args) cclib_args) driver_cmx)];
+     Some driver_exe)[@@ocaml.doc
+                       " Compile a ppx driver executable in build_dir/_ppx. "]
 end
 module Mach_library : sig
 [@@@ocaml.ppx.context
