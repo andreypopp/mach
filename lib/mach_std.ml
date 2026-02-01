@@ -79,7 +79,9 @@ let write_file path content =
 
 type file_stat = { mtime : float; size : int } [@@deriving sexp]
 
-let equal_file_stat x y = Float.equal x.mtime y.mtime && Int.equal x.size y.size
+(* Compare mtimes with small epsilon to handle float round-trip precision loss *)
+let equal_file_stat x y =
+  Float.abs (x.mtime -. y.mtime) < 0.0001 && Int.equal x.size y.size
 
 let file_stat path =
   try
