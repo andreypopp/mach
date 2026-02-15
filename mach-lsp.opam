@@ -12,8 +12,9 @@ depends: [
   "dune" {>= "3.20"}
   "ocaml"
   "merlin-lib"
-  "mach"
   "csexp"
+  "parsexp"
+  "ppx_sexp_conv"
   "odoc" {with-doc}
 ]
 build: [
