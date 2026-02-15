@@ -131,6 +131,7 @@ let start_lsp () =
   let mach_lsp_path = Unix.realpath Sys.executable_name in
   (* Set OCAML_MERLIN_BIN and exec ocamllsp *)
   Unix.putenv "OCAMLLSP_PROJECT_BUILD_SYSTEM" mach_lsp_path;
+  Unix.putenv "OCAMLLSP_PROJECT_ROOT" (Sys.getcwd ());
   Unix.execv ocamllsp_path [| ocamllsp_path |]
 
 (* --- CLI --- *)
