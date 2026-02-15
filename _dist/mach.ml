@@ -13129,7 +13129,7 @@ include
     let _ = sexp_of_file_stat
   end[@@ocaml.doc "@inline"][@@merlin.hide ]
 let equal_file_stat x y =
-  (Float.equal x.mtime y.mtime) && (Int.equal x.size y.size)
+  ((Float.abs (x.mtime -. y.mtime)) < 0.0001) && (Int.equal x.size y.size)
 let file_stat path =
   try
     let st = Unix.stat path in
